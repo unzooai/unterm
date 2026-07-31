@@ -263,8 +263,8 @@ fn extra_path_dirs() -> Vec<std::path::PathBuf> {
             let local = PathBuf::from(&local);
             dirs.push(local.join("pnpm")); // pnpm global
             dirs.push(local.join("Microsoft").join("WinGet").join("Links")); // winget shims
-            // CPython installs (PythonXY\python.exe + PythonXY\Scripts\pip.exe);
-            // glob the version dirs so pip/pip-installed CLIs are found.
+                                                                             // CPython installs (PythonXY\python.exe + PythonXY\Scripts\pip.exe);
+                                                                             // glob the version dirs so pip/pip-installed CLIs are found.
             if let Ok(entries) = std::fs::read_dir(local.join("Programs").join("Python")) {
                 for e in entries.flatten() {
                     dirs.push(e.path()); // python.exe
@@ -287,10 +287,7 @@ fn extra_path_dirs() -> Vec<std::path::PathBuf> {
             dirs.push(home.join(".cargo").join("bin")); // cargo (also added above, harmless dup)
         }
         // node / npm themselves, so `npm install -g ...` can even run.
-        for p in [
-            r"C:\Program Files\nodejs",
-            r"C:\Program Files (x86)\nodejs",
-        ] {
+        for p in [r"C:\Program Files\nodejs", r"C:\Program Files (x86)\nodejs"] {
             dirs.push(PathBuf::from(p));
         }
     }
@@ -385,7 +382,10 @@ fn ensure_pipx_if_needed(platform: &PlatformInstall) {
     if !needs_pipx || which("pipx").is_some() {
         return;
     }
-    let Some(py) = which("python").or_else(|| which("python3")).or_else(|| which("py")) else {
+    let Some(py) = which("python")
+        .or_else(|| which("python3"))
+        .or_else(|| which("py"))
+    else {
         return; // no Python either — let the pipx step report it
     };
     let mut c = spawn_command(&py);
@@ -653,7 +653,9 @@ mod path_fallback_tests {
         #[cfg(unix)]
         assert!(
             dirs.iter().any(|dir| dir.ends_with("homebrew/bin"))
-                || dirs.iter().any(|dir| dir == std::path::Path::new("/usr/local/bin")),
+                || dirs
+                    .iter()
+                    .any(|dir| dir == std::path::Path::new("/usr/local/bin")),
             "enriched_path missing brew dirs: {dirs:?}"
         );
 

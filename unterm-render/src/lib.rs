@@ -13,7 +13,7 @@ pub mod text;
 
 pub mod backend;
 pub mod box_glyphs;
-pub mod strokes;
-pub mod decorations;
 pub mod consumer;
+pub mod decorations;
 pub mod rounded;
+pub mod strokes;

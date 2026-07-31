@@ -399,18 +399,14 @@ When a file is malformed, Unterm logs at `debug` and uses the default — it doe
 
 For each schema above, the load-bearing source files in the repo are:
 
-- `wezterm-gui/src/server_info.rs` — `InstanceInfo` struct and the writers for `server.json`, `active.json`, `instances/`, `auth_token`.
-- `wezterm-gui/src/update_check.rs` — `update_check.json`.
-- `wezterm-gui/src/session_state.rs` — `last_session.json`.
-- `wezterm-gui/src/main.rs` (around line 561) — `first_run.json`.
-- `wezterm-gui/src/overlay/settings_menu.rs` — `onboarded.json`.
-- `wezterm-gui/src/termwindow/mouseevent.rs` — `projects.json`.
-- `wezterm-gui/src/mcp/handler.rs` — `ProxySettings` struct, `load_proxy_settings()`.
-- `wezterm-gui/src/spawn.rs` — `read_unterm_proxy_env()` (the spawn-side reader for `proxy.json`).
-- `wezterm-gui/src/overlay/theme_selector.rs` and `web_settings/server.rs` — both write `theme.json`.
-- `wezterm-gui/src/i18n/mod.rs` — `lang.json`.
-- `config/src/config.rs` — `default_scrollback_lines()` reads `scrollback.json`, `read_term_program_override()` reads `compat.json`.
-- `wezterm-gui/src/web_settings/server.rs` — writes `scrollback.json` and `compat.json` from the web UI.
-- `wezterm-gui/src/recording/recorder.rs` — `RecordingConfig` / `RecordingFlags` / `RedactionFlags` structs.
+- `unterm-services/src/server_info.rs` — `InstanceInfo` plus the writers for `server.json`, `active.json`, `instances/`, and the auth token.
+- `unterm-settings/src/update_check.rs` — `update_check.json`.
+- `unterm-services/src/settings.rs` — shared theme, proxy, profile, and compatibility settings.
+- `unterm-mcp/src/handler.rs` — MCP proxy, policy, workspace, profile, and recording operations.
+- `unterm-services/src/launch_env.rs` — resolves profile and proxy environment immediately before a pane is spawned.
+- `unterm-app/src/window.rs` and `unterm-settings/src/server.rs` — native and Web settings surfaces; live theme changes use `unterm-services/src/theme_state.rs`.
+- `unterm-services/src/i18n/mod.rs` — locale detection, persistence, and English fallback.
+- `unterm-services/src/scrollback_options.rs` — scrollback settings.
+- `unterm-services/src/recording/` — recording lifecycle, archive, redaction, rendering, and indexing.
 
 Issues, schema additions, or doc fixes welcome at [github.com/zhitongblog/unterm](https://github.com/zhitongblog/unterm).

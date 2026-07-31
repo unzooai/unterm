@@ -300,7 +300,11 @@ mod drawn_cell_tests {
     use unterm_engine::{CellStyle, StyledCell};
 
     fn cell(ch: char) -> StyledCell {
-        StyledCell { ch, width: 1, style: CellStyle::default() }
+        StyledCell {
+            ch,
+            width: 1,
+            style: CellStyle::default(),
+        }
     }
 
     fn line(text: &str) -> Vec<StyledCell> {
@@ -346,8 +350,7 @@ mod drawn_cell_tests {
     /// leave to the font must still be shaped, or it turns into a blank cell.
     #[test]
     fn an_undrawn_neighbour_is_still_shaped() {
-        let undrawn = ('\u{2500}'..='\u{259F}')
-            .find(|ch| !unterm_render::box_glyphs::draws(*ch));
+        let undrawn = ('\u{2500}'..='\u{259F}').find(|ch| !unterm_render::box_glyphs::draws(*ch));
         let Some(undrawn) = undrawn else {
             return; // We draw the whole block; nothing to check.
         };

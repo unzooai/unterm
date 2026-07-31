@@ -245,6 +245,50 @@ impl Layout {
         Self::set_ratio_node(first, pane_id, ratio) || Self::set_ratio_node(second, pane_id, ratio)
     }
 
+    /// Move the nearest divider of `axis` that contains `pane_id`.
+    ///
+    /// `delta` is in the divider's physical direction: positive moves a
+    /// horizontal divider right or a vertical divider down. Searching the
+    /// pane's child first makes nested panes resize their nearest matching
+    /// split rather than unexpectedly moving the outermost boundary.
+    pub fn adjust_split_ratio(&mut self, pane_id: usize, axis: SplitAxis, delta: f64) -> bool {
+        self.root
+            .as_mut()
+            .is_some_and(|root| Self::adjust_ratio_node(root, pane_id, axis, delta))
+    }
+
+    fn adjust_ratio_node(
+        node: &mut Node,
+        pane_id: usize,
+        wanted_axis: SplitAxis,
+        delta: f64,
+    ) -> bool {
+        let Node::Split {
+            axis,
+            first_ratio,
+            first,
+            second,
+        } = node
+        else {
+            return false;
+        };
+        let in_first = first.contains(pane_id);
+        let in_second = second.contains(pane_id);
+        if !in_first && !in_second {
+            return false;
+        }
+
+        let child = if in_first { first } else { second };
+        if Self::adjust_ratio_node(child, pane_id, wanted_axis, delta) {
+            return true;
+        }
+        if *axis != wanted_axis {
+            return false;
+        }
+        *first_ratio = clamp_ratio(*first_ratio + delta);
+        true
+    }
+
     /// Lay the tree out in a `cols` x `rows` grid.
     ///
     /// Every pane gets at least one cell. When there is not enough room for
@@ -426,7 +470,9 @@ fn try_cut(
         SplitAxis::Horizontal => (first_bounds.width, bounds.width),
         SplitAxis::Vertical => (first_bounds.height, bounds.height),
     };
-    let second_size = total.saturating_sub(first_size).saturating_sub(DIVIDER_CELLS);
+    let second_size = total
+        .saturating_sub(first_size)
+        .saturating_sub(DIVIDER_CELLS);
     // Aim at the middle of the band that truncates back to `second_size`,
     // not its edge. `divide` keeps `trunc(total * (1 - ratio))`, so a ratio
     // derived from the boundary lands a few ULPs either side of it and the
@@ -622,11 +668,7 @@ mod tests {
                 "{:?} overflows 80 columns",
                 rect
             );
-            assert!(
-                rect.top + rect.height <= 24,
-                "{:?} overflows 24 rows",
-                rect
-            );
+            assert!(rect.top + rect.height <= 24, "{:?} overflows 24 rows", rect);
         }
     }
 
@@ -802,6 +844,29 @@ mod tests {
         assert!(!single.set_split_ratio(7, 0.25));
     }
 
+    #[test]
+    fn directional_resize_uses_the_nearest_split_on_that_axis() {
+        let mut layout = Layout::new(1);
+        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
+        layout.split(1, 3, SplitAxis::Vertical, 0.5).unwrap();
+
+        let before = layout.position_of(1, 100, 40).unwrap();
+        assert!(layout.adjust_split_ratio(1, SplitAxis::Vertical, 0.1));
+        let after_vertical = layout.position_of(1, 100, 40).unwrap();
+        assert!(
+            after_vertical.height > before.height,
+            "the nearest vertical divider should move down"
+        );
+        assert_eq!(
+            after_vertical.width, before.width,
+            "a vertical resize must not move the horizontal divider"
+        );
+
+        assert!(layout.adjust_split_ratio(1, SplitAxis::Horizontal, -0.1));
+        let after_horizontal = layout.position_of(1, 100, 40).unwrap();
+        assert!(after_horizontal.width < after_vertical.width);
+    }
+
     /// Rebuilding from rectangles must reproduce them exactly, or adopting
     /// another tree's layout would shift panes on screen.
     fn assert_round_trips(layout: &Layout, cols: usize, rows: usize) {
@@ -858,15 +923,30 @@ mod tests {
         let l_shape = vec![
             PositionedPane {
                 pane_id: 1,
-                rect: PaneRect { left: 0, top: 0, width: 40, height: 10 },
+                rect: PaneRect {
+                    left: 0,
+                    top: 0,
+                    width: 40,
+                    height: 10,
+                },
             },
             PositionedPane {
                 pane_id: 2,
-                rect: PaneRect { left: 41, top: 0, width: 39, height: 24 },
+                rect: PaneRect {
+                    left: 41,
+                    top: 0,
+                    width: 39,
+                    height: 24,
+                },
             },
             PositionedPane {
                 pane_id: 3,
-                rect: PaneRect { left: 0, top: 11, width: 60, height: 13 },
+                rect: PaneRect {
+                    left: 0,
+                    top: 11,
+                    width: 60,
+                    height: 13,
+                },
             },
         ];
         assert!(Layout::from_positions(&l_shape).is_none());
@@ -879,7 +959,11 @@ mod tests {
         layout.split(2, 3, SplitAxis::Vertical, 0.5).unwrap();
         layout.split(1, 4, SplitAxis::Vertical, 0.5).unwrap();
 
-        let mut ids: Vec<usize> = layout.positions(120, 40).iter().map(|p| p.pane_id).collect();
+        let mut ids: Vec<usize> = layout
+            .positions(120, 40)
+            .iter()
+            .map(|p| p.pane_id)
+            .collect();
         ids.sort_unstable();
 
         assert_eq!(ids, vec![1, 2, 3, 4]);

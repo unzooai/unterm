@@ -2,12 +2,12 @@
 
 Status: migration tracker  
 Owner: product / engineering  
-Last updated: 2026-07-26  
-Source of truth: `unterm-agents/src/mcp_meta.rs`, `wezterm-gui/src/mcp/handler.rs`, `wezterm-gui/src/engine/*`
+Last updated: 2026-07-30
+Source of truth: `unterm-agents/src/mcp_meta.rs`, `unterm-mcp/src/handler.rs`, `unterm-engine/src/*`
 
 ## Purpose
 
-This document tracks which product surfaces are already isolated behind the engine-neutral terminal layer and which still depend on WezTerm GUI internals.
+This document records how product surfaces are isolated behind the native next-core terminal layer and which operations still belong to host-window or product services.
 
 It exists to keep the `next-core` migration concrete. A method is not considered migrated because it compiles; it is migrated only when the MCP handler can call an engine trait or product service without reaching through WezTerm-specific `Mux`, `Pane`, `TermWindow`, render, capture, or platform-window internals.
 
@@ -15,15 +15,15 @@ It exists to keep the `next-core` migration concrete. A method is not considered
 
 | Status | Meaning |
 |---|---|
-| Engine-neutral | Handler uses `CurrentTerminalEngine` traits or product-only services; usable by WezTerm and `next-core` where the trait is implemented. |
-| Partial | Core operation uses engine traits, but parameter resolution, policy, waiting, GUI jump, or fallback behavior still depends on WezTerm internals. |
-| Product-only | Does not require terminal engine state; should work with either engine if runtime files/services are present. |
-| WezTerm-only | Depends on WezTerm mux, pane, GUI window, renderer, capture, or platform integration. Needs an interface or product-service extraction. |
+| Engine-neutral | Handler uses `HostEngine` traits backed by native next-core. |
+| Partial | Core operation uses engine traits, but policy, waiting, GUI jump, or platform-window behavior still needs a product/host service. |
+| Product-only | Does not require terminal engine state; works from runtime files or shared product services. |
+| Host-window | Depends on the native GUI window, renderer, clipboard, capture, or platform integration rather than the terminal engine. |
 | Unsupported stub | Current behavior returns an unsupported marker; define target semantics before migrating. |
 
 ## Current Engine Interfaces
 
-Implemented in `unterm-engine` and dispatched by `wezterm-gui/src/engine/mod.rs`:
+Implemented in `unterm-engine` and dispatched through its `HostEngine` facade:
 
 - `SessionEngine`
 - `ScreenEngine`

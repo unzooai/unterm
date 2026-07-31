@@ -38,7 +38,11 @@ pub const SPLIT: char = '\u{25EB}';
 /// font's versions leave hairline gaps between cells -- that is the whole
 /// reason to draw them.
 pub fn draws(ch: char) -> bool {
-    let unused = CellMetrics { width: 1.0, height: 1.0, baseline: 1.0 };
+    let unused = CellMetrics {
+        width: 1.0,
+        height: 1.0,
+        baseline: 1.0,
+    };
     quads_for(ch, 0.0, 0.0, unused, [0.0; 4]).is_some()
 }
 
@@ -200,8 +204,7 @@ pub fn quads_for(
             let side = (width * 0.9).round();
             let box_left = left + ((width - side) / 2.0).round();
             let box_top = top + ((height - side) / 2.0).round();
-            let mut quads =
-                crate::strokes::rectangle(box_left, box_top, side, side, weight, color);
+            let mut quads = crate::strokes::rectangle(box_left, box_top, side, side, weight, color);
             quads.extend(crate::strokes::line(
                 (box_left + ((side - weight) / 2.0).round(), box_top),
                 (box_left + ((side - weight) / 2.0).round(), box_top + side),
@@ -223,14 +226,8 @@ pub fn quads_for(
             let bottom_y = top + (height * 0.78).round();
             let join_y = top + (height * 0.55).round();
             let node = (thin * 2.0).max(2.0);
-            let dot = |x: f32, y: f32| {
-                rect(
-                    x - (node - thin) / 2.0,
-                    y - (node - thin) / 2.0,
-                    node,
-                    node,
-                )
-            };
+            let dot =
+                |x: f32, y: f32| rect(x - (node - thin) / 2.0, y - (node - thin) / 2.0, node, node);
             let mut quads = crate::strokes::line((stem_x, top_y), (stem_x, bottom_y), thin, color);
             quads.extend(crate::strokes::line(
                 (fork_x, top_y),
@@ -254,13 +251,37 @@ pub fn quads_for(
         // heavy is what separates these code points from each other.
         '\u{2504}' | '\u{2505}' | '\u{2508}' | '\u{2509}' => {
             let heavy = matches!(ch, '\u{2505}' | '\u{2509}');
-            let dashes = if matches!(ch, '\u{2504}' | '\u{2505}') { 3 } else { 4 };
-            dashed(left, mid_y, width, if heavy { thick } else { thin }, dashes, true, color)
+            let dashes = if matches!(ch, '\u{2504}' | '\u{2505}') {
+                3
+            } else {
+                4
+            };
+            dashed(
+                left,
+                mid_y,
+                width,
+                if heavy { thick } else { thin },
+                dashes,
+                true,
+                color,
+            )
         }
         '\u{2506}' | '\u{2507}' | '\u{250A}' | '\u{250B}' => {
             let heavy = matches!(ch, '\u{2507}' | '\u{250B}');
-            let dashes = if matches!(ch, '\u{2506}' | '\u{2507}') { 3 } else { 4 };
-            dashed(mid_x, top, height, if heavy { thick } else { thin }, dashes, false, color)
+            let dashes = if matches!(ch, '\u{2506}' | '\u{2507}') {
+                3
+            } else {
+                4
+            };
+            dashed(
+                mid_x,
+                top,
+                height,
+                if heavy { thick } else { thin },
+                dashes,
+                false,
+                color,
+            )
         }
 
         // Rounded corners, drawn square. At a cell's size the curve is a
@@ -378,7 +399,13 @@ fn double_junction(
     let mut quads = Vec::new();
     let mut rect = |x: f32, y: f32, width: f32, height: f32| {
         if width > 0.0 && height > 0.0 {
-            quads.push(Quad { left: x, top: y, width, height, color });
+            quads.push(Quad {
+                left: x,
+                top: y,
+                width,
+                height,
+                color,
+            });
         }
     };
 
@@ -387,7 +414,10 @@ fn double_junction(
         // only one, so it takes the open side -- the one with no arm is where
         // the corner has to close.
         let rails: Vec<(f32, bool)> = if vertical_double {
-            vec![(v_left_x, arm_left.present()), (v_right_x, arm_right.present())]
+            vec![
+                (v_left_x, arm_left.present()),
+                (v_right_x, arm_right.present()),
+            ]
         } else {
             vec![(mid_x, arm_left.present() && arm_right.present())]
         };
@@ -468,9 +498,21 @@ fn dashed(
         .map(|index| {
             let along = index as f32 * step;
             if horizontal {
-                Quad { left: x + along, top: y, width: dash, height: weight, color }
+                Quad {
+                    left: x + along,
+                    top: y,
+                    width: dash,
+                    height: weight,
+                    color,
+                }
             } else {
-                Quad { left: x, top: y + along, width: weight, height: dash, color }
+                Quad {
+                    left: x,
+                    top: y + along,
+                    width: weight,
+                    height: dash,
+                    color,
+                }
             }
         })
         .collect()
@@ -638,14 +680,19 @@ mod tests {
         // The right-pointing one is widest at the top-left; the left-pointing
         // one is pushed against the right edge.
         assert_eq!(right[0].left, 0.0);
-        assert!(left.iter().any(|q| q.left + q.width >= metrics().width - 0.01));
+        assert!(left
+            .iter()
+            .any(|q| q.left + q.width >= metrics().width - 0.01));
     }
 
     #[test]
     fn every_drawn_character_produces_something() {
         // A character claimed and then not drawn is a blank cell where a
         // table should be -- worse than leaving it to the font.
-        for code in (0x2500u32..=0x257F).chain(0x2580..=0x259F).chain(0xE0B0..=0xE0B3) {
+        for code in (0x2500u32..=0x257F)
+            .chain(0x2580..=0x259F)
+            .chain(0xE0B0..=0xE0B3)
+        {
             let ch = char::from_u32(code).unwrap();
             let Some(quads) = quads_for(ch, 0.0, 0.0, metrics(), white()) else {
                 // Left to the font, which is a fine answer for the forms we
@@ -665,7 +712,11 @@ mod junction_tests {
     use super::*;
 
     fn metrics() -> CellMetrics {
-        CellMetrics { width: 10.0, height: 20.0, baseline: 16.0 }
+        CellMetrics {
+            width: 10.0,
+            height: 20.0,
+            baseline: 16.0,
+        }
     }
 
     fn draw(ch: char) -> Vec<Quad> {
@@ -694,7 +745,11 @@ mod junction_tests {
             let joins = next
                 .iter()
                 .any(|other| other.top == line.top && other.left <= line.left + line.width);
-            assert!(joins, "the line at {} does not reach its neighbour", line.top);
+            assert!(
+                joins,
+                "the line at {} does not reach its neighbour",
+                line.top
+            );
         }
     }
 
@@ -803,7 +858,10 @@ mod junction_tests {
             .iter()
             .filter(|quad| quad.left + quad.width >= metrics().width)
             .count();
-        assert_eq!(reaching, 2, "both rails must reach the right edge: {quads:?}");
+        assert_eq!(
+            reaching, 2,
+            "both rails must reach the right edge: {quads:?}"
+        );
     }
 }
 
@@ -829,18 +887,13 @@ mod branch_tests {
             baseline: 15.0,
         };
         let quads = quads_for(BRANCH, 0.0, 0.0, metrics, [1.0; 4]).expect("drawn");
-        let columns: std::collections::BTreeSet<i32> = quads
-            .iter()
-            .map(|quad| quad.left.round() as i32)
-            .collect();
+        let columns: std::collections::BTreeSet<i32> =
+            quads.iter().map(|quad| quad.left.round() as i32).collect();
         assert!(
             columns.len() >= 2,
             "the mark is one column wide: {columns:?}"
         );
-        let tallest = quads
-            .iter()
-            .map(|quad| quad.height)
-            .fold(0.0f32, f32::max);
+        let tallest = quads.iter().map(|quad| quad.height).fold(0.0f32, f32::max);
         assert!(
             tallest > metrics.height * 0.4,
             "no stem: tallest piece is {tallest}"

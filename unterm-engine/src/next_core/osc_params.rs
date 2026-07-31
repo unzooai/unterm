@@ -8,6 +8,8 @@ pub(super) enum OscCommand {
     /// How tmux copies out of a remote session, and the only way anything
     /// over ssh reaches the clipboard at all.
     Clipboard(String),
+    /// `OSC 133;A`: the shell has started drawing a new prompt.
+    PromptStart,
 }
 
 pub(super) fn parse(sequence: &str) -> Option<OscCommand> {
@@ -17,6 +19,7 @@ pub(super) fn parse(sequence: &str) -> Option<OscCommand> {
         "7" => parse_osc7_cwd(value).map(OscCommand::CurrentDir),
         "8" => parse_osc8_hyperlink(value).map(OscCommand::Hyperlink),
         "52" => parse_osc52_clipboard(value).map(OscCommand::Clipboard),
+        "133" if value.split(';').next() == Some("A") => Some(OscCommand::PromptStart),
         _ => None,
     }
 }
@@ -26,7 +29,9 @@ pub(super) fn parse(sequence: &str) -> Option<OscCommand> {
 fn parse_osc52_clipboard(value: &str) -> Option<String> {
     use base64::Engine as _;
     let (_selection, payload) = value.split_once(';')?;
-    let decoded = base64::engine::general_purpose::STANDARD.decode(payload).ok()?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .ok()?;
     String::from_utf8(decoded).ok()
 }
 
@@ -126,6 +131,13 @@ mod tests {
     }
 
     #[test]
+    fn parses_shell_prompt_markers_without_guessing_other_semantic_zones() {
+        assert_eq!(parse("133;A"), Some(OscCommand::PromptStart));
+        assert_eq!(parse("133;A;extra"), Some(OscCommand::PromptStart));
+        assert_eq!(parse("133;B"), None);
+    }
+
+    #[test]
     fn rejects_invalid_percent_encoded_cwd() {
         assert_eq!(parse("7;file://localhost/tmp/%zz"), None);
     }
@@ -165,7 +177,8 @@ mod clipboard_tests {
         for selection in ["c", "p", "s", "cp", ""] {
             assert!(
                 parse(&format!("52;{selection};aGk=")).is_some(),
-                "selection {selection:?} should still be a clipboard write"
+                "selection {:?} should still be a clipboard write",
+                selection
             );
         }
     }

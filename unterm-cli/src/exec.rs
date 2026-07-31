@@ -183,11 +183,7 @@ fn resolve_pane_id(client: &mut McpClient, id: Option<u64>) -> Result<u64> {
     // lowest-id pane (the list is sorted by id server-side).
     let target = sessions
         .iter()
-        .find(|s| {
-            s.get("is_active")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        })
+        .find(|s| s.get("is_active").and_then(Value::as_bool).unwrap_or(false))
         .or_else(|| sessions.first())
         .ok_or_else(|| anyhow!("{}", i18n::t("cli.session.no_panes")))?;
     target

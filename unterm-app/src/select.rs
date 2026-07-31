@@ -86,14 +86,20 @@ mod tests {
     fn the_row_is_measured_from_the_top_of_the_scrollback() {
         // The viewport moves; a selection made while scrolled back has to stay
         // on the text it was made on.
-        assert_eq!(cell_at(0.0, 40.0, metrics(), 100), SelectionPoint::new(0, 102));
+        assert_eq!(
+            cell_at(0.0, 40.0, metrics(), 100),
+            SelectionPoint::new(0, 102)
+        );
     }
 
     #[test]
     fn a_position_outside_the_window_does_not_go_negative() {
         // A drag that leaves the window reports negative coordinates, and a
         // negative row would select from the wrong end of the scrollback.
-        assert_eq!(cell_at(-50.0, -50.0, metrics(), 5), SelectionPoint::new(0, 5));
+        assert_eq!(
+            cell_at(-50.0, -50.0, metrics(), 5),
+            SelectionPoint::new(0, 5)
+        );
     }
 
     #[test]

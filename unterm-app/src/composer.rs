@@ -12,6 +12,35 @@
 //! a redraw would fire the same prompt sixty times a second.
 
 /// Prompts waiting to go in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ExecutionMode {
+    /// Approve only narrowly-recognised harmless confirmations, then continue.
+    #[default]
+    AutoApprove,
+    /// Continue when the pane becomes idle, but never answer a question.
+    AutoNext,
+    /// Keep every item queued until the user explicitly sends it.
+    Manual,
+}
+
+impl ExecutionMode {
+    pub fn next(self) -> Self {
+        match self {
+            Self::AutoApprove => Self::AutoNext,
+            Self::AutoNext => Self::Manual,
+            Self::Manual => Self::AutoApprove,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::AutoApprove => "auto-approve",
+            Self::AutoNext => "auto-next",
+            Self::Manual => "manual",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Composer {
     queued: Vec<String>,
@@ -22,6 +51,8 @@ pub struct Composer {
     /// An agent takes a moment to start working, and a pane that is still
     /// idle in that moment would take the next prompt on top of the first.
     sent_and_waiting: bool,
+    selected: usize,
+    mode: ExecutionMode,
 }
 
 impl Composer {
@@ -35,6 +66,7 @@ impl Composer {
         self.typing.clear();
         if !prompt.is_empty() {
             self.queued.push(prompt);
+            self.selected = self.queued.len().saturating_sub(1);
         }
     }
 
@@ -46,6 +78,40 @@ impl Composer {
         self.queued.is_empty() && self.typing.trim().is_empty()
     }
 
+    pub fn selected(&self) -> usize {
+        self.selected.min(self.queued.len().saturating_sub(1))
+    }
+
+    pub fn mode(&self) -> ExecutionMode {
+        self.mode
+    }
+
+    pub fn cycle_mode(&mut self) {
+        self.mode = self.mode.next();
+    }
+
+    pub fn select_by(&mut self, delta: isize) {
+        if self.queued.is_empty() {
+            self.selected = 0;
+            return;
+        }
+        self.selected =
+            (self.selected as isize + delta).clamp(0, self.queued.len() as isize - 1) as usize;
+    }
+
+    pub fn remove_selected(&mut self) -> Option<String> {
+        if self.queued.is_empty() {
+            return None;
+        }
+        let removed = self.queued.remove(self.selected());
+        self.selected = self.selected.min(self.queued.len().saturating_sub(1));
+        Some(removed)
+    }
+
+    pub fn take_selected(&mut self) -> Option<String> {
+        self.remove_selected()
+    }
+
     /// Take the next prompt if the pane is ready for one.
     ///
     /// `idle` is the pane's own answer to "is anything running". Nothing goes
@@ -54,6 +120,9 @@ impl Composer {
     /// looks idle, and two prompts on one line is one prompt with the other
     /// stuck to it.
     pub fn take_next(&mut self, idle: bool) -> Option<String> {
+        if self.mode == ExecutionMode::Manual {
+            return None;
+        }
         if !idle {
             // It started working: the next idle moment is a real one.
             self.sent_and_waiting = false;
@@ -72,6 +141,7 @@ impl Composer {
     /// Drop the queue, keeping what is being typed.
     pub fn clear(&mut self) {
         self.queued.clear();
+        self.selected = 0;
         self.sent_and_waiting = false;
     }
 }
@@ -199,6 +269,29 @@ mod tests {
         assert!(composer.is_empty());
         composer.typing = "x".to_string();
         assert!(!composer.is_empty());
+    }
+
+    #[test]
+    fn queue_items_can_be_selected_removed_and_sent_manually() {
+        let mut composer = with(&["first", "second", "third"]);
+        composer.select_by(-1);
+        assert_eq!(composer.selected(), 1);
+        assert_eq!(composer.remove_selected().as_deref(), Some("second"));
+        assert_eq!(composer.queued(), ["first", "third"]);
+        assert_eq!(composer.take_selected().as_deref(), Some("third"));
+    }
+
+    #[test]
+    fn all_three_execution_modes_are_distinct() {
+        let mut composer = with(&["first"]);
+        assert_eq!(composer.mode(), ExecutionMode::AutoApprove);
+        composer.cycle_mode();
+        assert_eq!(composer.mode(), ExecutionMode::AutoNext);
+        composer.cycle_mode();
+        assert_eq!(composer.mode(), ExecutionMode::Manual);
+        assert_eq!(composer.take_next(true), None);
+        composer.cycle_mode();
+        assert_eq!(composer.mode(), ExecutionMode::AutoApprove);
     }
 
     #[test]

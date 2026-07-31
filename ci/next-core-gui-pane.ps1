@@ -65,7 +65,7 @@ $Suites = @(
         Name = "pane layout"
         Package = "unterm-engine"
         Filter = "next_core::layout::tests::"
-        ExpectedCount = 18
+        ExpectedCount = 19
         RequiredTests = @(
             "next_core::layout::tests::a_horizontal_split_leaves_a_cell_for_the_divider",
             "next_core::layout::tests::a_vertical_split_divides_height_instead",
@@ -77,6 +77,7 @@ $Suites = @(
             "next_core::layout::tests::ratios_are_clamped_so_neither_side_disappears",
             "next_core::layout::tests::a_tab_too_small_to_split_still_gives_every_pane_a_cell",
             "next_core::layout::tests::resizing_a_split_moves_the_divider_and_survives_a_tab_resize",
+            "next_core::layout::tests::directional_resize_uses_the_nearest_split_on_that_axis",
             "next_core::layout::tests::every_pane_is_positioned_exactly_once",
             "next_core::layout::tests::a_tree_round_trips_through_its_own_rectangles",
             "next_core::layout::tests::rebuilding_recovers_the_pane_set",
@@ -90,7 +91,7 @@ $Suites = @(
         Name = "tab registry"
         Package = "unterm-engine"
         Filter = "next_core::tabs::tests::"
-        ExpectedCount = 21
+        ExpectedCount = 22
         RequiredTests = @(
             "next_core::tabs::tests::splitting_focuses_the_new_pane",
             "next_core::tabs::tests::closing_the_active_pane_moves_focus_to_a_survivor",
@@ -107,7 +108,8 @@ $Suites = @(
             "next_core::tabs::tests::forgetting_a_tab_releases_its_panes",
             "next_core::tabs::tests::zooming_gives_one_pane_the_whole_tab",
             "next_core::tabs::tests::unzooming_restores_the_arrangement_exactly",
-            "next_core::tabs::tests::zooming_also_focuses_the_pane"
+            "next_core::tabs::tests::zooming_also_focuses_the_pane",
+            "next_core::tabs::tests::tabs_can_move_without_changing_their_stable_ids"
         )
     },
     @{
@@ -359,14 +361,16 @@ $Suites = @(
         Name = "window capture"
         Package = "unterm-services"
         Filter = "window_capture::tests::"
-        ExpectedCount = 9
+        ExpectedCount = 11
         RequiredTests = @(
             "window_capture::tests::a_capture_has_to_say_which_window",
             "window_capture::tests::a_blank_bitmap_is_not_mistaken_for_a_picture",
             "window_capture::tests::a_process_with_no_window_is_told_so_rather_than_handed_one",
             "window_capture::tests::a_region_is_the_same_whichever_way_it_was_dragged",
             "window_capture::tests::a_click_is_not_a_region",
-            "window_capture::tests::a_region_on_a_monitor_left_of_the_first_keeps_its_position"
+            "window_capture::tests::a_region_on_a_monitor_left_of_the_first_keeps_its_position",
+            "window_capture::tests::cropping_keeps_the_requested_rows_and_columns",
+            "window_capture::tests::cropping_refuses_a_rectangle_past_the_source_edge"
         )
     },
     @{
@@ -420,14 +424,17 @@ $Suites = @(
         Name = "left tab strip"
         Package = "unterm-app"
         Filter = "sidebar::tests::"
-        ExpectedCount = 16
+        ExpectedCount = 19
         RequiredTests = @(
             "sidebar::tests::a_single_project_gets_no_group_headers",
             "sidebar::tests::same_named_projects_are_told_apart_by_the_shortest_parent",
             "sidebar::tests::a_path_that_is_a_suffix_of_another_still_gets_a_hint",
             "sidebar::tests::no_row_is_wider_than_the_strip",
             "sidebar::tests::scrolling_cannot_run_off_the_end",
-            "sidebar::tests::a_tab_with_no_directory_is_still_listed"
+            "sidebar::tests::a_tab_with_no_directory_is_still_listed",
+            "sidebar::tests::shell_command_project_and_known_agent_are_visually_distinct",
+            "sidebar::tests::error_tail_detection_ignores_successful_zero_failure_summaries",
+            "sidebar::tests::tab_indicators_survive_grouping"
         )
     },
     @{
@@ -582,13 +589,15 @@ $Suites = @(
         Name = "prompt queue"
         Package = "unterm-app"
         Filter = "composer::tests::"
-        ExpectedCount = 13
+        ExpectedCount = 15
         RequiredTests = @(
             "composer::tests::nothing_is_sent_while_the_pane_is_busy",
             "composer::tests::the_next_prompt_waits_for_the_pane_to_actually_start",
             "composer::tests::a_blank_line_is_not_a_prompt",
             "composer::tests::a_destructive_question_is_never_answered_automatically",
-            "composer::tests::clearing_lets_the_next_queue_start_immediately"
+            "composer::tests::clearing_lets_the_next_queue_start_immediately",
+            "composer::tests::queue_items_can_be_selected_removed_and_sent_manually",
+            "composer::tests::all_three_execution_modes_are_distinct"
         )
     },
     @{
@@ -691,7 +700,7 @@ $Suites = @(
         Name = "key bindings"
         Package = "unterm-app"
         Filter = "keys::"
-        ExpectedCount = 13
+        ExpectedCount = 14
         RequiredTests = @(
             "keys::added_binding_tests::the_font_size_keys_exist",
             "keys::added_binding_tests::ctrl_and_a_digit_goes_to_that_tab",
@@ -701,7 +710,8 @@ $Suites = @(
             "keys::added_binding_tests::a_new_window_and_a_pane_of_ones_own_are_both_reachable",
             "keys::added_binding_tests::every_bound_action_is_named_distinctly",
             "keys::tests::plain_ctrl_c_stays_the_programs_interrupt",
-            "keys::tests::plain_tab_still_completes_in_the_shell"
+            "keys::tests::plain_tab_still_completes_in_the_shell",
+            "keys::added_binding_tests::pane_tab_and_prompt_navigation_have_distinct_shortcuts"
         )
     },
     @{
@@ -828,12 +838,14 @@ $Suites = @(
         Name = "app agent inbox"
         Package = "unterm-app"
         Filter = "cockpit::tests::"
-        ExpectedCount = 9
+        ExpectedCount = 11
         RequiredTests = @(
             "cockpit::tests::waiting_panes_come_first",
             "cockpit::tests::the_longest_wait_is_at_the_top",
             "cockpit::tests::done_outranks_working_but_not_waiting",
-            "cockpit::tests::only_waiting_and_done_want_the_person"
+            "cockpit::tests::only_waiting_and_done_want_the_person",
+            "cockpit::tests::inbox_selection_wraps_and_survives_a_shorter_list",
+            "cockpit::tests::cross_instance_rows_keep_window_and_tab_location"
         )
     },
     @{
@@ -858,12 +870,13 @@ $Suites = @(
         Name = "app command palette"
         Package = "unterm-app"
         Filter = "palette::tests::"
-        ExpectedCount = 12
+        ExpectedCount = 13
         RequiredTests = @(
             "palette::tests::initials_find_the_command_they_stand_for",
             "palette::tests::consecutive_letters_beat_scattered_ones",
             "palette::tests::an_exact_command_beats_one_that_merely_contains_it",
-            "palette::tests::the_palette_takes_the_keyboard_while_it_is_open"
+            "palette::tests::the_palette_takes_the_keyboard_while_it_is_open",
+            "palette::tests::pages_and_tab_are_navigation_not_shell_input"
         )
     },
     @{
@@ -1162,7 +1175,7 @@ $Suites = @(
         Name = "top bar facts"
         Package = "unterm-app"
         Filter = "statsbar::"
-        ExpectedCount = 18
+        ExpectedCount = 19
         RequiredTests = @(
             "statsbar::tests::a_shell_running_something_else_is_worth_naming",
             "statsbar::tests::a_posix_login_shell_at_its_prompt_is_not_worth_naming",
@@ -1172,7 +1185,8 @@ $Suites = @(
             "statsbar::tests::width_is_counted_in_cells_rather_than_characters",
             "statsbar::tests::nothing_known_shows_nothing",
             "statsbar::freshness_tests::the_numbers_refresh_without_being_asked_twice",
-            "statsbar::freshness_tests::a_second_look_inside_the_window_costs_nothing"
+            "statsbar::freshness_tests::a_second_look_inside_the_window_costs_nothing",
+            "statsbar::tests::future_manifest_agents_match_process_names_and_script_paths"
         )
     },
     @{
@@ -1596,7 +1610,14 @@ Push-Location $RepoRoot
 try {
     $totalRequired = 0
     foreach ($suite in $Suites) {
+        # Windows PowerShell 5.1 promotes native stderr lines to
+        # NativeCommandError records. Cargo writes ordinary compile progress
+        # and warnings there, so the script-wide Stop preference otherwise
+        # aborts before LASTEXITCODE can decide whether the command failed.
+        $savedErrorPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         $list = @(& cargo test -p $suite.Package $suite.Filter -- --list 2>&1 | ForEach-Object { $_.ToString() })
+        $ErrorActionPreference = $savedErrorPreference
         if ($LASTEXITCODE -ne 0) {
             throw "cargo test list failed for $($suite.Name):`n$($list -join "`n")"
         }
@@ -1615,7 +1636,10 @@ try {
     }
 
     foreach ($suite in $Suites) {
+        $savedErrorPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         $run = @(& cargo test -p $suite.Package $suite.Filter -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
+        $ErrorActionPreference = $savedErrorPreference
         if ($LASTEXITCODE -ne 0) {
             throw "next-core GUI pane tests failed for $($suite.Name):`n$($run -join "`n")"
         }

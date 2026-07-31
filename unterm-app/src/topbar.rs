@@ -21,8 +21,17 @@
 use crate::keys::Action;
 
 /// How tall the bar is: one chrome row with a little air around it.
-pub fn height(row_height: f32, pt: f32) -> f32 {
-    (row_height + 8.0 * pt).round()
+pub fn height(_row_height: f32, pt: f32) -> f32 {
+    // v0.57.4 reserved 1.6 title-font cells for the integrated chrome. The
+    // first next-core version added a fully padded sidebar row *and* another
+    // 8pt around it, producing the visibly oversized ~77px strip at 150% DPI.
+    let cell = crate::ui_tokens::UI_FONT_SIZE as f32 * pt;
+    let base = cell * 1.6;
+    // The v0.57.4 quick-action cells were the taller constraint: one title
+    // cell plus 0.18-cell margins and 0.22-cell padding on both sides, with a
+    // physical-pixel border. At 150% DPI this is ~49px.
+    let buttons = cell * (1.0 + 2.0 * (0.18 + 0.22)) + 2.0;
+    base.max(buttons).ceil()
 }
 
 /// Where the terminal starts, below the bar.
@@ -69,8 +78,9 @@ pub const ACTIONS: &[(Action, char, &str)] = &[
     (Action::Settings, '\u{eb51}', ""),
 ];
 
-/// The quick menu at the far right of the actions.
-pub const MENU: char = '\u{25BE}';
+/// The quick menu at the far right of the actions — the codicon chevron the
+/// previous front end used, not the text triangle.
+pub const MENU: char = '\u{eab4}';
 
 /// What a piece of the bar is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,26 +156,27 @@ pub fn layout(
     let pad = (7.0 * pt).round();
     let mut actions = Vec::new();
 
-    let mut take = |item: Item, icon: char, label: &str, tooltip: Option<String>, right: &mut f32| {
-        let text = if label.is_empty() {
-            icon.to_string()
-        } else {
-            format!("{icon}  {label}")
+    let mut take =
+        |item: Item, icon: char, label: &str, tooltip: Option<String>, right: &mut f32| {
+            let text = if label.is_empty() {
+                icon.to_string()
+            } else {
+                format!("{icon}  {label}")
+            };
+            let wide = (measure(&text) + pad * 2.0).round();
+            if *right - wide < 0.0 {
+                return;
+            }
+            *right -= wide + gap;
+            actions.push(Placed {
+                item,
+                left: *right + gap,
+                width: wide,
+                icon: Some(icon),
+                label: label.to_string(),
+                tooltip,
+            });
         };
-        let wide = (measure(&text) + pad * 2.0).round();
-        if *right - wide < 0.0 {
-            return;
-        }
-        *right -= wide + gap;
-        actions.push(Placed {
-            item,
-            left: *right + gap,
-            width: wide,
-            icon: Some(icon),
-            label: label.to_string(),
-            tooltip,
-        });
-    };
 
     take(Item::Menu, MENU, "", None, &mut right);
     for (action, icon, label_key) in ACTIONS.iter().rev() {
@@ -199,7 +210,11 @@ pub fn layout(
 
     // The wordmark on the left.
     let mut left = (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
-    let wordmark = measure(WORDMARK);
+    // v0.57.4 sized the Command Loop mark to 0.95 title-font cells and
+    // separated it from the word by another 0.42 cell. Measuring the actual
+    // UI face keeps that relationship intact for Segoe, SF Pro and Inter.
+    let brand_cell = measure("M");
+    let wordmark = measure(WORDMARK) + brand_cell * (0.95 + 0.42);
     if left + wordmark < right {
         placed.push(Placed {
             item: Item::Wordmark,
@@ -261,7 +276,7 @@ pub fn hit(placed: &[Placed], x: f32) -> Option<Item> {
 /// thing anyone notices about a window that has none.
 pub fn is_drag_handle(placed: &[Placed], x: f32) -> bool {
     match hit(placed, x) {
-        None | Some(Item::Wordmark) | Some(Item::Stats) => true,
+        None | Some(Item::Wordmark) => true,
         Some(_) => false,
     }
 }
@@ -337,7 +352,11 @@ mod tests {
     fn the_essential_actions_are_never_dropped() {
         for width in [400.0, 800.0, 1600.0] {
             let bar = bar(width);
-            for action in [Action::CommandPalette, Action::TreeSidebar, Action::Settings] {
+            for action in [
+                Action::CommandPalette,
+                Action::TreeSidebar,
+                Action::Settings,
+            ] {
                 assert!(
                     has(&bar, Item::Action(action)),
                     "{action:?} was dropped at {width}"
@@ -452,7 +471,14 @@ mod tests {
     #[test]
     fn the_facts_sit_between_the_wordmark_and_the_actions() {
         let mut measure = measurer();
-        let bar = layout(1600.0, 1600.0, 1.33, "8.0% cpu  1.4G  4m", true, &mut measure);
+        let bar = layout(
+            1600.0,
+            1600.0,
+            1.33,
+            "8.0% cpu  1.4G  4m",
+            true,
+            &mut measure,
+        );
         let stats = bar
             .iter()
             .find(|piece| piece.item == Item::Stats)
@@ -486,14 +512,15 @@ mod tests {
         assert!(has(&bar, Item::Close));
     }
 
-    /// Both pieces of text are places to grab the window; nothing else is.
+    /// The wordmark and empty bar drag the window. Pane facts are a control:
+    /// pressing the displayed shell opens the shell selector.
     #[test]
     fn the_text_drags_and_the_controls_do_not() {
         let mut measure = measurer();
         let bar = layout(1600.0, 1600.0, 1.33, "8.0% cpu", true, &mut measure);
         for piece in &bar {
             let middle = piece.left + piece.width / 2.0;
-            let expected = matches!(piece.item, Item::Wordmark | Item::Stats);
+            let expected = matches!(piece.item, Item::Wordmark);
             assert_eq!(
                 is_drag_handle(&bar, middle),
                 expected,
@@ -565,7 +592,6 @@ mod number_key_tests {
     }
 }
 
-
 /// Which edge of the window the pointer is on, if any.
 ///
 /// A window with no system frame has no system resize handles either, so it
@@ -619,7 +645,10 @@ mod resize_tests {
             resize_edge((799.0, 300.0), SIZE),
             Some(ResizeDirection::East)
         );
-        assert_eq!(resize_edge((400.0, 0.0), SIZE), Some(ResizeDirection::North));
+        assert_eq!(
+            resize_edge((400.0, 0.0), SIZE),
+            Some(ResizeDirection::North)
+        );
         assert_eq!(
             resize_edge((400.0, 599.0), SIZE),
             Some(ResizeDirection::South)
@@ -654,7 +683,10 @@ mod resize_tests {
     fn the_edge_is_wide_enough_to_aim_at() {
         for offset in 0..=5 {
             let at = offset as f32;
-            assert!(resize_edge((at, 300.0), SIZE).is_some(), "{at} from the left");
+            assert!(
+                resize_edge((at, 300.0), SIZE).is_some(),
+                "{at} from the left"
+            );
             assert!(
                 resize_edge((SIZE.0 - at, 300.0), SIZE).is_some(),
                 "{at} from the right"
@@ -675,14 +707,15 @@ mod resize_tests {
 mod geometry_tests {
     use super::*;
 
-    /// The terminal starts below the bar, with a gap. Without the gap the first
-    /// row of text sits against the chrome and the two read as one surface.
+    /// The terminal starts below the bar, with a gap. The `row` argument is a
+    /// padded sidebar row, not the title font's bare cell, so the old 1.6-cell
+    /// title bar is intentionally allowed to be shorter than it.
     #[test]
     fn the_terminal_starts_below_the_bar_with_a_gap() {
         for (row, pt) in [(24.0, 1.0), (31.0, 1.33), (46.0, 2.0)] {
             let bar = height(row, pt);
             let top = terminal_top(row, pt);
-            assert!(bar > row, "the bar is no taller than its text at {pt}x");
+            assert!(bar >= 20.0 * pt, "the bar is too short at {pt}x: {bar}");
             assert!(top > bar, "the terminal starts inside the bar at {pt}x");
         }
     }

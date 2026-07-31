@@ -42,6 +42,8 @@ pub enum Action {
     SplitDown,
     ScrollPageUp,
     ScrollPageDown,
+    PreviousPrompt,
+    NextPrompt,
     NewTab,
     NextTab,
     PreviousTab,
@@ -77,6 +79,8 @@ pub enum Action {
     /// The same, but exchange the chosen pane with the one in front.
     SwapPane,
     FocusPane(Direction),
+    ResizePane(Direction),
+    MoveTab(isize),
     /// One-based, as the key is labelled.
     SelectTab(u8),
     IncreaseFontSize,
@@ -95,6 +99,8 @@ impl Action {
             Action::SplitDown => "SplitDown",
             Action::ScrollPageUp => "ScrollPageUp",
             Action::ScrollPageDown => "ScrollPageDown",
+            Action::PreviousPrompt => "PreviousPrompt",
+            Action::NextPrompt => "NextPrompt",
             Action::NewTab => "NewTab",
             Action::NextTab => "NextTab",
             Action::PreviousTab => "PreviousTab",
@@ -125,6 +131,12 @@ impl Action {
             Action::FocusPane(Direction::Right) => "FocusPaneRight",
             Action::FocusPane(Direction::Up) => "FocusPaneUp",
             Action::FocusPane(Direction::Down) => "FocusPaneDown",
+            Action::ResizePane(Direction::Left) => "ResizePaneLeft",
+            Action::ResizePane(Direction::Right) => "ResizePaneRight",
+            Action::ResizePane(Direction::Up) => "ResizePaneUp",
+            Action::ResizePane(Direction::Down) => "ResizePaneDown",
+            Action::MoveTab(step) if step < 0 => "MoveTabLeft",
+            Action::MoveTab(_) => "MoveTabRight",
             Action::SelectTab(1) => "SelectTab1",
             Action::SelectTab(2) => "SelectTab2",
             Action::SelectTab(3) => "SelectTab3",
@@ -155,6 +167,8 @@ impl Action {
             Action::SplitDown => "Split Down",
             Action::ScrollPageUp => "Scroll Page Up",
             Action::ScrollPageDown => "Scroll Page Down",
+            Action::PreviousPrompt => "Previous Prompt",
+            Action::NextPrompt => "Next Prompt",
             Action::NewTab => "New Tab",
             Action::NextTab => "Next Tab",
             Action::PreviousTab => "Previous Tab",
@@ -185,6 +199,12 @@ impl Action {
             Action::FocusPane(Direction::Right) => "Focus Pane Right",
             Action::FocusPane(Direction::Up) => "Focus Pane Up",
             Action::FocusPane(Direction::Down) => "Focus Pane Down",
+            Action::ResizePane(Direction::Left) => "Resize Pane Left",
+            Action::ResizePane(Direction::Right) => "Resize Pane Right",
+            Action::ResizePane(Direction::Up) => "Resize Pane Up",
+            Action::ResizePane(Direction::Down) => "Resize Pane Down",
+            Action::MoveTab(step) if step < 0 => "Move Tab Left",
+            Action::MoveTab(_) => "Move Tab Right",
             // One row for the whole family: nine that differ by a digit push
             // everything else off a short list.
             Action::SelectTab(_) => "Select Tab By Number",
@@ -259,7 +279,9 @@ impl Trigger {
             (Trigger::Arrow(Direction::Right), Key::Named(NamedKey::ArrowRight)) => true,
             (Trigger::Arrow(Direction::Up), Key::Named(NamedKey::ArrowUp)) => true,
             (Trigger::Arrow(Direction::Down), Key::Named(NamedKey::ArrowDown)) => true,
-            (Trigger::Function(number), Key::Named(named)) => function_number(*named) == Some(number),
+            (Trigger::Function(number), Key::Named(named)) => {
+                function_number(*named) == Some(number)
+            }
             _ => false,
         }
     }
@@ -369,8 +391,9 @@ pub const BINDINGS: &[Binding] = &[
         trigger: Trigger::Char('p'),
         action: Action::CommandPalette,
     },
-    // The launcher moves off N so a new window can have the key every
-    // application puts it on.
+    // Keep both the current launcher chord and the 0.57 chord. Existing users
+    // should not lose the shell selector merely because next-core also gained
+    // a multi-window action.
     Binding {
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('l'),
@@ -378,6 +401,11 @@ pub const BINDINGS: &[Binding] = &[
     },
     Binding {
         mods: CTRL_SHIFT,
+        trigger: Trigger::Char('n'),
+        action: Action::Launcher,
+    },
+    Binding {
+        mods: CTRL_SHIFT_ALT,
         trigger: Trigger::Char('n'),
         action: Action::NewWindow,
     },
@@ -459,6 +487,55 @@ pub const BINDINGS: &[Binding] = &[
         mods: ALT,
         trigger: Trigger::Arrow(Direction::Down),
         action: Action::FocusPane(Direction::Down),
+    },
+    // Add Shift to move the nearest split boundary on that axis.
+    Binding {
+        mods: Mods {
+            ctrl: false,
+            shift: true,
+            alt: true,
+        },
+        trigger: Trigger::Arrow(Direction::Left),
+        action: Action::ResizePane(Direction::Left),
+    },
+    Binding {
+        mods: Mods {
+            ctrl: false,
+            shift: true,
+            alt: true,
+        },
+        trigger: Trigger::Arrow(Direction::Right),
+        action: Action::ResizePane(Direction::Right),
+    },
+    Binding {
+        mods: Mods {
+            ctrl: false,
+            shift: true,
+            alt: true,
+        },
+        trigger: Trigger::Arrow(Direction::Up),
+        action: Action::ResizePane(Direction::Up),
+    },
+    Binding {
+        mods: Mods {
+            ctrl: false,
+            shift: true,
+            alt: true,
+        },
+        trigger: Trigger::Arrow(Direction::Down),
+        action: Action::ResizePane(Direction::Down),
+    },
+    // Shell integration marks prompts with OSC 133. These jump between those
+    // semantic rows without colliding with Alt+arrow pane navigation.
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Arrow(Direction::Up),
+        action: Action::PreviousPrompt,
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Arrow(Direction::Down),
+        action: Action::NextPrompt,
     },
     // Font size, on the keys every application uses. `=` rather than `+`
     // because that is the unshifted key, and a terminal that needed shift to
@@ -582,12 +659,31 @@ pub const BINDINGS: &[Binding] = &[
         trigger: Trigger::PageDown,
         action: Action::ScrollPageDown,
     },
+    // Reorder tabs without changing which stable tab id is active.
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::PageUp,
+        action: Action::MoveTab(-1),
+    },
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::PageDown,
+        action: Action::MoveTab(1),
+    },
 ];
 
 /// What this key press means to the front end, if anything.
 ///
 /// The most specific binding wins: Ctrl+Shift+C is a copy, not a scroll that
 /// happens to have shift held.
+/// The chord an action is bound to, spelt the way the palette spells one.
+pub fn chord_hint(action: Action) -> Option<String> {
+    BINDINGS
+        .iter()
+        .find(|binding| binding.action == action)
+        .map(|binding| format!("{} {}", binding.mods.name(), binding.trigger.name()))
+}
+
 pub fn action_for(key: &Key, ctrl: bool, shift: bool, alt: bool) -> Option<Action> {
     BINDINGS
         .iter()
@@ -613,7 +709,10 @@ mod tests {
             Some(Action::Copy),
             "shift capitalised the letter, which is not a different key"
         );
-        assert_eq!(action_for(&character("c"), true, true, false), Some(Action::Copy));
+        assert_eq!(
+            action_for(&character("c"), true, true, false),
+            Some(Action::Copy)
+        );
     }
 
     #[test]
@@ -744,6 +843,30 @@ mod added_binding_tests {
         );
     }
 
+    #[test]
+    fn pane_tab_and_prompt_navigation_have_distinct_shortcuts() {
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::ArrowRight), false, true, true),
+            Some(Action::ResizePane(Direction::Right))
+        );
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::PageUp), true, true, false),
+            Some(Action::MoveTab(-1))
+        );
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::PageDown), true, true, false),
+            Some(Action::MoveTab(1))
+        );
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::ArrowUp), true, true, false),
+            Some(Action::PreviousPrompt)
+        );
+        assert_eq!(
+            action_for(&Key::Named(NamedKey::ArrowDown), true, true, false),
+            Some(Action::NextPrompt)
+        );
+    }
+
     /// A plain arrow moves the shell's cursor and must keep doing so.
     #[test]
     fn an_unmodified_arrow_still_belongs_to_the_shell() {
@@ -771,7 +894,7 @@ mod added_binding_tests {
     #[test]
     fn a_new_window_and_a_pane_of_ones_own_are_both_reachable() {
         assert_eq!(
-            action_for(&character("n"), true, true, false),
+            action_for(&character("n"), true, true, true),
             Some(Action::NewWindow)
         );
         assert_eq!(
@@ -782,9 +905,13 @@ mod added_binding_tests {
             action_for(&character("z"), true, true, false),
             Some(Action::ZoomPane)
         );
-        // The launcher moved to make room, and has to still be somewhere.
+        // Both the new chord and the old v0.57 chord reach the selector.
         assert_eq!(
             action_for(&character("l"), true, true, false),
+            Some(Action::Launcher)
+        );
+        assert_eq!(
+            action_for(&character("n"), true, true, false),
             Some(Action::Launcher)
         );
     }
@@ -797,8 +924,7 @@ mod added_binding_tests {
     /// key with and without shift.
     #[test]
     fn every_bound_action_is_named_distinctly() {
-        let mut by_name: std::collections::HashMap<&str, Action> =
-            std::collections::HashMap::new();
+        let mut by_name: std::collections::HashMap<&str, Action> = std::collections::HashMap::new();
         for binding in BINDINGS {
             let name = binding.action.name();
             assert!(!name.is_empty(), "{:?} has no name", binding.action);

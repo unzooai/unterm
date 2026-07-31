@@ -283,8 +283,12 @@ pub fn instance_for_pid(pid: u32) -> Option<String> {
         if path.extension().map(|e| e != "json").unwrap_or(true) {
             continue;
         }
-        let Ok(raw) = fs::read_to_string(&path) else { continue };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
+        let Ok(raw) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
         if v.get("pid").and_then(|p| p.as_u64()) == Some(pid as u64) {
             if let Some(id) = v.get("id").and_then(|i| i.as_str()) {
                 return Some(id.to_string());

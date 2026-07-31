@@ -14,6 +14,8 @@
 //! hidden, because they are not equivalent: the second one sees whatever is on
 //! top of the window as well.
 
+use anyhow::Context as _;
+
 /// A captured window.
 #[derive(Debug)]
 pub struct WindowImage {
@@ -113,7 +115,8 @@ const MIN_REGION: usize = 8;
 /// Copy a rectangle of the desktop.
 #[cfg(windows)]
 pub fn capture_region(region: Region) -> anyhow::Result<WindowImage> {
-    use winapi::um::wingdi::{BitBlt, SRCCOPY};
+    use anyhow::Context;
+    use winapi::um::wingdi::{BitBlt, CAPTUREBLT, SRCCOPY};
     use winapi::um::winuser::{GetDC, ReleaseDC};
 
     if !region.is_usable() {
@@ -135,22 +138,112 @@ pub fn capture_region(region: Region) -> anyhow::Result<WindowImage> {
                 screen_dc,
                 region.left,
                 region.top,
-                SRCCOPY,
+                // CAPTUREBLT includes layered/composited windows. Without it
+                // BitBlt can fail outright on current Windows desktops rather
+                // than merely omitting translucent windows from the result.
+                SRCCOPY | CAPTUREBLT,
             ) != 0
         });
         ReleaseDC(std::ptr::null_mut(), screen_dc);
-        Ok(WindowImage {
-            width: region.width,
-            height: region.height,
-            pixels: copied?,
-            mode: "region",
-        })
+        match copied {
+            Ok(pixels) => Ok(WindowImage {
+                width: region.width,
+                height: region.height,
+                pixels,
+                mode: "region",
+            }),
+            Err(screen_error) => capture_region_from_own_window(region).with_context(|| {
+                format!(
+                    "desktop capture failed ({screen_error}); \
+                     the selected rectangle was not available from Unterm's own window"
+                )
+            }),
+        }
     }
 }
 
 #[cfg(not(windows))]
 pub fn capture_region(_region: Region) -> anyhow::Result<WindowImage> {
     anyhow::bail!("capturing a region is only implemented on Windows so far")
+}
+
+/// Windows can deny reads from the desktop DC in protected or remote
+/// sessions even though the app is allowed to draw and capture its own
+/// window. The interactive selector lives inside that window, so an exact
+/// crop of a clean `PrintWindow` frame is an equivalent fallback there.
+#[cfg(windows)]
+fn capture_region_from_own_window(region: Region) -> anyhow::Result<WindowImage> {
+    use winapi::shared::windef::RECT;
+    use winapi::um::winuser::GetWindowRect;
+
+    let window = find_window(None, Some(std::process::id()))?;
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    // SAFETY: `rect` is ours and `find_window` returned a live HWND.
+    if unsafe { GetWindowRect(window, &mut rect) } == 0 {
+        anyhow::bail!("could not measure Unterm's window: {}", last_error());
+    }
+    let right = region
+        .left
+        .checked_add(region.width as i32)
+        .context("selected region exceeds Windows coordinates")?;
+    let bottom = region
+        .top
+        .checked_add(region.height as i32)
+        .context("selected region exceeds Windows coordinates")?;
+    if region.left < rect.left
+        || region.top < rect.top
+        || right > rect.right
+        || bottom > rect.bottom
+    {
+        anyhow::bail!("the selected rectangle extends outside Unterm's window");
+    }
+
+    let image = capture_window(None, Some(std::process::id()))?;
+    crop_image(
+        image,
+        (region.left - rect.left) as usize,
+        (region.top - rect.top) as usize,
+        region.width,
+        region.height,
+        "region_window_fallback",
+    )
+}
+
+fn crop_image(
+    image: WindowImage,
+    left: usize,
+    top: usize,
+    width: usize,
+    height: usize,
+    mode: &'static str,
+) -> anyhow::Result<WindowImage> {
+    let right = left.checked_add(width).context("crop width overflow")?;
+    let bottom = top.checked_add(height).context("crop height overflow")?;
+    if right > image.width || bottom > image.height {
+        anyhow::bail!(
+            "crop {left},{top} {width}x{height} exceeds image {}x{}",
+            image.width,
+            image.height
+        );
+    }
+    let mut pixels = Vec::with_capacity(width.saturating_mul(height).saturating_mul(4));
+    let source_stride = image.width * 4;
+    let row_bytes = width * 4;
+    for row in top..bottom {
+        let start = row * source_stride + left * 4;
+        pixels.extend_from_slice(&image.pixels[start..start + row_bytes]);
+    }
+    Ok(WindowImage {
+        width,
+        height,
+        pixels,
+        mode,
+    })
 }
 
 /// Whether a capture is a picture of something rather than one flat colour.
@@ -178,7 +271,12 @@ fn window_size(window: winapi::shared::windef::HWND) -> anyhow::Result<(usize, u
     use winapi::shared::windef::RECT;
     use winapi::um::winuser::GetWindowRect;
 
-    let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
     // SAFETY: the rect is ours and the handle was just validated.
     if unsafe { GetWindowRect(window, &mut rect) } == 0 {
         anyhow::bail!("could not measure the window: {}", last_error());
@@ -283,7 +381,12 @@ fn screen_under(
     use winapi::um::wingdi::{BitBlt, SRCCOPY};
     use winapi::um::winuser::{GetDC, GetWindowRect, ReleaseDC};
 
-    let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
     // SAFETY: the DC is released on every path out.
     unsafe {
         if GetWindowRect(window, &mut rect) == 0 {
@@ -359,6 +462,7 @@ unsafe fn into_bitmap(
 
     let previous = SelectObject(memory_dc, bitmap as *mut _);
     let drawn = draw(memory_dc);
+    let draw_error = (!drawn).then(last_error);
 
     let mut pixels = Vec::new();
     if drawn {
@@ -378,7 +482,12 @@ unsafe fn into_bitmap(
     if drawn {
         Ok(pixels)
     } else {
-        anyhow::bail!("the window did not draw itself")
+        anyhow::bail!(
+            "the source did not draw into the capture bitmap: {}",
+            draw_error
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "unknown Windows error".to_string())
+        )
     }
 }
 
@@ -428,6 +537,59 @@ mod tests {
         assert_eq!(region.width, 500);
     }
 
+    #[test]
+    fn cropping_keeps_the_requested_rows_and_columns() {
+        let mut pixels = Vec::new();
+        for index in 0..12u8 {
+            pixels.extend_from_slice(&[index, index, index, 255]);
+        }
+        let cropped = crop_image(
+            WindowImage {
+                width: 4,
+                height: 3,
+                pixels,
+                mode: "source",
+            },
+            1,
+            1,
+            2,
+            2,
+            "crop",
+        )
+        .expect("in-bounds crop");
+
+        assert_eq!((cropped.width, cropped.height), (2, 2));
+        assert_eq!(cropped.mode, "crop");
+        assert_eq!(
+            cropped
+                .pixels
+                .chunks_exact(4)
+                .map(|pixel| pixel[0])
+                .collect::<Vec<_>>(),
+            vec![5, 6, 9, 10]
+        );
+    }
+
+    #[test]
+    fn cropping_refuses_a_rectangle_past_the_source_edge() {
+        let err = crop_image(
+            WindowImage {
+                width: 2,
+                height: 2,
+                pixels: vec![0; 2 * 2 * 4],
+                mode: "source",
+            },
+            1,
+            1,
+            2,
+            2,
+            "crop",
+        )
+        .expect_err("out-of-bounds crops must not index the pixel buffer");
+
+        assert!(err.to_string().contains("exceeds image"));
+    }
+
     /// Naming nothing would mean picking somebody's window at random.
     #[test]
     fn a_capture_has_to_say_which_window() {
@@ -447,7 +609,10 @@ mod tests {
             .expect_err("a console process has no window");
         // The whole chain: the outermost message says what was being done,
         // and the reason it failed is underneath it.
-        assert!(format!("{err:#}").contains("no visible window matched"), "{err:#}");
+        assert!(
+            format!("{err:#}").contains("no visible window matched"),
+            "{err:#}"
+        );
     }
 
     /// One flat colour is what a compositor-drawn window returns when it

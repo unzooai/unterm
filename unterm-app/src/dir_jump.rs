@@ -89,7 +89,10 @@ pub fn locations() -> Vec<Entry> {
             }
             // The startup disk appears here as a symlink to `/`, which is
             // already reachable and would list everything twice.
-            if std::fs::read_link(&path).map(|target| target == Path::new("/")).unwrap_or(false) {
+            if std::fs::read_link(&path)
+                .map(|target| target == Path::new("/"))
+                .unwrap_or(false)
+            {
                 continue;
             }
             if path.is_dir() {
@@ -156,7 +159,10 @@ pub fn split_path_query(expanded: &str, windows: bool) -> Option<(String, String
     }
     let (parent, fragment) = match expanded.rfind('/') {
         Some(0) => ("/".to_string(), expanded[1..].to_string()),
-        Some(index) => (expanded[..index].to_string(), expanded[index + 1..].to_string()),
+        Some(index) => (
+            expanded[..index].to_string(),
+            expanded[index + 1..].to_string(),
+        ),
         None => return None,
     };
     let parent = if windows && parent.len() == 2 && parent.ends_with(':') {
@@ -356,7 +362,10 @@ fn path_completions(query: &str) -> Vec<Entry> {
     let lowered = fragment.to_lowercase();
     children.sort_by_key(|entry| {
         let label = entry.label.to_lowercase();
-        (label.find(&lowered).unwrap_or(usize::MAX - 1), entry.label.clone())
+        (
+            label.find(&lowered).unwrap_or(usize::MAX - 1),
+            entry.label.clone(),
+        )
     });
     rows.extend(children);
     rows
@@ -404,7 +413,9 @@ mod tests {
         let found = locations();
         if cfg!(windows) {
             assert!(!found.is_empty(), "at least the system drive");
-            assert!(found.iter().all(|entry| entry.section == Section::Locations));
+            assert!(found
+                .iter()
+                .all(|entry| entry.section == Section::Locations));
             assert!(
                 found.iter().any(|entry| entry.path.is_dir()),
                 "and they exist"
@@ -591,7 +602,10 @@ mod query_tests {
         let labels: Vec<&str> = rows.iter().map(|row| row.label.as_str()).collect();
         assert!(labels.contains(&"alpha"), "{labels:?}");
         assert!(labels.contains(&"beta"), "{labels:?}");
-        assert!(!labels.contains(&"a-file"), "a file was offered: {labels:?}");
+        assert!(
+            !labels.contains(&"a-file"),
+            "a file was offered: {labels:?}"
+        );
     }
 
     /// With a bare `dir/` and nothing typed after it, the directory itself is
@@ -602,7 +616,10 @@ mod query_tests {
         let root = tempfile::tempdir().expect("a temporary directory");
         std::fs::create_dir_all(root.path().join("child")).expect("make a child");
         let rows = for_query(root.path(), &format!("{}/", root.path().display()));
-        assert_eq!(rows.first().map(|row| row.path.as_path()), Some(root.path()));
+        assert_eq!(
+            rows.first().map(|row| row.path.as_path()),
+            Some(root.path())
+        );
     }
 
     /// And the fragment after the last separator filters, rather than being

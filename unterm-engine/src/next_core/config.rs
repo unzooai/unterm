@@ -148,11 +148,7 @@ impl Config {
             .entries
             .keys()
             .any(|key| key.starts_with(specific.as_str()));
-        let prefixes: &[&str] = if named {
-            &[]
-        } else {
-            &["platform.other."]
-        };
+        let prefixes: &[&str] = if named { &[] } else { &["platform.other."] };
 
         for prefix in prefixes.iter().copied().chain([specific.as_str()]) {
             for (key, (line, value)) in &self.entries {
@@ -205,10 +201,7 @@ pub fn current_platform() -> &'static str {
 fn mismatch(line: usize, key: &str, wanted: &str, got: &Value) -> ConfigError {
     ConfigError {
         line,
-        message: format!(
-            "`{key}` should be a {wanted}, but is a {}",
-            got.type_name()
-        ),
+        message: format!("`{key}` should be a {wanted}, but is a {}", got.type_name()),
     }
 }
 
@@ -543,10 +536,7 @@ mod tests {
         assert_eq!(config.float_of("font_size").unwrap(), Some(12.5));
         assert_eq!(config.int_of("scrollback_lines").unwrap(), Some(10000));
         assert_eq!(config.bool_of("use_ime").unwrap(), Some(true));
-        assert_eq!(
-            config.str_of("font_family").unwrap(),
-            Some("Cascadia Mono")
-        );
+        assert_eq!(config.str_of("font_family").unwrap(), Some("Cascadia Mono"));
     }
 
     #[test]
@@ -692,7 +682,11 @@ mod tests {
 
         assert_eq!(errors.len(), 1);
         // Suggesting something unrelated is worse than suggesting nothing.
-        assert!(!errors[0].message.contains("did you mean"), "{}", errors[0].message);
+        assert!(
+            !errors[0].message.contains("did you mean"),
+            "{}",
+            errors[0].message
+        );
     }
 
     #[test]
@@ -711,7 +705,11 @@ mod tests {
         // Last-wins means editing the top of the file silently does nothing.
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].line, 2);
-        assert!(errors[0].message.contains("line 1"), "{}", errors[0].message);
+        assert!(
+            errors[0].message.contains("line 1"),
+            "{}",
+            errors[0].message
+        );
     }
 
     #[test]
@@ -823,7 +821,10 @@ mod tests {
 
         // The `else` arm this converts from only ran when no branch above
         // matched. Applying it here too would put `/bin/bash` on Windows.
-        assert_eq!(config.resolve_platform("windows").str_of("shell").unwrap(), None);
+        assert_eq!(
+            config.resolve_platform("windows").str_of("shell").unwrap(),
+            None
+        );
         assert_eq!(
             config.resolve_platform("linux").str_of("shell").unwrap(),
             Some("/bin/bash")
@@ -848,7 +849,11 @@ mod tests {
         let errors = config.resolve_platform("windows").validate_keys(&["shell"]);
 
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("did you mean `shell`"), "{}", errors[0].message);
+        assert!(
+            errors[0].message.contains("did you mean `shell`"),
+            "{}",
+            errors[0].message
+        );
     }
 
     #[test]

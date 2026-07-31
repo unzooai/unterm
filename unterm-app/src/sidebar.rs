@@ -19,7 +19,13 @@ use std::collections::HashMap;
 /// Measured in points against the display rather than in terminal cells: the
 /// strip is chrome, and a panel that changes width when somebody zooms the
 /// terminal is a panel that moves for no reason.
-pub fn width(open: bool, requested_points: Option<f32>, window_width: f32, scale: f32) -> f32 {
+pub fn width(
+    open: bool,
+    requested_points: Option<f32>,
+    tab_count: usize,
+    window_width: f32,
+    scale: f32,
+) -> f32 {
     if !open {
         return 0.0;
     }
@@ -28,9 +34,19 @@ pub fn width(open: bool, requested_points: Option<f32>, window_width: f32, scale
     let widest = (window_points * crate::ui_tokens::LEFT_TAB_BAR_MAX_RATIO)
         .max(crate::ui_tokens::LEFT_TAB_BAR_MIN_WIDTH);
     let points = requested_points
-        .unwrap_or(crate::ui_tokens::LEFT_TAB_BAR_WIDTH)
+        .unwrap_or_else(|| adaptive_default_width(tab_count))
         .clamp(crate::ui_tokens::LEFT_TAB_BAR_MIN_WIDTH, widest);
     (points * pt).round()
+}
+
+/// The previous front end kept a one-tab window compact and only spent the
+/// full sidebar width once the list actually needed it.
+pub fn adaptive_default_width(tab_count: usize) -> f32 {
+    match tab_count {
+        0 | 1 => 148.0,
+        2..=4 => 156.0,
+        _ => crate::ui_tokens::LEFT_TAB_BAR_WIDTH,
+    }
 }
 
 /// The icon a tab row leads with.
@@ -137,7 +153,15 @@ pub enum Row {
         /// the reason it is here rather than on a top-bar tab: an agent waiting
         /// for an answer has to be visible from whichever tab you are in.
         badge: Option<crate::cockpit::Badge>,
+        indicators: Indicators,
     },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Indicators {
+    pub unread: bool,
+    pub running: bool,
+    pub error: bool,
 }
 
 /// One tab, as the strip needs to know it.
@@ -156,6 +180,7 @@ pub struct TabInfo {
     /// The command running in front of the shell, if one is.
     pub foreground: Option<String>,
     pub active: bool,
+    pub indicators: Indicators,
 }
 
 /// Build the strip's lines.
@@ -163,7 +188,9 @@ pub fn rows(tabs: &[TabInfo], collapsed: &std::collections::HashSet<String>) -> 
     let projects: Vec<(String, String)> = {
         let mut seen = Vec::new();
         for tab in tabs {
-            let Some(cwd) = tab.cwd.as_deref() else { continue };
+            let Some(cwd) = tab.cwd.as_deref() else {
+                continue;
+            };
             let key = project_key(cwd);
             if !seen.iter().any(|(existing, _)| *existing == key) {
                 seen.push((key, cwd.to_string()));
@@ -223,9 +250,33 @@ pub fn rows(tabs: &[TabInfo], collapsed: &std::collections::HashSet<String>) -> 
             icon: shell_icon(tab.agent.as_deref().unwrap_or(&tab.title)),
             grouped,
             badge: tab.badge,
+            indicators: tab.indicators,
         });
     }
     rows
+}
+
+/// Cheap tail classifier for a background tab's sticky error indicator.
+pub fn output_looks_like_error(lines: &[String]) -> bool {
+    lines.iter().any(|line| {
+        let line = line.trim().to_ascii_lowercase();
+        if line.contains("0 failed") || line.contains("failed: 0") {
+            return false;
+        }
+        [
+            "error:",
+            "error[",
+            "fatal:",
+            "panic",
+            "traceback",
+            "exception:",
+            "test result: failed",
+            "tests failed",
+            "build failed",
+        ]
+        .iter()
+        .any(|marker| line.contains(marker))
+    })
 }
 
 /// What a tab's line says.
@@ -381,6 +432,71 @@ fn shortest_unique_parent_hints(projects: &[(String, String)]) -> HashMap<String
 ///
 /// Clamped so a list that shrinks -- a tab closed, a group collapsed -- cannot
 /// leave the strip scrolled past its own end showing nothing.
+/// Clicks on one strip row, counted so only a true same-row double-click
+/// renames. Terminal-pane clicks keep their own counter: a click in the pane
+/// and a click on the row are different gestures even when they come fast.
+#[derive(Clone, Debug)]
+pub struct RowClick {
+    row: usize,
+    x: f32,
+    y: f32,
+    at: std::time::Instant,
+    streak: usize,
+}
+
+impl RowClick {
+    const DOUBLE_CLICK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+    const DOUBLE_CLICK_SLOP_PT: f32 = 8.0;
+
+    pub fn first(row: usize, x: f32, y: f32) -> Self {
+        Self {
+            row,
+            x,
+            y,
+            at: std::time::Instant::now(),
+            streak: 1,
+        }
+    }
+
+    /// The next press: a continuation of the streak when it lands on the same
+    /// row, nearby, and soon enough — a fresh first click otherwise.
+    pub fn again(&self, row: usize, x: f32, y: f32) -> Self {
+        let now = std::time::Instant::now();
+        let same_target = row == self.row
+            && (x - self.x).abs() <= Self::DOUBLE_CLICK_SLOP_PT
+            && (y - self.y).abs() <= Self::DOUBLE_CLICK_SLOP_PT
+            && now.duration_since(self.at) <= Self::DOUBLE_CLICK_INTERVAL;
+        Self {
+            row,
+            x,
+            y,
+            at: now,
+            streak: if same_target { self.streak + 1 } else { 1 },
+        }
+    }
+
+    pub fn streak(&self) -> usize {
+        self.streak
+    }
+}
+
+/// One full working-dot breathing cycle, quantised so an otherwise idle
+/// window repaints four times per cycle rather than every frame.
+pub const BREATH_CYCLE_MS: u64 = 3200;
+const BREATH_STEPS: u64 = 4;
+
+/// Which quantised phase of the breathing cycle this moment falls in.
+pub fn breath_step(elapsed_ms: u64) -> u8 {
+    ((elapsed_ms % BREATH_CYCLE_MS) / (BREATH_CYCLE_MS / BREATH_STEPS)) as u8
+}
+
+/// The working badge's opacity for a phase: a cosine swell between 0.45 and
+/// 1.0, sampled at the middle of the step so the four frames read as motion.
+pub fn breath_alpha(step: u8) -> f32 {
+    let phase = (f32::from(step) + 0.5) / BREATH_STEPS as f32;
+    0.45 + 0.55 * (0.5 - 0.5 * (std::f32::consts::TAU * phase).cos())
+}
+
 pub fn clamp_scroll(scroll_top: usize, rows: usize, visible: usize) -> usize {
     scroll_top.min(rows.saturating_sub(visible))
 }
@@ -413,11 +529,18 @@ mod tests {
     /// is the tests' own joining rather than something the painter uses.
     fn text_of(row: &Row) -> String {
         match row {
-            Row::Group { label, hint, count, .. } => match hint {
+            Row::Group {
+                label, hint, count, ..
+            } => match hint {
                 Some(hint) => format!("{hint}/{label}  {count}"),
                 None => format!("{label}  {count}"),
             },
-            Row::Tab { index, label, detail, .. } => match detail {
+            Row::Tab {
+                index,
+                label,
+                detail,
+                ..
+            } => match detail {
                 Some(detail) => format!(" {}  {label}  {detail}", index + 1),
                 None => format!(" {}  {label}", index + 1),
             },
@@ -433,6 +556,7 @@ mod tests {
             cwd: cwd.map(str::to_string),
             foreground: None,
             active: index == 0,
+            indicators: Indicators::default(),
         }
     }
 
@@ -461,6 +585,7 @@ mod tests {
                 cwd: Some("/work/some/deeply/nested/project".to_string()),
                 foreground: Some("npm run dev --workspace=everything".to_string()),
                 active: true,
+                indicators: Indicators::default(),
             },
             tab(1, "pwsh", Some("/elsewhere/project")),
         ]);
@@ -494,8 +619,67 @@ mod tests {
             cwd: Some("/work/app".to_string()),
             foreground: Some("cargo test".to_string()),
             active: true,
+            indicators: Indicators::default(),
         }]);
         assert!(text_of(&rows[0]).contains("cargo test"));
+    }
+
+    #[test]
+    fn shell_command_project_and_known_agent_are_visually_distinct() {
+        let shell = rows_of(&[tab(0, "pwsh", Some("/work/app"))]);
+        assert!(text_of(&shell[0]).contains("pwsh"));
+
+        let command = rows_of(&[TabInfo {
+            foreground: Some("cargo test".into()),
+            ..tab(0, "pwsh", Some("/work/app"))
+        }]);
+        assert!(text_of(&command[0]).contains("cargo test"));
+
+        let projects = rows_of(&[
+            tab(0, "pwsh", Some("/work/alpha")),
+            tab(1, "pwsh", Some("/work/beta")),
+        ]);
+        assert!(labels(&projects).contains(&"[alpha]".to_string()));
+
+        let agent = rows_of(&[TabInfo {
+            agent: Some("codex".into()),
+            ..tab(0, "pwsh", Some("/work/app"))
+        }]);
+        assert!(text_of(&agent[0]).contains("codex"));
+        assert!(!text_of(&agent[0]).contains("pwsh"));
+    }
+
+    #[test]
+    fn error_tail_detection_ignores_successful_zero_failure_summaries() {
+        assert!(output_looks_like_error(&[
+            "error: could not compile".to_string()
+        ]));
+        assert!(output_looks_like_error(&[
+            "Traceback (most recent call last)".to_string()
+        ]));
+        assert!(!output_looks_like_error(&[
+            "test result: ok. 42 passed; 0 failed".to_string()
+        ]));
+    }
+
+    #[test]
+    fn tab_indicators_survive_grouping() {
+        let indicators = Indicators {
+            unread: true,
+            running: true,
+            error: true,
+        };
+        let rows = rows_of(&[TabInfo {
+            indicators,
+            ..tab(0, "pwsh", Some("/work/app"))
+        }]);
+        assert!(matches!(
+            rows.as_slice(),
+            [Row::Tab {
+                indicators: actual,
+                ..
+            }] if *actual == indicators
+        ));
     }
 
     /// A closed strip takes nothing, and an open one takes the default width
@@ -503,14 +687,21 @@ mod tests {
     /// chrome, and it must not move when the terminal is zoomed.
     #[test]
     fn a_closed_strip_takes_no_width() {
-        assert_eq!(width(false, None, 1600.0, 1.0), 0.0);
-        let open = width(true, None, 1600.0, 1.0);
+        assert_eq!(width(false, None, 1, 1600.0, 1.0), 0.0);
+        let open = width(true, None, 1, 1600.0, 1.0);
         assert!(open > 0.0);
         // The same window at a bigger scale gives a proportionally wider strip.
-        let scaled = width(true, None, 2400.0, 1.5);
-        assert!(
-            (scaled / open - 1.5).abs() < 0.05,
-            "{open} then {scaled}"
+        let scaled = width(true, None, 1, 2400.0, 1.5);
+        assert!((scaled / open - 1.5).abs() < 0.05, "{open} then {scaled}");
+    }
+
+    #[test]
+    fn the_default_width_grows_with_the_number_of_tabs() {
+        assert_eq!(adaptive_default_width(1), 148.0);
+        assert_eq!(adaptive_default_width(3), 156.0);
+        assert_eq!(
+            adaptive_default_width(8),
+            crate::ui_tokens::LEFT_TAB_BAR_WIDTH
         );
     }
 
@@ -519,12 +710,13 @@ mod tests {
     #[test]
     fn the_strip_never_takes_more_than_its_share() {
         for window in [400.0, 800.0, 1600.0, 3840.0] {
-            let widest = width(true, Some(10_000.0), window, 1.0);
+            let widest = width(true, Some(10_000.0), 1, window, 1.0);
             assert!(
                 widest <= window * crate::ui_tokens::LEFT_TAB_BAR_MAX_RATIO + 1.0
-                    || widest <= crate::ui_tokens::LEFT_TAB_BAR_MIN_WIDTH
-                        * crate::chrome_font::point(1.0)
-                        + 1.0,
+                    || widest
+                        <= crate::ui_tokens::LEFT_TAB_BAR_MIN_WIDTH
+                            * crate::chrome_font::point(1.0)
+                            + 1.0,
                 "a {window}px window gave a {widest}px strip"
             );
         }
@@ -534,7 +726,7 @@ mod tests {
     #[test]
     fn the_strip_never_collapses_to_nothing_while_open() {
         for window in [200.0, 600.0, 1600.0] {
-            assert!(width(true, Some(0.0), window, 1.0) > 0.0);
+            assert!(width(true, Some(0.0), 1, window, 1.0) > 0.0);
         }
     }
 
@@ -617,7 +809,10 @@ mod tests {
     #[test]
     fn a_tab_with_no_directory_is_still_listed() {
         let rows = rows_of(&[tab(0, "pwsh", None), tab(1, "pwsh", Some("/work/app"))]);
-        let tabs = rows.iter().filter(|row| matches!(row, Row::Tab { .. })).count();
+        let tabs = rows
+            .iter()
+            .filter(|row| matches!(row, Row::Tab { .. }))
+            .count();
         assert_eq!(tabs, 2, "{:?}", labels(&rows));
     }
 
@@ -700,6 +895,31 @@ mod naming_tests {
         assert!(!same_program("cargo", "pwsh"));
         assert!(!same_program("npm run dev", "pwsh"));
         assert!(!same_program("", "pwsh"));
+    }
+
+    /// A double-click is two presses on the same row, near each other; a
+    /// press on a different row, or too far away, starts a new streak.
+    #[test]
+    fn row_double_click_requires_the_same_row_and_nearby_coordinates() {
+        let first = RowClick::first(2, 40.0, 80.0);
+        assert_eq!(first.again(2, 44.0, 84.0).streak(), 2);
+        assert_eq!(first.again(3, 44.0, 84.0).streak(), 1);
+        assert_eq!(first.again(2, 60.0, 80.0).streak(), 1);
+    }
+
+    /// The breathing badge swells between its floor and full opacity, and the
+    /// quantised step wraps at the end of a cycle.
+    #[test]
+    fn breath_steps_wrap_and_alpha_stays_visible() {
+        assert_eq!(breath_step(0), 0);
+        assert_eq!(breath_step(BREATH_CYCLE_MS - 1), 3);
+        assert_eq!(breath_step(BREATH_CYCLE_MS), 0);
+        for step in 0..4u8 {
+            let alpha = breath_alpha(step);
+            assert!((0.45..=1.0).contains(&alpha), "step {step}: {alpha}");
+        }
+        // The cycle actually moves: its dimmest and brightest frames differ.
+        assert!((breath_alpha(0) - breath_alpha(2)).abs() > 0.3);
     }
 
     /// The home directory is "Home". A header reading the account name names

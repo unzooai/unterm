@@ -190,7 +190,10 @@ const SYSTEM_AT_ROOT: &[&str] = &[
 
 /// Whether a row is drawn dimmed.
 pub fn is_hidden(path: &Path, at_filesystem_root: bool) -> bool {
-    let Some(name) = path.file_name().map(|name| name.to_string_lossy().to_string()) else {
+    let Some(name) = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+    else {
         return false;
     };
     name.starts_with('.') || (at_filesystem_root && SYSTEM_AT_ROOT.contains(&name.as_str()))

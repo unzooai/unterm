@@ -151,8 +151,7 @@ fn apply_claude(home: &Path, cli: &str, remove: bool, dry_run: bool) -> HookRepo
                             .and_then(|c| c.as_str())
                             .map(|c| c.contains("agent signal"))
                             .unwrap_or(false);
-                        if is_sig
-                            && h.get("command").and_then(|c| c.as_str()) != Some(cmd.as_str())
+                        if is_sig && h.get("command").and_then(|c| c.as_str()) != Some(cmd.as_str())
                         {
                             h["command"] = serde_json::json!(cmd.clone());
                             changed = true;
@@ -320,14 +319,13 @@ fn apply_aider(home: &Path, cli: &str, remove: bool, dry_run: bool) -> HookRepor
             .lines()
             .filter(|l| {
                 !(l.contains(AIDER_MARK)
-                    || (l.starts_with("notifications:") )
+                    || (l.starts_with("notifications:"))
                     || (l.starts_with("notifications-command:") && l.contains("agent signal")))
             })
             .collect();
         let base = stripped.join("\n");
-        let block = format!(
-            "\n{AIDER_MARK}\nnotifications: true\nnotifications-command: {expected}\n"
-        );
+        let block =
+            format!("\n{AIDER_MARK}\nnotifications: true\nnotifications-command: {expected}\n");
         if dry_run {
             return report("would write".into());
         }
@@ -340,9 +338,7 @@ fn apply_aider(home: &Path, cli: &str, remove: bool, dry_run: bool) -> HookRepor
     if text.contains("notifications-command:") {
         return report("skipped(user already has notifications-command)".into());
     }
-    let block = format!(
-        "\n{AIDER_MARK}\nnotifications: true\nnotifications-command: {expected}\n"
-    );
+    let block = format!("\n{AIDER_MARK}\nnotifications: true\nnotifications-command: {expected}\n");
     if dry_run {
         return report("would write".into());
     }
@@ -378,9 +374,10 @@ mod tests {
 
         let r = apply_claude(&home, "unterm-cli", false, false);
         assert_eq!(r.action, "written");
-        let v: Value =
-            serde_json::from_str(&std::fs::read_to_string(home.join(".claude/settings.json")).unwrap())
-                .unwrap();
+        let v: Value = serde_json::from_str(
+            &std::fs::read_to_string(home.join(".claude/settings.json")).unwrap(),
+        )
+        .unwrap();
         // User's model + existing Stop hook survive; ours appended.
         assert_eq!(v["model"], "opus");
         assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 2);
@@ -401,9 +398,10 @@ mod tests {
         // Remove strips only ours.
         let r = apply_claude(&home, "unterm-cli", true, false);
         assert_eq!(r.action, "written");
-        let v: Value =
-            serde_json::from_str(&std::fs::read_to_string(home.join(".claude/settings.json")).unwrap())
-                .unwrap();
+        let v: Value = serde_json::from_str(
+            &std::fs::read_to_string(home.join(".claude/settings.json")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 1);
         assert!(v["hooks"].get("Notification").is_none());
         let _ = std::fs::remove_dir_all(&home);
@@ -427,7 +425,9 @@ mod tests {
             &std::fs::read_to_string(home.join(".claude/settings.json")).unwrap(),
         )
         .unwrap();
-        let cmd = v["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
+        let cmd = v["hooks"]["Stop"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap();
         assert!(cmd.starts_with('"'), "not repaired: {}", cmd);
         // No duplicate entry was appended.
         assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 1);

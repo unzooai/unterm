@@ -34,9 +34,13 @@ case ${OSTYPE:-} in
     rm -f "$zipdir/Unterm.app/"*.dylib
     mkdir -p "$zipdir/Unterm.app/Contents/MacOS"
     mkdir -p "$zipdir/Unterm.app/Contents/Resources"
+    mkdir -p "$zipdir/Unterm.app/Contents/Resources/assets/fonts"
     cp -r assets/shell-integration/* "$zipdir/Unterm.app/Contents/Resources"
     cp -r assets/shell-completion "$zipdir/Unterm.app/Contents/Resources"
     cp assets/unterm.conf "$zipdir/Unterm.app/Contents/Resources/unterm.conf"
+    cp assets/fonts/SymbolsNerdFontMono-Regular.ttf \
+       assets/fonts/NotoColorEmoji.ttf \
+       "$zipdir/Unterm.app/Contents/Resources/assets/fonts/"
     tic -xe wezterm -o "$zipdir/Unterm.app/Contents/Resources/terminfo" termwiz/data/wezterm.terminfo
 
     for bin in unterm unterm-cli ; do
@@ -111,6 +115,10 @@ case ${OSTYPE:-} in
     # defaults/ copy is the lowest-priority fallback in config.rs.
     mkdir -p "$stagedir/defaults"
     cp assets/unterm.conf "$stagedir/defaults/unterm.conf"
+    mkdir -p "$stagedir/assets/fonts"
+    cp assets/fonts/SymbolsNerdFontMono-Regular.ttf \
+       assets/fonts/NotoColorEmoji.ttf \
+       "$stagedir/assets/fonts/"
     # Mesa software-GL fallback is x64-only — no maintained Windows-arm64
     # prebuilt; arm64 relies on ANGLE (D3D-backed). The MSI drops its Mesa
     # component for arm64 via the $(sys.BUILDARCH) guard in Unterm.wxs.
@@ -188,6 +196,10 @@ EOF
     done
     install -Dm644 assets/icon/unterm-icon.svg "$debroot/usr/share/icons/hicolor/scalable/apps/ai.unzoo.unterm.svg"
     install -Dm644 assets/unterm.conf "$debroot/usr/share/unterm/unterm.conf"
+    install -Dm644 assets/fonts/SymbolsNerdFontMono-Regular.ttf \
+      "$debroot/usr/share/unterm/fonts/SymbolsNerdFontMono-Regular.ttf"
+    install -Dm644 assets/fonts/NotoColorEmoji.ttf \
+      "$debroot/usr/share/unterm/fonts/NotoColorEmoji.ttf"
     install -Dm644 assets/unterm.desktop "$debroot/usr/share/applications/ai.unzoo.unterm.desktop"
     install -Dm644 assets/unterm.appdata.xml "$debroot/usr/share/metainfo/ai.unzoo.unterm.appdata.xml"
     install -Dm644 assets/shell-completion/bash "$debroot/usr/share/bash-completion/completions/unterm"

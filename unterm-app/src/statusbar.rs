@@ -19,11 +19,9 @@
 /// How tall the bar is, in rows of chrome text.
 pub const ROWS: usize = 1;
 
-/// The mark at the left-hand end that opens the quick menu.
-///
-/// A menu here as well as in the top bar because this is where the eye already
-/// is when the question is about *this* pane.
-pub const MENU: &str = "\u{25BE}";
+// 0.57.4's bar carried no menu mark: it opens with the shell's name, and the
+// quick menu lives on the top bar's chevron alone. The extra `▾` this bar
+// briefly grew read as a difference from every released window, so it is gone.
 
 /// What the bar shows at a given width, in columns of chrome text.
 ///
@@ -92,6 +90,11 @@ pub struct Segment {
     /// Chips are drawn dimmer than the shell and the path, which is what makes
     /// where-you-are readable at a glance rather than one of nine things.
     pub dim: bool,
+    /// Where the accent-coloured value starts, when the segment has one.
+    /// 0.57.4 drew every actionable value — the path, and everything after a
+    /// chip's colon — in the theme's teal, which is what made the bar read as
+    /// labels-and-values rather than one grey line.
+    pub teal_from: Option<usize>,
 }
 
 /// The shell's name, with the version where two versions behave differently.
@@ -231,10 +234,7 @@ fn middle(text: &str, columns: usize) -> String {
 
 /// The bar's segments, in order, for a window this many columns wide.
 pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
-    let mut segments = vec![Segment {
-        text: MENU.to_string(),
-        dim: true,
-    }];
+    let mut segments = Vec::new();
     if columns < 12 {
         return segments;
     }
@@ -246,28 +246,35 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
             segments.push(Segment {
                 text: format!("\u{2713} {}", middle(notice, columns.saturating_sub(4))),
                 dim: false,
+                teal_from: None,
             });
             return segments;
         }
     }
 
     let density = density(columns);
-    let mut push = |text: String, dim: bool, into: &mut Vec<Segment>| {
+    let mut push = |text: String, dim: bool, teal_from: Option<usize>, into: &mut Vec<Segment>| {
         if !text.is_empty() {
-            into.push(Segment { text, dim });
+            into.push(Segment {
+                text,
+                dim,
+                teal_from,
+            });
         }
     };
 
     // The shell, where, and how big: the three that are always there.
-    push(status.shell.clone(), false, &mut segments);
+    push(status.shell.clone(), false, None, &mut segments);
     push(
         short_path(&status.directory, density.cwd_columns),
         false,
+        Some(0),
         &mut segments,
     );
     push(
         format!("{}x{}", status.columns, status.rows),
         true,
+        None,
         &mut segments,
     );
 
@@ -275,14 +282,16 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
         push(
             format!("project:{}", middle(&status.project, 18)),
             true,
+            Some("project:".len()),
             &mut segments,
         );
     }
     // Both capture chips, always as a pair: they are two halves of one
     // decision, and one of them alone reads as a state rather than a choice.
     if density.show_capture {
-        push("capture:exclude".to_string(), true, &mut segments);
-        push("capture:include".to_string(), true, &mut segments);
+        let value = "capture:".len();
+        push("capture:exclude".to_string(), true, Some(value), &mut segments);
+        push("capture:include".to_string(), true, Some(value), &mut segments);
     }
     if density.show_telemetry {
         push(
@@ -291,6 +300,7 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
                 None => "proxy:off".to_string(),
             },
             true,
+            Some("proxy:".len()),
             &mut segments,
         );
         // Always drawn, even at zero, so the position is stable: a chip that
@@ -308,11 +318,17 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
                 }
             ),
             true,
+            Some("mcp:".len()),
             &mut segments,
         );
     }
     if density.show_theme && !status.theme.is_empty() {
-        push(format!("theme:{}", status.theme), true, &mut segments);
+        push(
+            format!("theme:{}", status.theme),
+            true,
+            Some("theme:".len()),
+            &mut segments,
+        );
     }
     if density.show_profile {
         // A dash rather than nothing when no profile is bound: the chip is how
@@ -322,6 +338,7 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
         push(
             format!("profile:{}", middle(profile, 18)),
             true,
+            Some("profile:".len()),
             &mut segments,
         );
     }
@@ -330,12 +347,6 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
 
 /// The gap between segments: three spaces.
 pub const GAP: &str = "   ";
-
-/// Whether a press at `column` opens the quick menu.
-pub fn menu_hit(column: usize, columns: usize) -> bool {
-    let _ = columns;
-    column <= 1
-}
 
 /// A program's bare name, for the places that want one.
 pub fn short_name(program: &str) -> String {
@@ -388,7 +399,6 @@ mod tests {
     fn the_segments_come_in_the_order_they_did_before() {
         let shown = texts(&segments(&status(), 200));
         let wanted = [
-            MENU,
             "pwsh 7",
             "project:unterm",
             "capture:exclude",
@@ -516,8 +526,8 @@ mod tests {
         let mut status = status();
         status.notice = Some("copied".into());
         let shown = texts(&segments(&status, 200));
-        assert_eq!(shown.len(), 2, "{shown:?}");
-        assert!(shown[1].contains("copied"), "{shown:?}");
+        assert_eq!(shown.len(), 1, "{shown:?}");
+        assert!(shown[0].contains("copied"), "{shown:?}");
     }
 
     /// The profile chip shows a dash rather than vanishing: it is how somebody
@@ -544,12 +554,23 @@ mod tests {
         }
     }
 
-    /// The menu is at the left-hand end and is the only thing a press there
-    /// finds.
+    /// The chips carry their value offsets, so the painter can colour the
+    /// answer without re-parsing the text.
     #[test]
-    fn the_menu_sits_at_the_left_hand_end() {
-        assert!(menu_hit(0, 120));
-        assert!(menu_hit(1, 120));
-        assert!(!menu_hit(4, 120));
+    fn chips_know_where_their_values_start() {
+        let shown = segments(&status(), 200);
+        let of = |prefix: &str| {
+            shown
+                .iter()
+                .find(|s| s.text.starts_with(prefix))
+                .unwrap_or_else(|| panic!("{prefix:?} missing"))
+                .teal_from
+        };
+        assert_eq!(of("theme:"), Some("theme:".len()));
+        assert_eq!(of("capture:exclude"), Some("capture:".len()));
+        // The path is the second segment, and reads teal from its first
+        // character.
+        assert_eq!(shown[1].teal_from, Some(0));
+        assert_eq!(of("pwsh"), None);
     }
 }

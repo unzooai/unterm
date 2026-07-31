@@ -2,9 +2,13 @@ param(
     [string]$OutputPath = "",
     [string]$SummaryJsonPath = "",
     [int]$InputWrites = 1000,
-    [int]$KeyToScreenRounds = 50,
+    # Fifty samples made p95 equal the third-slowest observation, so a small
+    # number of normal Windows/ConPTY scheduling spikes could flip the gate
+    # while the median and the engine were unchanged. Two hundred keeps the
+    # same 16 ms limit but gives the percentile a representative population.
+    [int]$KeyToScreenRounds = 200,
     [int]$InputBurstWrites = 1000,
-    [int]$EchoRounds = 50,
+    [int]$EchoRounds = 200,
     [int]$FloodLines = 100000,
     [int]$ScrollbackLines = 10000,
     [int]$ViewportScrollLines = 10000,

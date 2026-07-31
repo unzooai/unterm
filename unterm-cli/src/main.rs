@@ -5,7 +5,7 @@
 //! this is a binary of its own rather than a mode of the terminal: an agent on
 //! a headless box uses the same commands a user does at a prompt.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, ValueHint};
 use clap_complete::{generate as generate_completion, shells::Shell};
 
@@ -36,15 +36,15 @@ mod upload;
 mod workspace;
 
 use agent::AgentCommand;
-use fleet::FleetCommand;
-use review::ReviewCommand;
 use exec::ExecCommand;
+use fleet::FleetCommand;
 use instance::InstanceCommand;
 use lang::LangCommand;
 use policy::PolicyCommand;
 use profile::ProfileCommand;
 use proxy::ProxyCommand;
 use reference::ReferenceCommand;
+use review::ReviewCommand;
 use scrollback::ScrollbackCommand;
 use server::ServerCommand;
 use session::SessionCommand;
@@ -84,6 +84,19 @@ struct Opt {
 
 #[derive(Debug, Parser)]
 enum SubCommand {
+    #[command(name = "start", about = "Start a new Unterm GUI instance")]
+    Start {
+        /// Directory for the first pane.
+        #[arg(long, value_hint = ValueHint::DirPath)]
+        cwd: Option<std::path::PathBuf>,
+        /// Identity profile to bind to the new window.
+        #[arg(long)]
+        profile: Option<String>,
+        /// Program and arguments for the first pane; place them after `--`.
+        #[arg(last = true)]
+        command: Vec<String>,
+    },
+
     #[command(
         name = "profile",
         about = "Manage identity profiles (GitHub / AWS / npm tokens, git identity, SSH keys)"
@@ -255,6 +268,11 @@ fn main() -> Result<()> {
     apply_transient_lang(opts.lang.as_deref());
     set_target_instance(opts.instance.as_deref());
     match opts.cmd {
+        SubCommand::Start {
+            cwd,
+            profile,
+            command,
+        } => run_start(cwd, profile, command),
         SubCommand::Profile(cmd) => run_profile(cmd, opts.json),
         SubCommand::Proxy(cmd) => run_proxy(cmd, opts.json),
         SubCommand::Theme(cmd) => run_theme(cmd, opts.json),
@@ -313,6 +331,47 @@ fn main() -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn run_start(
+    cwd: Option<std::path::PathBuf>,
+    profile: Option<String>,
+    command: Vec<String>,
+) -> Result<()> {
+    let current = std::env::current_exe().context("locating unterm-cli executable")?;
+    let sibling = current.with_file_name(if cfg!(windows) {
+        "unterm.exe"
+    } else {
+        "unterm"
+    });
+    let program = if sibling.is_file() {
+        sibling
+    } else {
+        std::path::PathBuf::from(if cfg!(windows) {
+            "unterm.exe"
+        } else {
+            "unterm"
+        })
+    };
+    let mut launch = std::process::Command::new(&program);
+    launch.arg("start");
+    if let Some(cwd) = cwd {
+        launch.arg("--cwd").arg(cwd);
+    }
+    if let Some(profile) = profile {
+        launch.arg("--profile").arg(profile);
+    }
+    if !command.is_empty() {
+        launch.arg("--").args(command);
+    }
+    launch
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    launch
+        .spawn()
+        .with_context(|| format!("starting {}", program.display()))?;
+    Ok(())
 }
 
 pub fn set_target_instance(id: Option<&str>) {
@@ -409,5 +468,83 @@ pub fn run_mcp_stdio() -> Result<()> {
 pub fn apply_transient_lang(code: Option<&str>) {
     if let Some(c) = code {
         let _ = i18n::set_locale_transient(c);
+    }
+}
+
+#[cfg(test)]
+mod command_line_tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn start_accepts_window_identity_directory_and_program() {
+        let parsed = Opt::try_parse_from([
+            "unterm-cli",
+            "start",
+            "--cwd",
+            "D:\\work",
+            "--profile",
+            "work",
+            "--",
+            "python",
+            "-V",
+        ])
+        .unwrap();
+
+        let SubCommand::Start {
+            cwd,
+            profile,
+            command,
+        } = parsed.cmd
+        else {
+            panic!("expected start command");
+        };
+        assert_eq!(cwd, Some(std::path::PathBuf::from("D:\\work")));
+        assert_eq!(profile.as_deref(), Some("work"));
+        assert_eq!(command, ["python", "-V"]);
+    }
+
+    #[test]
+    fn actual_cli_exposes_every_required_product_family_and_global_override() {
+        let command = Opt::command();
+        let names: std::collections::HashSet<_> = command
+            .get_subcommands()
+            .map(|sub| sub.get_name())
+            .collect();
+        for required in [
+            "start",
+            "session",
+            "exec",
+            "sessions",
+            "workspace",
+            "instance",
+            "screenshot",
+            "upload",
+            "scrollback",
+            "reference",
+            "server",
+            "setup-ai",
+            "mcp-stdio",
+            "settings",
+            "policy",
+            "proxy",
+            "theme",
+            "profile",
+            "agent",
+            "fleet",
+            "review",
+            "lang",
+            "shell-completion",
+        ] {
+            assert!(names.contains(required), "missing CLI family {required}");
+        }
+        for global in ["json", "lang", "instance"] {
+            assert!(
+                command.get_arguments().any(
+                    |argument| argument.get_id().as_str() == global && argument.is_global_set()
+                ),
+                "--{global} is not global"
+            );
+        }
     }
 }

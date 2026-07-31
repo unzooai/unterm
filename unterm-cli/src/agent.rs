@@ -314,13 +314,20 @@ fn run_cockpit_status(pane: Option<&str>, json_out: bool) -> Result<()> {
     }
     let rows: Vec<&Value> = match result.get("agents").and_then(Value::as_array) {
         Some(arr) => arr.iter().collect(),
-        None => result.get("agent").into_iter().filter(|v| !v.is_null()).collect(),
+        None => result
+            .get("agent")
+            .into_iter()
+            .filter(|v| !v.is_null())
+            .collect(),
     };
     if rows.is_empty() {
         println!("no agents tracked");
         return Ok(());
     }
-    println!("{:<6} {:<3} {:<9} {:<10} {:<7} TASK", "PANE", "", "AGENT", "STATE", "FOR");
+    println!(
+        "{:<6} {:<3} {:<9} {:<10} {:<7} TASK",
+        "PANE", "", "AGENT", "STATE", "FOR"
+    );
     for item in rows {
         let state = item.get("state").and_then(Value::as_str).unwrap_or("");
         println!(
@@ -329,7 +336,10 @@ fn run_cockpit_status(pane: Option<&str>, json_out: bool) -> Result<()> {
             state_glyph(state),
             item.get("agent").and_then(Value::as_str).unwrap_or(""),
             state,
-            format!("{}s", item.get("for_secs").and_then(Value::as_u64).unwrap_or(0)),
+            format!(
+                "{}s",
+                item.get("for_secs").and_then(Value::as_u64).unwrap_or(0)
+            ),
             item.get("task_hint").and_then(Value::as_str).unwrap_or("-"),
         );
     }
@@ -346,9 +356,14 @@ fn run_cockpit_signal(
     // only unique within one instance, so with several Unterm windows a
     // signal sent to "the latest instance" would tag the wrong pane.
     // gui-sock-<pid> in the inherited env is the instance-unique key.
-    if let Some(pid) = unterm_services::env_names::var("UNIX_SOCKET").ok_or(())
+    if let Some(pid) = unterm_services::env_names::var("UNIX_SOCKET")
+        .ok_or(())
         .ok()
-        .and_then(|s| s.rsplit("gui-sock-").next().and_then(|p| p.parse::<u32>().ok()))
+        .and_then(|s| {
+            s.rsplit("gui-sock-")
+                .next()
+                .and_then(|p| p.parse::<u32>().ok())
+        })
     {
         if let Some(id) = super::client::instance_for_pid(pid) {
             super::client::set_target_instance(Some(&id));
@@ -412,8 +427,13 @@ fn run_cockpit_inbox(json_out: bool) -> Result<()> {
             state_glyph(state),
             item.get("agent").and_then(Value::as_str).unwrap_or(""),
             state,
-            format!("{}s", item.get("for_secs").and_then(Value::as_u64).unwrap_or(0)),
-            item.get("pane_title").and_then(Value::as_str).unwrap_or("-"),
+            format!(
+                "{}s",
+                item.get("for_secs").and_then(Value::as_u64).unwrap_or(0)
+            ),
+            item.get("pane_title")
+                .and_then(Value::as_str)
+                .unwrap_or("-"),
             item.get("task_hint").and_then(Value::as_str).unwrap_or("-"),
         );
     }
@@ -980,6 +1000,27 @@ fn mcp_wire_info() -> Option<unterm_agents::launcher::McpWireInfo> {
     })
 }
 
+/// Capture repository state before an agent process is allowed to start.
+///
+/// A directory outside Git is a normal launch location and needs no
+/// checkpoint. Once Git identifies a repository, however, snapshot failure is
+/// a safety failure: starting the agent anyway would defeat rollback.
+fn checkpoint_before_agent_launch(cwd: Option<&str>, agent: &str) -> Result<()> {
+    let directory = cwd
+        .map(std::path::PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(std::env::current_dir)?;
+    let Ok(root) = unterm_services::cockpit::review::repo_root(&directory) else {
+        return Ok(());
+    };
+    let pane_id = unterm_services::env_names::var("PANE")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    unterm_services::cockpit::review::record_auto_checkpoint(&root, agent, pane_id)
+        .with_context(|| format!("checkpoint repository before launching {agent}"))?;
+    Ok(())
+}
+
 fn run_launch(id: &str, profile: Option<&str>, cwd: Option<&str>) -> Result<()> {
     let (_, manifest) = lookup(id)?;
     let profile_id = profile_or_default(profile)?;
@@ -999,6 +1040,7 @@ fn run_launch(id: &str, profile: Option<&str>, cwd: Option<&str>) -> Result<()> 
         mcp: wire.as_ref(),
     })
     .map_err(|e| anyhow!(e.to_string()))?;
+    checkpoint_before_agent_launch(plan.cwd.as_deref(), &manifest.id)?;
 
     // Honour env injection then exec into the agent — Unterm should drop
     // out of the process tree once the agent is up.
@@ -1153,6 +1195,7 @@ fn run_headless(
         return Ok(());
     }
 
+    checkpoint_before_agent_launch(plan.cwd.as_deref(), id)?;
     let mut cmd = std::process::Command::new(&plan.exec);
     cmd.args(&args);
     if let Some(dir) = &plan.cwd {
@@ -1202,6 +1245,17 @@ fn shell_join(args: &[String]) -> String {
     }
 }
 
+#[cfg(not(windows))]
+fn shell_quote(s: &str) -> String {
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || ":/.,-_=".contains(c))
+    {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
 #[cfg(windows)]
 fn cmd_quote(s: &str) -> String {
     if s.is_empty() {
@@ -1240,10 +1294,9 @@ fn cmd_quote(s: &str) -> String {
     out
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::headless_args;
+    use super::{headless_args, shell_join};
 
     #[test]
     fn agent_headless_args_cover_supported_adapters() {
@@ -1286,6 +1339,15 @@ mod tests {
         assert_eq!(
             headless_args("trae-agent", vec!["--model".into(), "gpt-5".into()], prompt).unwrap(),
             vec!["--model", "gpt-5", "run", prompt]
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn shell_join_quotes_unix_metacharacters() {
+        assert_eq!(
+            shell_join(&["safe".into(), "$(touch /tmp/pwned)".into(), "a'b".into()]),
+            "safe '$(touch /tmp/pwned)' 'a'\\''b'"
         );
     }
 

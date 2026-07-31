@@ -16,7 +16,7 @@ pub enum Command {
     /// One of the front end's key actions, by the same name an agent sees.
     Action(crate::keys::Action),
     /// Start a new tab running a named program.
-    Launch { program: String },
+    Launch { program: String, args: Vec<String> },
     /// Take the focused pane to a directory.
     ChangeDirectory { path: String },
     /// Start a new tab already in a directory.
@@ -35,6 +35,19 @@ pub enum Command {
     TypeCharacter { glyph: String, name: String },
     /// Send a crew of agents at the task that has been typed.
     LaunchFleet { agents: Vec<String> },
+    /// Open the fuzzy project/tab navigator.
+    OpenTabNavigator,
+    /// Focus one stable tab selected by that navigator.
+    ActivateTab { tab_id: usize },
+    /// Give one tab the name that has been typed. An empty line hands the
+    /// tab back to automatic titling.
+    RenameTab { tab_id: usize },
+    /// Render the focused pane's entire scrollback to one tall PNG.
+    CaptureScrollback,
+    /// Open a page in the system browser.
+    OpenUrl { url: String },
+    /// Let the user drag a rectangle to capture from the desktop.
+    SelectCaptureRegion,
 }
 
 /// What picking a folder is for.
@@ -87,6 +100,18 @@ pub enum Source {
     Directories,
 }
 
+/// How a palette presents its first and last lines.
+///
+/// A shell chooser is not a command search box. Giving both the same blank
+/// `>` prompt made the launcher look like an unfinished command palette and
+/// hid the fact that the numbered rows could be selected.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum View {
+    #[default]
+    Search,
+    ShellSelector,
+}
+
 /// An open palette.
 #[derive(Clone, Debug, Default)]
 pub struct Palette {
@@ -96,6 +121,7 @@ pub struct Palette {
     pub matches: Vec<usize>,
     pub selected: usize,
     pub source: Source,
+    pub view: View,
     /// Something that went wrong, shown under the line rather than instead of
     /// the palette: the answer to "this repository has uncommitted changes" is
     /// to go and commit them and press Enter again, which needs the task still
@@ -111,6 +137,7 @@ impl Palette {
             matches: Vec::new(),
             selected: 0,
             source: Source::Fixed,
+            view: View::Search,
             error: None,
         };
         palette.refilter();
@@ -138,6 +165,13 @@ impl Palette {
         palette
     }
 
+    /// A fixed, explicitly-labelled list of shells.
+    pub fn shells(entries: Vec<Entry>) -> Self {
+        let mut palette = Self::new(entries);
+        palette.view = View::ShellSelector;
+        palette
+    }
+
     /// Replace the rows without disturbing what has been typed.
     ///
     /// The rows are shown in the order they arrive: they were already ordered
@@ -152,7 +186,10 @@ impl Palette {
 
     /// The rows to show, in order.
     pub fn visible(&self) -> Vec<&Entry> {
-        self.matches.iter().filter_map(|i| self.entries.get(*i)).collect()
+        self.matches
+            .iter()
+            .filter_map(|i| self.entries.get(*i))
+            .collect()
     }
 
     pub fn current(&self) -> Option<&Entry> {
@@ -243,6 +280,7 @@ pub enum Key {
     Type(String),
     Backspace,
     Step(isize),
+    Complete,
     Accept,
     Close,
     NotOurs,
@@ -260,6 +298,9 @@ pub fn key_for(named: Option<&str>, character: Option<&str>, ctrl: bool) -> Key 
         Some("Backspace") => return Key::Backspace,
         Some("ArrowDown") => return Key::Step(1),
         Some("ArrowUp") => return Key::Step(-1),
+        Some("PageDown") => return Key::Step(MAX_ROWS as isize),
+        Some("PageUp") => return Key::Step(-(MAX_ROWS as isize)),
+        Some("Tab") => return Key::Complete,
         // Space arrives as a named key rather than as a character, and falling
         // through to the character arm loses it. Which meant no query could
         // contain one: "new tab" typed as "newtab" found nothing, and a task
@@ -294,7 +335,11 @@ mod tests {
     fn an_empty_query_shows_everything_in_order() {
         let palette = palette(&["New Tab", "Close Tab", "Copy"]);
         assert_eq!(
-            palette.visible().iter().map(|e| e.label.as_str()).collect::<Vec<_>>(),
+            palette
+                .visible()
+                .iter()
+                .map(|e| e.label.as_str())
+                .collect::<Vec<_>>(),
             ["New Tab", "Close Tab", "Copy"]
         );
     }
@@ -386,19 +431,34 @@ mod tests {
     }
 
     #[test]
+    fn pages_and_tab_are_navigation_not_shell_input() {
+        assert_eq!(
+            key_for(Some("PageUp"), None, false),
+            Key::Step(-(MAX_ROWS as isize))
+        );
+        assert_eq!(
+            key_for(Some("PageDown"), None, false),
+            Key::Step(MAX_ROWS as isize)
+        );
+        assert_eq!(key_for(Some("Tab"), None, false), Key::Complete);
+    }
+
+    #[test]
     fn a_launcher_row_carries_the_program_it_starts() {
         let entry = Entry {
             label: "pwsh".to_string(),
             hint: "PowerShell".to_string(),
             command: Command::Launch {
                 program: "pwsh.exe".to_string(),
+                args: vec!["-NoLogo".to_string()],
             },
         };
         let palette = Palette::new(vec![entry]);
         assert_eq!(
             palette.current().map(|e| &e.command),
             Some(&Command::Launch {
-                program: "pwsh.exe".to_string()
+                program: "pwsh.exe".to_string(),
+                args: vec!["-NoLogo".to_string()],
             })
         );
     }
@@ -426,7 +486,11 @@ mod source_tests {
         palette.query = "al".into();
         palette.refilter();
         assert_eq!(
-            palette.visible().iter().map(|e| e.label.as_str()).collect::<Vec<_>>(),
+            palette
+                .visible()
+                .iter()
+                .map(|e| e.label.as_str())
+                .collect::<Vec<_>>(),
             vec!["alpha"]
         );
     }
@@ -449,7 +513,11 @@ mod source_tests {
         palette.query = "d:/code/".into();
         palette.replace_entries(vec![row("zebra"), row("apple"), row("mango")]);
         assert_eq!(
-            palette.visible().iter().map(|e| e.label.as_str()).collect::<Vec<_>>(),
+            palette
+                .visible()
+                .iter()
+                .map(|e| e.label.as_str())
+                .collect::<Vec<_>>(),
             vec!["zebra", "apple", "mango"]
         );
     }
@@ -557,16 +625,32 @@ pub struct Geometry {
     /// How tall one row is, which is also the height of the line above them.
     pub row_height: f32,
     pub rows: usize,
+    pub leading_rows: usize,
+    pub trailing_rows: usize,
 }
 
 impl Geometry {
     /// Lay a palette out in a window `window_width` wide.
     pub fn new(window_width: f32, cell: (f32, f32), rows: usize, has_error: bool) -> Self {
+        Self::framed(window_width, cell, rows, has_error, 1, 0)
+    }
+
+    /// Lay out a card with a known number of non-selectable lines around its
+    /// selectable rows. Shell selection uses a title and subtitle above the
+    /// rows and a keyboard hint below them.
+    pub fn framed(
+        window_width: f32,
+        cell: (f32, f32),
+        rows: usize,
+        has_error: bool,
+        leading_rows: usize,
+        trailing_rows: usize,
+    ) -> Self {
         let (cell_width, cell_height) = cell;
         let width = (window_width * 0.6)
             .max(cell_width * 24.0)
             .min(window_width);
-        let lines = rows + 1 + usize::from(has_error);
+        let lines = rows + leading_rows + trailing_rows + usize::from(has_error);
         Self {
             left: ((window_width - width) / 2.0).max(0.0),
             top: cell_height * 2.0,
@@ -574,6 +658,8 @@ impl Geometry {
             height: cell_height * lines as f32,
             row_height: cell_height,
             rows,
+            leading_rows,
+            trailing_rows,
         }
     }
 
@@ -585,7 +671,7 @@ impl Geometry {
         if !self.contains(x, y) {
             return None;
         }
-        let below_query = y - (self.top + self.row_height);
+        let below_query = y - (self.top + self.row_height * self.leading_rows as f32);
         if below_query < 0.0 {
             return None;
         }
@@ -595,10 +681,7 @@ impl Geometry {
 
     /// Whether a point is anywhere on the card.
     pub fn contains(&self, x: f32, y: f32) -> bool {
-        x >= self.left
-            && x < self.left + self.width
-            && y >= self.top
-            && y < self.top + self.height
+        x >= self.left && x < self.left + self.width && y >= self.top && y < self.top + self.height
     }
 }
 

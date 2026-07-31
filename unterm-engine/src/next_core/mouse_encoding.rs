@@ -248,10 +248,7 @@ mod tests {
             sgr: true,
             ..Default::default()
         };
-        assert_eq!(
-            encode_mouse(release, sgr).as_deref(),
-            Some("\x1b[<2;1;1m")
-        );
+        assert_eq!(encode_mouse(release, sgr).as_deref(), Some("\x1b[<2;1;1m"));
     }
 
     #[test]

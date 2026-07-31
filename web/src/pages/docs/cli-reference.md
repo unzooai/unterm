@@ -31,7 +31,7 @@ A few consequences worth knowing before you wire scripts:
 - **The MCP action surface is mirrored in the CLI.** If a method exists on MCP, it's either reachable from the CLI today or trivially exposable. User settings intentionally stay on the settings/config path, not the agent action path.
 - **Multi-instance is first-class.** Use `unterm-cli --instance alpha session list` to target a specific window, or omit `--instance` to follow active/latest. This keeps agent scripts deterministic when several Unterm windows are open.
 
-The wire format is line-delimited JSON-RPC 2.0 — one request per line, one response per line. If you ever need to bypass the CLI and talk to MCP directly (Python, Node, curl-with-netcat, whatever), the protocol is documented in `wezterm-gui/src/mcp/server.rs`.
+The wire format is line-delimited JSON-RPC 2.0 — one request per line, one response per line. If you ever need to bypass the CLI and talk to MCP directly (Python, Node, curl-with-netcat, whatever), the protocol is implemented and documented in `unterm-mcp/src/server.rs`.
 
 ## Global flags
 

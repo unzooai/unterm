@@ -26,7 +26,14 @@ pub const RADIUS: f32 = 6.0;
 /// The radius is clamped to what the rectangle can carry, so a panel one row
 /// high is a panel rather than a circle, and a radius of zero is an ordinary
 /// rectangle rather than an empty list.
-pub fn panel(left: f32, top: f32, width: f32, height: f32, radius: f32, color: [f32; 4]) -> Vec<Quad> {
+pub fn panel(
+    left: f32,
+    top: f32,
+    width: f32,
+    height: f32,
+    radius: f32,
+    color: [f32; 4],
+) -> Vec<Quad> {
     if width <= 0.0 || height <= 0.0 {
         return Vec::new();
     }

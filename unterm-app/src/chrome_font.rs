@@ -79,7 +79,11 @@ mod tests {
     #[test]
     fn the_chrome_face_is_a_different_stack_from_the_terminal() {
         let chrome = open(&[], 1.0).expect("a chrome face");
-        assert_ne!(chrome.stack_id(), 0, "the chrome shares the terminal's stack");
+        assert_ne!(
+            chrome.stack_id(),
+            0,
+            "the chrome shares the terminal's stack"
+        );
     }
 
     /// Its rows are looser than a terminal's. Chrome at the terminal's rhythm
@@ -88,7 +92,10 @@ mod tests {
     fn chrome_rows_are_looser_than_terminal_rows() {
         let chrome = open(&[], 1.0).expect("a chrome face");
         let ratio = chrome.metrics().height / chrome.metrics().baseline.max(1.0);
-        assert!(ratio > 1.0, "the chrome's rows are not loose at all: {ratio}");
+        assert!(
+            ratio > 1.0,
+            "the chrome's rows are not loose at all: {ratio}"
+        );
     }
 
     /// A point is a point at 1x and grows with the display, because the tokens

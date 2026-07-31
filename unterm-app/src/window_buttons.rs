@@ -51,7 +51,12 @@ pub fn hover_fill(button: Button, bar_is_light: bool) -> [f32; 4] {
         return CLOSE_HOVER;
     }
     let icon = icon_color(bar_is_light);
-    [icon[0], icon[1], icon[2], if bar_is_light { 0.14 } else { 0.11 }]
+    [
+        icon[0],
+        icon[1],
+        icon[2],
+        if bar_is_light { 0.14 } else { 0.11 },
+    ]
 }
 
 /// The icon's colour when the button is hovered.
@@ -112,11 +117,8 @@ pub fn quads(
         // One square behind another: the front one is where the window will
         // go back to, the back one is where it is now.
         Button::Restore => {
-            let mut quads = strokes::polyline(
-                &[at(0.25, 0.1), at(0.9, 0.1), at(0.9, 0.75)],
-                weight,
-                color,
-            );
+            let mut quads =
+                strokes::polyline(&[at(0.25, 0.1), at(0.9, 0.1), at(0.9, 0.75)], weight, color);
             quads.extend(strokes::rectangle(
                 origin.0 + size * 0.05,
                 origin.1 + size * 0.3,
@@ -236,7 +238,10 @@ mod tests {
     #[test]
     fn the_close_cross_is_white_on_its_red() {
         for light in [true, false] {
-            assert_eq!(hovered_icon_color(Button::Close, light), [1.0, 1.0, 1.0, 1.0]);
+            assert_eq!(
+                hovered_icon_color(Button::Close, light),
+                [1.0, 1.0, 1.0, 1.0]
+            );
         }
     }
 

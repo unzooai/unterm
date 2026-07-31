@@ -15,6 +15,10 @@ pub struct Args {
     pub config: Option<PathBuf>,
     /// The directory the first shell should start in.
     pub cwd: Option<PathBuf>,
+    /// Identity profile to bind before the first pane is created.
+    pub profile: Option<String>,
+    /// Explicit program and arguments for the first pane.
+    pub command: Vec<String>,
     /// Arguments that meant nothing here, kept so they can be reported.
     pub unrecognised: Vec<String>,
 }
@@ -36,11 +40,19 @@ pub fn parse<I: IntoIterator<Item = String>>(arguments: I) -> Args {
             "start" => {}
             "--config" | "-c" => args.config = rest.next().map(PathBuf::from),
             "--cwd" => args.cwd = rest.next().map(PathBuf::from),
+            "--profile" => args.profile = rest.next(),
+            "--" => {
+                args.command.extend(rest);
+                break;
+            }
             other if other.starts_with("--cwd=") => {
                 args.cwd = Some(PathBuf::from(&other["--cwd=".len()..]));
             }
             other if other.starts_with("--config=") => {
                 args.config = Some(PathBuf::from(&other["--config=".len()..]));
+            }
+            other if other.starts_with("--profile=") => {
+                args.profile = Some(other["--profile=".len()..].to_string());
             }
             // A bare path: a config file if it looks like one, otherwise a
             // directory to start in. This is what a file manager hands over
@@ -74,6 +86,8 @@ mod tests {
         let args = parse_args(&[]);
         assert!(args.config.is_none());
         assert!(args.cwd.is_none());
+        assert!(args.profile.is_none());
+        assert!(args.command.is_empty());
         assert!(args.unrecognised.is_empty());
     }
 
@@ -92,7 +106,10 @@ mod tests {
             parse_args(&["--cwd=D:\\a"]).cwd,
             Some(PathBuf::from("D:\\a"))
         );
-        assert_eq!(parse_args(&["--cwd", "D:\\a"]).cwd, Some(PathBuf::from("D:\\a")));
+        assert_eq!(
+            parse_args(&["--cwd", "D:\\a"]).cwd,
+            Some(PathBuf::from("D:\\a"))
+        );
         assert_eq!(
             parse_args(&["--config=x.conf"]).config,
             Some(PathBuf::from("x.conf"))
@@ -127,6 +144,22 @@ mod tests {
     fn an_option_missing_its_value_does_not_swallow_the_next_one() {
         let args = parse_args(&["--cwd"]);
         assert!(args.cwd.is_none());
+        assert!(args.unrecognised.is_empty());
+    }
+
+    #[test]
+    fn profile_and_explicit_command_are_preserved_for_startup() {
+        let args = parse_args(&[
+            "start",
+            "--profile",
+            "work",
+            "--",
+            "python",
+            "-c",
+            "print('ready')",
+        ]);
+        assert_eq!(args.profile.as_deref(), Some("work"));
+        assert_eq!(args.command, ["python", "-c", "print('ready')"]);
         assert!(args.unrecognised.is_empty());
     }
 }

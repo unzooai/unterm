@@ -24,7 +24,7 @@ Weld the model into the terminal and your longest-lived tool is defined by its s
 You already HAVE agents. What they're missing isn't a brain — it's hands.
 
 3/
-So the terminal itself is an MCP server. 99 methods, 21 namespaces:
+So the terminal itself is an MCP server. 103 authenticated methods:
 spawn panes → run commands with structured results → read screen & full scrollback as text → scrolling screenshots → record sessions → identity profiles. All local JSON-RPC, token-gated.
 
 4/

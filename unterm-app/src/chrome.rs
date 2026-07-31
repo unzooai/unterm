@@ -163,8 +163,16 @@ mod tests {
         ("Midnight", srgb(0x0c, 0x12, 0x20), srgb(0xdf, 0xe7, 0xf1)),
         ("Daylight", srgb(0xf6, 0xf7, 0xf4), srgb(0x16, 0x1a, 0x1d)),
         ("Classic", srgb(0x12, 0x12, 0x12), srgb(0xee, 0xee, 0xee)),
-        ("Notion Dark", srgb(0x18, 0x18, 0x18), srgb(0xee, 0xee, 0xec)),
-        ("Notion Light", srgb(0xf8, 0xf7, 0xf4), srgb(0x1f, 0x1e, 0x1a)),
+        (
+            "Notion Dark",
+            srgb(0x18, 0x18, 0x18),
+            srgb(0xee, 0xee, 0xec),
+        ),
+        (
+            "Notion Light",
+            srgb(0xf8, 0xf7, 0xf4),
+            srgb(0x1f, 0x1e, 0x1a),
+        ),
     ];
 
     fn light() -> ([f32; 4], [f32; 4]) {
@@ -268,7 +276,10 @@ mod tests {
         let colour = srgb(0x12, 0x34, 0x56);
         let mixed = mix(colour, srgb(0xff, 0, 0), 0.0);
         for channel in 0..3 {
-            assert!((mixed[channel] - colour[channel]).abs() < 0.002, "{mixed:?}");
+            assert!(
+                (mixed[channel] - colour[channel]).abs() < 0.002,
+                "{mixed:?}"
+            );
         }
     }
 

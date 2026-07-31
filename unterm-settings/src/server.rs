@@ -18,8 +18,6 @@
 //!   GET  /api/sessions                  -> recording::list_sessions
 //!   GET  /api/sessions/:id/markdown     -> recording::read_session_markdown
 
-use unterm_mcp::handler::McpHandler;
-use unterm_services::server_info::{self, HTTP_PREFERRED_PORT, SERVER_BIND};
 use crate::assets;
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -28,6 +26,8 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use unterm_mcp::handler::McpHandler;
+use unterm_services::server_info::{self, HTTP_PREFERRED_PORT, SERVER_BIND};
 
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -351,11 +351,13 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
             api_session_markdown(handler, p)
         }
         // Agent Cockpit — the Review page.
-        ("GET", "/api/review/overview") => Response::ok_json(
-            unterm_services::cockpit::verification::enrich_overview(
-                unterm_services::cockpit::observability::enrich_overview(unterm_services::cockpit::review::overview()),
-            ),
-        ),
+        ("GET", "/api/review/overview") => {
+            Response::ok_json(unterm_services::cockpit::verification::enrich_overview(
+                unterm_services::cockpit::observability::enrich_overview(
+                    unterm_services::cockpit::review::overview(),
+                ),
+            ))
+        }
         ("GET", "/api/review/inbox") => api_review_inbox(),
         ("GET", "/api/review/diff") => api_review_diff(&req.query),
         ("POST", "/api/review/rollback") => api_review_rollback(&req.body),
@@ -859,7 +861,11 @@ fn api_i18n_dict(code: &str) -> Response {
                 .collect();
             Response::ok_json(Value::Object(map))
         }
-        None => Response::err(404, "Not Found", &unterm_services::i18n::t("web.api.unknown_locale")),
+        None => Response::err(
+            404,
+            "Not Found",
+            &unterm_services::i18n::t("web.api.unknown_locale"),
+        ),
     }
 }
 
@@ -867,7 +873,13 @@ fn api_i18n_set(body: &[u8]) -> Response {
     let body = parse_json_body(body);
     let lang = match body.get("lang").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
-        None => return Response::err(400, "Bad Request", &unterm_services::i18n::t("web.api.invalid_lang")),
+        None => {
+            return Response::err(
+                400,
+                "Bad Request",
+                &unterm_services::i18n::t("web.api.invalid_lang"),
+            )
+        }
     };
     if !unterm_services::i18n::set_locale(&lang) {
         return Response::err(
@@ -1251,12 +1263,15 @@ fn api_theme(body: &[u8]) -> Response {
     if let Err(e) = save_theme_to_disk(&preset) {
         return Response::err(500, "Internal Error", &e.to_string());
     }
-    // Written, not pushed into live windows: this server has no window of its
-    // own and cannot repaint someone else's. Saying which is which is better
-    // than reporting "applied" for something the user cannot see yet.
+    // The settings server and native windows share this process. Publishing a
+    // generation-stamped request lets every open window observe and apply the
+    // change on its event-loop tick without moving window/GPU state across
+    // threads.
+    let generation = unterm_services::theme_state::request(preset.id);
     Response::ok_json(json!({
         "saved": true,
-        "applied_to_open_windows": false,
+        "applied_to_open_windows": true,
+        "generation": generation,
         "theme": preset.id,
         "color_scheme": preset.scheme,
     }))

@@ -1,12 +1,6 @@
 //! MCP request handler — bridges JSON-RPC methods to terminal engine APIs.
 //! Implements all methods required by unterm-cli compatibility.
 
-use unterm_engine::{
-    CreateSessionRequest, LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision,
-    LaunchPolicyDecisionSnapshot, LaunchPolicySnapshot, ScrollbackTextRequest,
-    SessionActivitySnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest,
-    ViewportScrollResult,
-};
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use parking_lot::Mutex;
@@ -16,6 +10,12 @@ use std::collections::HashMap;
 #[cfg(not(windows))]
 use std::ffi::OsString;
 use std::net::ToSocketAddrs;
+use unterm_engine::{
+    CreateSessionRequest, LaunchEnvBinding, LaunchEnvSource, LaunchPolicyDecision,
+    LaunchPolicyDecisionSnapshot, LaunchPolicySnapshot, ScrollbackTextRequest,
+    SessionActivitySnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest,
+    ViewportScrollResult,
+};
 
 /// Audit log entry
 #[derive(Clone, serde::Serialize)]
@@ -36,9 +36,128 @@ fn audit_event_was_allowed(method: &str) -> bool {
     !matches!(method, "mcp.confirm.block" | "mcp.confirm.timeout")
 }
 
+/// Public MCP calls are deliberately partitioned into read-only and mutating
+/// surfaces. Mutating calls are audited at the dispatch boundary even when a
+/// leaf implementation forgets to add a richer operation-specific entry.
+fn method_is_mutating(method: &str) -> bool {
+    matches!(
+        method,
+        "agent.identify"
+            | "agent.trust"
+            | "agent.untrust"
+            | "agent.signal"
+            | "fleet.launch"
+            | "fleet.clean"
+            | "fleet.retry"
+            | "review.verify"
+            | "review.rollback"
+            | "review.merge"
+            | "review.discard"
+            | "session.create"
+            | "session.split"
+            | "session.focus"
+            | "session.input"
+            | "session.paste"
+            | "session.resize"
+            | "session.destroy"
+            | "session.set_env"
+            | "session.suggest"
+            | "session.suggest_cancel"
+            | "exec.run"
+            | "exec.send"
+            | "exec.run_wait"
+            | "exec.cancel"
+            | "screen.scroll"
+            | "screen.clear"
+            | "signal.send"
+            | "orchestrate.launch"
+            | "orchestrate.broadcast"
+            | "proxy.switch"
+            | "proxy.speedtest"
+            | "proxy.configure"
+            | "proxy.disable"
+            | "proxy.rotation"
+            | "proxy.set_nodes"
+            | "proxy.clash_select"
+            | "proxy.clash_set_controller"
+            | "workspace.save"
+            | "workspace.restore"
+            | "capture.screen"
+            | "capture.window"
+            | "capture.select"
+            | "capture.clipboard"
+            | "capture.scrollback"
+            | "capture.window_scroll"
+            | "upload.file"
+            | "policy.set"
+            | "system.launch_admin"
+            | "instance.close"
+            | "instance.set_title"
+            | "instance.focus"
+            | "selftest.run"
+            | "session.recording_start"
+            | "session.recording_stop"
+            | "session.recording_attach_trace"
+            | "session.export_markdown"
+    )
+}
+
+#[cfg(test)]
+fn method_is_read_only(method: &str) -> bool {
+    matches!(
+        method,
+        "meta.surface"
+            | "session.list"
+            | "session.status"
+            | "session.get"
+            | "session.idle"
+            | "session.cwd"
+            | "session.env"
+            | "session.history"
+            | "session.audit_log"
+            | "session.suggest_status"
+            | "session.suggest_list"
+            | "session.recording_status"
+            | "session.recording_list"
+            | "session.recording_read"
+            | "exec.status"
+            | "screen.read"
+            | "screen.text"
+            | "screen.scrollback_text"
+            | "screen.cursor"
+            | "screen.search"
+            | "screen.detect_errors"
+            | "orchestrate.wait"
+            | "proxy.status"
+            | "proxy.nodes"
+            | "proxy.env"
+            | "proxy.clash_status"
+            | "workspace.list"
+            | "policy.check"
+            | "system.info"
+            | "server.info"
+            | "server.health"
+            | "server.capabilities"
+            | "instance.list"
+            | "instance.info"
+            | "instance.lifecycle"
+            | "profile.list"
+            | "profile.current"
+            | "profile.audit"
+            | "agent.whoami"
+            | "agent.list_trusted"
+            | "agent.status"
+            | "cockpit.inbox"
+            | "fleet.list"
+            | "review.list"
+            | "review.diff"
+            | "ghost.debug"
+    )
+}
+
 #[cfg(test)]
 mod audit_entry_tests {
-    use super::audit_event_was_allowed;
+    use super::{audit_event_was_allowed, method_is_mutating, method_is_read_only};
 
     #[test]
     fn denied_and_expired_confirmations_are_not_marked_allowed() {
@@ -46,6 +165,33 @@ mod audit_entry_tests {
         assert!(!audit_event_was_allowed("mcp.confirm.timeout"));
         assert!(audit_event_was_allowed("mcp.confirm.allow"));
         assert!(audit_event_was_allowed("session.input"));
+    }
+
+    #[test]
+    fn every_public_method_has_exactly_one_audit_classification() {
+        for method in unterm_agents::mcp_meta::MCP_METHODS {
+            let mutating = method_is_mutating(method.name);
+            let read_only = method_is_read_only(method.name);
+            assert_ne!(
+                mutating, read_only,
+                "{} must be classified as exactly one of mutating/read-only",
+                method.name
+            );
+        }
+    }
+
+    #[test]
+    fn destructive_and_policy_operations_are_mutating() {
+        for method in [
+            "session.destroy",
+            "fleet.clean",
+            "review.rollback",
+            "review.merge",
+            "review.discard",
+            "policy.set",
+        ] {
+            assert!(method_is_mutating(method), "{method}");
+        }
     }
 }
 
@@ -56,6 +202,11 @@ std::thread_local! {
     /// stamp entries with the calling agent's name.
     static CURRENT_CONN_ID: std::cell::RefCell<Option<u64>> =
         std::cell::RefCell::new(None);
+    /// Set by `audit()` during the current dispatch. This makes the
+    /// dispatch-level fallback concurrency-safe and avoids duplicate entries
+    /// when a leaf already records richer details.
+    static AUDIT_WRITTEN_THIS_CALL: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
 }
 
 /// RAII guard that clears the thread-local connection ID even if the
@@ -279,7 +430,10 @@ fn workspace_template_launch_decision(
 /// console codepage and shows as boxes. Naming the same shell we would have
 /// got makes it a shell we can set the encoding on.
 fn launch_shell_for_new_pane() -> Option<CommandBuilder> {
-    let configured = unterm_services::settings::current().shell.clone();
+    let configured = unterm_services::settings::current()
+        .shell
+        .clone()
+        .or_else(unterm_services::settings::preferred_platform_shell);
     let mut command = match configured {
         Some(argv) => {
             let mut command = CommandBuilder::new(&argv[0]);
@@ -315,7 +469,10 @@ fn default_shell_launch_decision(command_provided: bool) -> Value {
     }
 }
 
-fn instance_lifecycle_snapshot(info: &unterm_services::server_info::InstanceInfo, is_current: bool) -> Value {
+fn instance_lifecycle_snapshot(
+    info: &unterm_services::server_info::InstanceInfo,
+    is_current: bool,
+) -> Value {
     let window = unterm_engine::window_identity();
     json!({
         "state": "live",
@@ -489,9 +646,9 @@ impl ConnectionContext {
 #[cfg(test)]
 mod engine_neutral_handler_tests {
     use super::{
-        compute_agent_cwd, mcp_state, shell_command_builder, ConnectionContext, McpHandler,
+        audit_log_snapshot_json, compute_agent_cwd, mcp_state, shell_command_builder,
+        ConnectionContext, McpHandler,
     };
-    use unterm_engine::{next_core, CreateSessionRequest, InputEngine, SessionEngine};
     use anyhow::{anyhow, Context, Result};
     use parking_lot::Mutex;
     use serde_json::{json, Value};
@@ -501,6 +658,7 @@ mod engine_neutral_handler_tests {
         atomic::{AtomicU64, Ordering},
         OnceLock,
     };
+    use unterm_engine::{next_core, CreateSessionRequest, InputEngine, SessionEngine};
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -552,7 +710,9 @@ mod engine_neutral_handler_tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
             if let Some(record) = unterm_services::cockpit::verification::get(id) {
-                if record.status == unterm_services::cockpit::verification::VerificationStatus::Passed {
+                if record.status
+                    == unterm_services::cockpit::verification::VerificationStatus::Passed
+                {
                     return Ok(record);
                 }
                 if matches!(
@@ -632,7 +792,10 @@ mod engine_neutral_handler_tests {
                     "screen.scrollback_text",
                     &json!({ "pane_id": pane_id, "tail_lines": 4000 }),
                 )?;
-                Ok(read["lines"].as_array().map(|lines| lines.len()).unwrap_or(0))
+                Ok(read["lines"]
+                    .as_array()
+                    .map(|lines| lines.len())
+                    .unwrap_or(0))
             };
             let visible = |handler: &McpHandler| -> Result<usize> {
                 let read = handler.handle(&ctx, "screen.text", &json!({ "pane_id": pane_id }))?;
@@ -936,6 +1099,13 @@ mod engine_neutral_handler_tests {
             .collect::<Vec<_>>();
         assert!(policy_sources.contains(&("UNTERM_PROFILE".to_string(), "Overlay".to_string())));
         assert!(policy_sources.contains(&("HTTPS_PROXY".to_string(), "Overlay".to_string())));
+        let audit: Value = serde_json::from_str(&audit_log_snapshot_json(200)).expect("audit JSON");
+        assert!(
+            audit.as_array().is_some_and(|entries| entries
+                .iter()
+                .any(|entry| entry["method"].as_str() == Some("session.set_env"))),
+            "dispatch fallback must audit mutating methods without a leaf audit"
+        );
     }
 
     #[test]
@@ -1174,38 +1344,40 @@ mod engine_neutral_handler_tests {
         #[cfg(not(windows))]
         let command = "for i in 1 2 3 4 5 6 7 8; do echo next-core-core-parity-$i; done";
 
-        let result: Result<(serde_json::Value, serde_json::Value, serde_json::Value, usize)> =
-            (|| {
-                let handler = McpHandler::new();
-                let ctx = ConnectionContext::internal("handler-test");
-                let created = handler.handle(
-                    &ctx,
-                    "session.create",
-                    &json!({
-                        "cols": 80,
-                        "rows": 3,
-                        "command": command,
-                    }),
-                )?;
-                let pane_id = created["id"].as_u64().expect("session id") as usize;
-                wait_for_screen_pattern(&handler, &ctx, pane_id, "next-core-core-parity-8")?;
+        let result: Result<(
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            usize,
+        )> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 3,
+                    "command": command,
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
+            wait_for_screen_pattern(&handler, &ctx, pane_id, "next-core-core-parity-8")?;
 
-                let history = handler.handle(
-                    &ctx,
-                    "session.history",
-                    &json!({
-                        "pane_id": pane_id,
-                        "limit": 20,
-                    }),
-                )?;
-                let cursor =
-                    handler.handle(&ctx, "screen.cursor", &json!({ "pane_id": pane_id }))?;
-                let status =
-                    handler.handle(&ctx, "exec.status", &json!({ "pane_id": pane_id }))?;
-                let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            let history = handler.handle(
+                &ctx,
+                "session.history",
+                &json!({
+                    "pane_id": pane_id,
+                    "limit": 20,
+                }),
+            )?;
+            let cursor = handler.handle(&ctx, "screen.cursor", &json!({ "pane_id": pane_id }))?;
+            let status = handler.handle(&ctx, "exec.status", &json!({ "pane_id": pane_id }))?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
 
-                Ok((history, cursor, status, pane_id))
-            })();
+            Ok((history, cursor, status, pane_id))
+        })();
 
         match previous_engine {
             Some(value) => std::env::set_var("UNTERM_ENGINE", value),
@@ -1225,12 +1397,20 @@ mod engine_neutral_handler_tests {
         );
         assert!(cursor["x"].as_u64().unwrap_or(usize::MAX as u64) < 80);
         assert!(cursor["y"].as_u64().unwrap_or(usize::MAX as u64) < 3);
-        assert!(cursor["shape"].as_str().unwrap_or_default().contains("Default"));
+        assert!(cursor["shape"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Default"));
         assert!(matches!(
             status["status"].as_str(),
             Some("idle") | Some("running")
         ));
-        assert!(status["output"]["total_chunks"].as_u64().unwrap_or_default() > 0);
+        assert!(
+            status["output"]["total_chunks"]
+                .as_u64()
+                .unwrap_or_default()
+                > 0
+        );
         assert!(status["output"]["total_bytes"].as_u64().unwrap_or_default() > 0);
         assert!(status["process"]["root_pid"].as_u64().is_some());
     }
@@ -1461,8 +1641,7 @@ mod engine_neutral_handler_tests {
             "unexpected error: {error}"
         );
         assert_eq!(
-            crate::meta::engine_capabilities("next-core")["diagnostics"]
-                ["styled_scrollback_png"],
+            crate::meta::engine_capabilities("next-core")["diagnostics"]["styled_scrollback_png"],
             false
         );
     }
@@ -1486,67 +1665,71 @@ mod engine_neutral_handler_tests {
         let export_path = temp_root.join("trace-export.md");
         std::fs::create_dir_all(&project_dir).expect("create temp project dir");
 
-        let result: Result<(serde_json::Value, serde_json::Value, serde_json::Value, usize)> =
-            (|| {
-                let handler = McpHandler::new();
-                let ctx = ConnectionContext::internal("handler-test");
-                let created = handler.handle(
-                    &ctx,
-                    "session.create",
-                    &json!({
-                        "cols": 80,
-                        "rows": 6,
-                        "cwd": project_dir.display().to_string(),
-                    }),
-                )?;
-                let pane_id = created["id"].as_u64().expect("session id") as usize;
+        let result: Result<(
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            usize,
+        )> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let created = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 6,
+                    "cwd": project_dir.display().to_string(),
+                }),
+            )?;
+            let pane_id = created["id"].as_u64().expect("session id") as usize;
 
-                handler.handle(
-                    &ctx,
-                    "session.recording_start",
-                    &json!({ "pane_id": pane_id }),
-                )?;
-                next_core().write_input(pane_id, "echo next-core-trace-attach\r")?;
-                wait_for_screen_pattern(&handler, &ctx, pane_id, "next-core-trace-attach")?;
+            handler.handle(
+                &ctx,
+                "session.recording_start",
+                &json!({ "pane_id": pane_id }),
+            )?;
+            next_core().write_input(pane_id, "echo next-core-trace-attach\r")?;
+            wait_for_screen_pattern(&handler, &ctx, pane_id, "next-core-trace-attach")?;
 
-                let first_trace = handler.handle(
-                    &ctx,
-                    "session.recording_attach_trace",
-                    &json!({
-                        "pane_id": pane_id,
-                        "trace_id": "trace-next-core-1",
-                    }),
-                )?;
-                let second_trace = handler.handle(
-                    &ctx,
-                    "session.recording_attach_trace",
-                    &json!({
-                        "pane_id": pane_id,
-                        "trace_id": "trace-next-core-1",
-                    }),
-                )?;
-                let status = handler.handle(
-                    &ctx,
-                    "session.recording_status",
-                    &json!({ "pane_id": pane_id }),
-                )?;
-                let exported = handler.handle(
-                    &ctx,
-                    "session.export_markdown",
-                    &json!({
-                        "pane_id": pane_id,
-                        "path": export_path.display().to_string(),
-                    }),
-                )?;
-                let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            let first_trace = handler.handle(
+                &ctx,
+                "session.recording_attach_trace",
+                &json!({
+                    "pane_id": pane_id,
+                    "trace_id": "trace-next-core-1",
+                }),
+            )?;
+            let second_trace = handler.handle(
+                &ctx,
+                "session.recording_attach_trace",
+                &json!({
+                    "pane_id": pane_id,
+                    "trace_id": "trace-next-core-1",
+                }),
+            )?;
+            let status = handler.handle(
+                &ctx,
+                "session.recording_status",
+                &json!({ "pane_id": pane_id }),
+            )?;
+            let exported = handler.handle(
+                &ctx,
+                "session.export_markdown",
+                &json!({
+                    "pane_id": pane_id,
+                    "path": export_path.display().to_string(),
+                }),
+            )?;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
 
-                Ok((
-                    first_trace,
-                    second_trace,
-                    json!({ "status": status, "exported": exported }),
-                    pane_id,
-                ))
-            })();
+            Ok((
+                first_trace,
+                second_trace,
+                json!({ "status": status, "exported": exported }),
+                pane_id,
+            ))
+        })();
 
         match previous_engine {
             Some(value) => std::env::set_var("UNTERM_ENGINE", value),
@@ -1913,10 +2096,24 @@ mod engine_neutral_handler_tests {
         assert_eq!(cleaned["ok"], true);
         assert_eq!(cleaned["id"], fleet["id"]);
         assert!(next_core().get_session(new_pane_id).is_err());
-        assert!(unterm_services::cockpit::fleet::get(fleet["id"].as_str().expect("fleet id")).is_none());
+        assert!(
+            unterm_services::cockpit::fleet::get(fleet["id"].as_str().expect("fleet id")).is_none()
+        );
 
         unterm_services::cockpit::fleet::reset_store_for_tests();
         std::fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn review_rollback_requires_explicit_confirmation_at_the_mcp_boundary() {
+        let error = McpHandler::new()
+            .review_rollback(&json!({
+                "repo": "must-not-be-touched",
+                "sha": "must-not-be-used",
+            }))
+            .expect_err("rollback without confirmation must be rejected");
+
+        assert!(error.to_string().contains("'confirm': true"));
     }
 
     #[test]
@@ -2546,7 +2743,8 @@ mod engine_neutral_handler_tests {
             )?;
             let pane_id = created["id"].as_u64().expect("session id") as usize;
             wait_for_screen_pattern(&handler, &ctx, pane_id, "next-core-capture-screen")?;
-            let capture = handler.handle(&ctx, "capture.screen", &json!({ "include_base64": false }));
+            let capture =
+                handler.handle(&ctx, "capture.screen", &json!({ "include_base64": false }));
             let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
             Ok((capture, pane_id))
         })();
@@ -2564,11 +2762,13 @@ mod engine_neutral_handler_tests {
                 assert!(capture["captures"].is_array());
                 assert_eq!(capture["text_snapshot"], true);
                 let captures = capture["captures"].as_array().expect("captures");
-                assert!(captures.iter().any(|item| item["session_id"] == pane_id.to_string()
-                    && item["screen"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .contains("next-core-capture-screen")));
+                assert!(captures
+                    .iter()
+                    .any(|item| item["session_id"] == pane_id.to_string()
+                        && item["screen"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .contains("next-core-capture-screen")));
             }
             Err(err) => {
                 let message = format!("{err:#}");
@@ -3309,7 +3509,13 @@ mod engine_neutral_handler_tests {
 
         let (info, admin) = result.expect("read product system methods without WezTerm mux");
         assert_eq!(info["engine"], "Unterm (next-core)");
+        assert_eq!(info["os"], std::env::consts::OS);
+        assert_eq!(info["arch"], std::env::consts::ARCH);
+        assert!(info["hostname"].is_string());
+        assert!(info["locale"].is_string());
+        assert!(info["version"].is_string());
         assert!(info["active_sessions"].is_number());
+        assert!(info.get("active_session").is_some());
         assert!(admin.get("status").is_some() || admin.get("unsupported").is_some());
     }
 
@@ -3937,6 +4143,20 @@ pub fn audit_log_snapshot_json(limit: usize) -> String {
     serde_json::to_string_pretty(&recent).unwrap_or_else(|_| "[]".to_string())
 }
 
+/// Record a user-visible GUI write that crosses the same audit boundary as an
+/// MCP mutation. This is intentionally narrow: callers provide an action name
+/// and a redacted/short detail, never raw secret-bearing screen contents.
+pub fn audit_gui_write(method: &str, pane_id: u64, detail: &str) {
+    mcp_state().lock().audit_log.push(AuditEntry {
+        timestamp: chrono::Local::now().to_rfc3339(),
+        method: method.to_string(),
+        session_id: Some(pane_id.to_string()),
+        detail: detail.to_string(),
+        allowed: true,
+        agent: "user".to_string(),
+    });
+}
+
 /// Pending suggestions for a specific pane, ordered oldest-first.
 /// Called by the suggest UI on every paint to decide what to render.
 /// Side-effect: lazily flips suggestions whose TTL has elapsed from
@@ -4076,10 +4296,12 @@ fn foreground_command_title_from_process_name(process_name: &str) -> Option<Stri
     }
 }
 
-const AGENT_CWD_TTL: std::time::Duration = std::time::Duration::from_millis(5000);
+// Match 0.57.4's visible status freshness. Concurrency remains bounded well
+// below the old 16-worker fan-out so busy multi-tab windows stay responsive.
+const AGENT_CWD_TTL: std::time::Duration = std::time::Duration::from_millis(2000);
 const AGENT_CWD_PRUNE_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 const AGENT_CWD_PRUNE_MIN_SIZE: usize = 128;
-const AGENT_CWD_MAX_INFLIGHT: usize = 2;
+const AGENT_CWD_MAX_INFLIGHT: usize = 4;
 
 fn agent_cwd_cache() -> &'static Mutex<HashMap<u64, (std::time::Instant, PaneAgentCwd)>> {
     static C: std::sync::OnceLock<Mutex<HashMap<u64, (std::time::Instant, PaneAgentCwd)>>> =
@@ -4496,8 +4718,9 @@ impl McpHandler {
 
     pub fn handle(&self, ctx: &ConnectionContext, method: &str, params: &Value) -> Result<Value> {
         CURRENT_CONN_ID.with(|cell| *cell.borrow_mut() = Some(ctx.conn_id));
+        AUDIT_WRITTEN_THIS_CALL.with(|cell| cell.set(false));
         let _scope = ConnectionScope;
-        match method {
+        let result = match method {
             // Agent self-identification — call this right after
             // `auth.login` to tag your connection so audit entries
             // group by agent name instead of by connection ID.
@@ -4512,11 +4735,15 @@ impl McpHandler {
             "cockpit.inbox" => self.cockpit_inbox(),
             // Cockpit — fleets and review.
             "fleet.launch" => self.fleet_launch(params),
-            "fleet.list" => Ok(json!({ "fleets": unterm_services::cockpit::review::overview()["fleets"] })),
+            "fleet.list" => {
+                Ok(json!({ "fleets": unterm_services::cockpit::review::overview()["fleets"] }))
+            }
             "fleet.clean" => self.fleet_clean(params),
             "fleet.retry" => self.fleet_retry(params),
             "review.list" => Ok(unterm_services::cockpit::verification::enrich_overview(
-                unterm_services::cockpit::observability::enrich_overview(unterm_services::cockpit::review::overview()),
+                unterm_services::cockpit::observability::enrich_overview(
+                    unterm_services::cockpit::review::overview(),
+                ),
             )),
             "review.diff" => self.review_diff(params),
             "review.verify" => self.review_verify(params),
@@ -4640,7 +4867,19 @@ impl McpHandler {
             "session.recording_attach_trace" => self.session_recording_attach_trace(params),
             "session.export_markdown" => self.session_export_markdown(params),
             _ => Err(anyhow!("Unknown method: {}", method)),
+        };
+        if method_is_mutating(method) && !AUDIT_WRITTEN_THIS_CALL.with(std::cell::Cell::get) {
+            let pane_id = Self::pane_id_param(params)
+                .ok()
+                .flatten()
+                .map(|id| id.to_string());
+            let detail = match &result {
+                Ok(_) => "completed".to_string(),
+                Err(err) => format!("failed: {err}"),
+            };
+            self.audit(method, pane_id.as_deref(), &detail);
         }
+        result
     }
 
     /// The engine this surface talks to.
@@ -5112,8 +5351,11 @@ impl McpHandler {
 
     fn session_get(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let session = engine.get_session(pane_id)?;
 
         Ok(json!({
@@ -5150,7 +5392,11 @@ impl McpHandler {
         // Source pane: accept the same id/session_id duality as get_pane
         // so callers don't have to remember which method takes which.
         let src_pane_id = self
-            .resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)
+            .resolve_pane_id(
+                engine.as_ref(),
+                params,
+                PaneResolutionOptions::REQUIRED_EXISTING,
+            )
             .map_err(|_| {
                 anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)")
             })?;
@@ -5186,12 +5432,18 @@ impl McpHandler {
         // included. Without it a split pane on a non-UTF-8 Windows shows
         // boxes where the pane it was split from shows text.
         let command = launch_shell_for_new_pane();
+        let mut env = unterm_services::launch_env::current_profile_env();
+        env.extend(unterm_services::launch_env::read_unterm_proxy_env().unwrap_or_default());
+        let profile_id = unterm_services::server_info::read_current().profile;
+        let launch_policy = launch_policy_for_env(&env, &[], profile_id.as_deref());
         let request = SplitSessionRequest {
             source_pane_id: src_pane_id,
             direction,
             size_percent,
             command_dir: params.get("cwd").and_then(|v| v.as_str()).map(String::from),
             command,
+            env,
+            launch_policy,
         };
 
         let session = engine.split_session(request)?;
@@ -5227,8 +5479,11 @@ impl McpHandler {
         // Focus is an engine operation; the MCP layer only preserves
         // the documented parameter and response contract.
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         engine.focus_session(pane_id)?;
         Ok(json!({ "ok": true, "id": pane_id }))
     }
@@ -5281,7 +5536,9 @@ impl McpHandler {
         }
         let mut overlay_keys_sorted = overlay_keys.clone();
         overlay_keys_sorted.sort();
-        let resolved_profile = if let Some(profile) = profile.as_deref() {
+        let inherited_profile = unterm_services::server_info::read_current().profile;
+        let effective_profile = profile.as_deref().or(inherited_profile.as_deref());
+        let resolved_profile = if let Some(profile) = effective_profile {
             let (profile_id, profile_env) = resolve_profile_env(profile)?;
             env.extend(profile_env);
             if !env
@@ -5324,6 +5581,13 @@ impl McpHandler {
                 "decision": {
                     "source": "session.create",
                     "profile_requested": profile.is_some(),
+                    "profile_source": if profile.is_some() {
+                        "explicit"
+                    } else if resolved_profile.is_some() {
+                        "window"
+                    } else {
+                        "none"
+                    },
                     "overlay_env_keys": overlay_keys_sorted,
                     "proxy_env_keys": launch_proxy_env_keys,
                     "command_provided": command_provided,
@@ -5343,8 +5607,11 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'input' (or compatibility alias 'text') parameter"))?;
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
 
         // Gate the write on a user confirmation banner if policy
         // demands it. `Allow` continues to the audit + write below;
@@ -5373,8 +5640,11 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'text' (or compatibility alias 'input') parameter"))?;
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
 
         match self.gate_pty_write("session.paste", pane_id, text)? {
             GateOutcome::Allow => {}
@@ -5512,16 +5782,22 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Missing 'rows'"))? as usize;
 
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         engine.resize_session(pane_id, cols, rows)?;
         Ok(json!({"status": "ok"}))
     }
 
     fn session_destroy(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         self.audit("session.destroy", Some(&pane_id.to_string()), "destroy");
         engine.destroy_session(pane_id)?;
         Ok(json!({"status": "ok", "destroyed": true}))
@@ -5529,8 +5805,11 @@ impl McpHandler {
 
     fn session_idle(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let activity = engine.activity(pane_id)?;
         Ok(json!({
             "idle": activity.idle,
@@ -5544,8 +5823,11 @@ impl McpHandler {
 
     fn session_cwd(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let cwd = engine.shell(pane_id)?.cwd.unwrap_or_default();
         Ok(json!({"cwd": cwd}))
     }
@@ -5559,8 +5841,11 @@ impl McpHandler {
             );
         }
 
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let shell = engine.shell(pane_id)?;
         let name_filter = params
             .get("name")
@@ -5651,8 +5936,11 @@ impl McpHandler {
     fn session_history(&self, params: &Value) -> Result<Value> {
         let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let entries: Vec<Value> = engine
             .read_scrollback(pane_id, limit)?
             .into_iter()
@@ -5821,8 +6109,8 @@ impl McpHandler {
         let explicit_pane = params.get("pane_id").or_else(|| params.get("session_id"));
         if explicit_pane.is_some() {
             let pane_id = Self::pane_id_from_params(params)? as u64;
-            let status =
-                unterm_services::cockpit::status_for_pane(pane_id).map(|s| Self::cockpit_status_json(&s));
+            let status = unterm_services::cockpit::status_for_pane(pane_id)
+                .map(|s| Self::cockpit_status_json(&s));
             return Ok(json!({ "enabled": true, "agent": status }));
         }
         let agents: Vec<Value> = unterm_services::cockpit::snapshot()
@@ -5843,8 +6131,11 @@ impl McpHandler {
         // Hooks pass $WEZTERM_PANE; a bare CLI call falls back to the
         // pane the user is looking at.
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::ACTIVE_REQUIRED)? as u64;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::ACTIVE_REQUIRED,
+        )? as u64;
         let agent = params
             .get("agent")
             .and_then(|v| v.as_str())
@@ -5857,6 +6148,23 @@ impl McpHandler {
                     .map(|a| a.name.clone())
             })
             .unwrap_or_else(|| "agent".to_string());
+        // The official "working" hook is the strongest point at which a
+        // loose agent says it is about to mutate its repository. Snapshot
+        // before publishing the transition; non-repository panes are normal
+        // and therefore a checkpoint failure is deliberately non-fatal.
+        if event == "working" {
+            if let Ok(shell) = engine.shell(pane_id as usize) {
+                if let Some(cwd) = shell.cwd {
+                    if let Err(err) = unterm_services::cockpit::review::record_auto_checkpoint(
+                        std::path::Path::new(&cwd),
+                        &agent,
+                        pane_id,
+                    ) {
+                        log::debug!("automatic hook checkpoint skipped: {err:#}");
+                    }
+                }
+            }
+        }
         if !unterm_services::cockpit::on_hook_signal(pane_id, &agent, event) {
             anyhow::bail!("Invalid 'event' {event:?}: expected working|waiting|done|idle");
         }
@@ -5882,10 +6190,15 @@ impl McpHandler {
             .map(|session| (session.id as u64, session))
             .collect();
         let pane_locations = engine.pane_locations().unwrap_or_default();
-        let items: Vec<Value> = unterm_services::cockpit::snapshot()
+        let current = unterm_services::server_info::read_current();
+        let current_id = current.id.clone();
+        let current_title = current.title.clone().unwrap_or_else(|| current_id.clone());
+        let mut items: Vec<Value> = unterm_services::cockpit::snapshot()
             .iter()
             .map(|s| {
                 let mut v = Self::cockpit_status_json(s);
+                v["instance_id"] = json!(current_id.clone());
+                v["instance_title"] = json!(current_title.clone());
                 if let Some(session) = sessions_by_id.get(&s.pane_id) {
                     v["pane_title"] = json!(session.title);
                     v["session"] = json!({
@@ -5905,6 +6218,47 @@ impl McpHandler {
                 v
             })
             .collect();
+        let now = chrono::Utc::now().timestamp_millis();
+        for instance in unterm_services::server_info::list_live_instances()
+            .into_iter()
+            .filter(|instance| instance.id != current_id)
+        {
+            let instance_title = instance
+                .title
+                .clone()
+                .unwrap_or_else(|| instance.id.clone());
+            for agent in instance.agents {
+                items.push(json!({
+                    "pane_id": agent.pane_id,
+                    "agent": agent.agent,
+                    "state": agent.state,
+                    "for_secs": now.saturating_sub(agent.since_unix_ms).max(0) / 1000,
+                    "task_hint": agent.task_hint,
+                    "last_signal": "peer-snapshot",
+                    "fleet_id": null,
+                    "pane_title": agent.pane_title,
+                    "tab_id": agent.tab_id,
+                    "window_id": agent.window_id,
+                    "instance_id": instance.id.clone(),
+                    "instance_title": instance_title.clone(),
+                    "peer": true,
+                }));
+            }
+        }
+        items.sort_by(|a, b| {
+            let rank = |value: &Value| match value["state"].as_str().unwrap_or("idle") {
+                "waiting" => 0,
+                "done" => 1,
+                "working" => 2,
+                _ => 3,
+            };
+            rank(a).cmp(&rank(b)).then_with(|| {
+                b["for_secs"]
+                    .as_i64()
+                    .unwrap_or(0)
+                    .cmp(&a["for_secs"].as_i64().unwrap_or(0))
+            })
+        });
         Ok(json!({ "enabled": true, "items": items }))
     }
 
@@ -5948,7 +6302,12 @@ impl McpHandler {
             .filter(|v: &Vec<String>| !v.is_empty())
             .ok_or_else(|| anyhow!("Missing 'agents' (e.g. [\"claude\",\"claude\"])"))?;
         let mut spawner = EngineFleetDriver { engine };
-        let fleet = unterm_services::cockpit::fleet::launch_with_spawner(&cwd, task, &agents, &mut spawner)?;
+        let fleet = unterm_services::cockpit::fleet::launch_with_spawner(
+            &cwd,
+            task,
+            &agents,
+            &mut spawner,
+        )?;
         self.audit(
             "fleet.launch",
             None,
@@ -6009,8 +6368,9 @@ impl McpHandler {
             .ok_or_else(|| anyhow!("Missing 'member'"))?;
         let command = params.get("command").and_then(|v| v.as_str());
         let timeout = params.get("timeout_secs").and_then(|v| v.as_u64());
-        let record =
-            unterm_services::cockpit::verification::verify_member(fleet_id, member, command, timeout)?;
+        let record = unterm_services::cockpit::verification::verify_member(
+            fleet_id, member, command, timeout,
+        )?;
         self.audit(
             "review.verify",
             None,
@@ -6046,6 +6406,15 @@ impl McpHandler {
     }
 
     fn review_rollback(&self, params: &Value) -> Result<Value> {
+        let confirmed = params
+            .get("confirm")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if !confirmed {
+            return Err(anyhow!(
+                "review.rollback is destructive; pass 'confirm': true after explicit user confirmation"
+            ));
+        }
         let repo = params
             .get("repo")
             .and_then(|v| v.as_str())
@@ -6072,7 +6441,8 @@ impl McpHandler {
             .get("force")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let out = unterm_services::cockpit::review::merge_member_with_policy(fleet_id, member, force)?;
+        let out =
+            unterm_services::cockpit::review::merge_member_with_policy(fleet_id, member, force)?;
         self.audit(
             "review.merge",
             None,
@@ -6136,8 +6506,11 @@ impl McpHandler {
     /// for status / cancel.
     fn session_suggest(&self, ctx: &ConnectionContext, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let pane_id = pane_id as u64;
 
         let text = params
@@ -6193,7 +6566,9 @@ impl McpHandler {
             posted_by_agent: agent_label.clone(),
         };
 
-        let suggest_max = unterm_services::settings::current().mcp_suggest_queue_capacity.max(8);
+        let suggest_max = unterm_services::settings::current()
+            .mcp_suggest_queue_capacity
+            .max(8);
         {
             let mut state = mcp_state().lock();
             state.suggestions.insert(id.clone(), suggestion);
@@ -6270,6 +6645,7 @@ impl McpHandler {
     }
 
     fn audit(&self, method: &str, session_id: Option<&str>, detail: &str) {
+        AUDIT_WRITTEN_THIS_CALL.with(|cell| cell.set(true));
         // Straight to the services redaction: the wrapper only looked the
         // config up, and that is with the archive now.
         let patterns = unterm_services::recording::archive::load_config()
@@ -6289,7 +6665,9 @@ impl McpHandler {
             allowed,
             agent: current_agent_label(),
         };
-        let audit_max = unterm_services::settings::current().mcp_audit_log_capacity.max(16);
+        let audit_max = unterm_services::settings::current()
+            .mcp_audit_log_capacity
+            .max(16);
         let mut state = mcp_state().lock();
         state.audit_log.push(entry);
         // Cap the in-memory log so a chatty agent can't OOM us. Drop the
@@ -6365,8 +6743,11 @@ impl McpHandler {
         }
 
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
 
         match self.gate_pty_write("exec.run", pane_id, command)? {
             GateOutcome::Allow => {}
@@ -6390,8 +6771,11 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'bytes' (or compatibility alias 'input'/'text')"))?;
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
 
         match self.gate_pty_write("exec.send", pane_id, bytes)? {
             GateOutcome::Allow => {}
@@ -6424,8 +6808,11 @@ impl McpHandler {
         }
 
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let shell = engine.shell(pane_id)?;
         let activity = engine.activity(pane_id).ok();
         let wait_shell = resolve_exec_wait_shell(&shell, activity.as_ref());
@@ -6489,8 +6876,11 @@ impl McpHandler {
 
     fn exec_status(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let activity = engine.activity(pane_id)?;
         let status = if activity.idle { "idle" } else { "running" };
         Ok(json!({
@@ -6505,8 +6895,11 @@ impl McpHandler {
 
     fn exec_cancel(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
 
         match self.gate_pty_write("exec.cancel", pane_id, "Ctrl+C")? {
             GateOutcome::Allow => {}
@@ -6536,8 +6929,11 @@ impl McpHandler {
         };
 
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
 
         match self.gate_pty_write("signal.send", pane_id, signal)? {
             GateOutcome::Allow => {}
@@ -6590,8 +6986,11 @@ impl McpHandler {
         // The active pane when none is named, the same as every read on this
         // namespace: an agent clearing the pane it has been watching should
         // not have to look its id up first.
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::ACTIVE_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::ACTIVE_EXISTING,
+        )?;
         let include_screen = params
             .get("include_screen")
             .or_else(|| params.get("include_viewport"))
@@ -6610,8 +7009,11 @@ impl McpHandler {
         let count = params.get("count").and_then(|v| v.as_i64()).unwrap_or(100) as isize;
         let engine = self.engine();
         let engine_name = engine.name();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let text_lines: Vec<String> = engine
             .read_lines(pane_id, offset as i64, count.max(0) as usize)?
             .into_iter()
@@ -6677,8 +7079,11 @@ impl McpHandler {
 
         let engine = self.engine();
         let engine_name = engine.name();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let search_matches = engine.search(pane_id, pattern, max_results)?;
         let match_rows: Vec<isize> = search_matches.iter().map(|m| m.row as isize).collect();
         let matches: Vec<Value> = search_matches
@@ -6829,8 +7234,11 @@ impl McpHandler {
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_millis(timeout_ms);
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
 
         loop {
             let text = engine.read_visible_text(pane_id).unwrap_or_default();
@@ -7621,8 +8029,8 @@ impl McpHandler {
     ///
     /// A person selects one by dragging a box; an agent has no way to drag, so
     /// it passes the rectangle instead. Without one there is nothing to
-    /// select, and the terminal's own window is the useful answer -- said
-    /// plainly rather than presented as though a selection had been made.
+    /// select, so the documented headless fallback captures the whole screen
+    /// and says plainly that no interactive selection occurred.
     fn capture_select(&self, params: &Value) -> Result<Value> {
         let number = |name: &str| params.get(name).and_then(|value| value.as_i64());
         match (
@@ -7646,17 +8054,13 @@ impl McpHandler {
                 }))
             }
             _ => {
-                let image = self.engine().capture_window_image(None, None, false)?;
-                Ok(json!({
-                    "image": image,
-                    "type": "image/png",
-                    "mode": "window_fallback",
-                    "message": concat!(
-                        "Pass left/top/width/height to capture a region; ",
-                        "with no rectangle there is nothing to select, ",
-                        "so this is the terminal's own window.",
-                    ),
-                }))
+                let mut value = self.capture_screen(&json!({"include_base64": false}))?;
+                value["mode"] = json!("screen_fallback");
+                value["message"] = json!(concat!(
+                    "Pass left/top/width/height to capture a region; ",
+                    "headless selection has no pointer, so the whole screen was captured.",
+                ));
+                Ok(value)
             }
         }
     }
@@ -7672,7 +8076,11 @@ impl McpHandler {
     fn capture_scrollback(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
         let pane_id = if Self::pane_id_param(params)?.is_some() {
-            Some(self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?)
+            Some(self.resolve_pane_id(
+                engine.as_ref(),
+                params,
+                PaneResolutionOptions::REQUIRED_EXISTING,
+            )?)
         } else {
             None
         };
@@ -7714,67 +8122,7 @@ impl McpHandler {
             // owns; on other platforms the default says so.
             let host = unterm_engine::mcp_host()
                 .ok_or_else(|| anyhow!("no front end is hosting this MCP surface"))?;
-            return host.capture_external_window(params);
-            #[allow(unreachable_code)]
-            use crate::scrollshot::external;
-            let pid = params.get("pid").and_then(|v| v.as_u64()).map(|v| v as u32);
-            let app = params.get("app").and_then(|v| v.as_str());
-            let title = params.get("title").and_then(|v| v.as_str());
-            let under_cursor = params
-                .get("under_cursor")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            if pid.is_none() && app.is_none() && title.is_none() && !under_cursor {
-                return Err(anyhow!(
-                    "provide at least one of pid / app / title, or under_cursor=true"
-                ));
-            }
-            let target = if under_cursor {
-                external::window_under_cursor()?
-            } else {
-                external::find_target(pid, app, title)?
-            };
-            let mut opts = external::ScrollCaptureOptions::default();
-            if let Some(n) = params.get("max_frames").and_then(|v| v.as_u64()) {
-                opts.max_frames = (n as usize).clamp(2, 120);
-            }
-            if let Some(n) = params.get("settle_ms").and_then(|v| v.as_u64()) {
-                opts.settle_ms = n.clamp(100, 2000);
-            }
-            if let Some(b) = params.get("activate").and_then(|v| v.as_bool()) {
-                opts.activate = b;
-            }
-            if let Some(b) = params.get("restore_scroll").and_then(|v| v.as_bool()) {
-                opts.restore_scroll = b;
-            }
-            let dir = capture_output_dir()?;
-            let path = dir.join(format!(
-                "windowscroll_{}.png",
-                chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
-            ));
-            self.audit(
-                "capture.window_scroll",
-                None,
-                &format!(
-                    "app={} pid={} title={}",
-                    target.app, target.pid, target.title
-                ),
-            );
-            let r = external::scroll_capture_window(&target, &path, &opts)?;
-            Ok(json!({
-                "path": r.path.display().to_string(),
-                "width": r.width,
-                "height": r.height,
-                "frames": r.frames,
-                "window": {
-                    "app": r.window.app,
-                    "title": r.window.title,
-                    "pid": r.window.pid,
-                    "window_id": r.window.window_id,
-                },
-                "hint": r.hint,
-                "type": "image/png",
-            }))
+            host.capture_external_window(params)
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -7835,14 +8183,29 @@ impl McpHandler {
     // --- System ---
 
     fn system_info(&self) -> Result<Value> {
-        let pane_count = self.engine().list_sessions()?.len();
+        let sessions = self.engine().list_sessions()?;
+        let active_session = sessions
+            .iter()
+            .find(|session| session.is_active)
+            .or_else(|| sessions.first())
+            .map(serde_json::to_value)
+            .transpose()?
+            .unwrap_or(Value::Null);
+        let instance = unterm_services::server_info::read_current();
         Ok(json!({
             "name": "Unterm",
-            "version": "2.0.0",
+            "version": if instance.version.is_empty() {
+                env!("CARGO_PKG_VERSION")
+            } else {
+                instance.version.as_str()
+            },
             "engine": self.engine_label(),
+            "os": std::env::consts::OS,
             "platform": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
-            "active_sessions": pane_count,
+            "locale": unterm_services::i18n::current_locale(),
+            "active_sessions": sessions.len(),
+            "active_session": active_session,
             "hostname": hostname::get()
                 .map(|h| h.to_string_lossy().to_string())
                 .unwrap_or_default(),
@@ -7887,8 +8250,11 @@ impl McpHandler {
 
     fn screen_read(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let screen = engine.read_screen(pane_id)?;
 
         Ok(json!({
@@ -7906,8 +8272,11 @@ impl McpHandler {
 
     fn screen_text(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let screen = engine.read_screen(pane_id)?;
 
         Ok(json!({
@@ -7937,8 +8306,11 @@ impl McpHandler {
     ///   without fetching the entire scrollback.
     fn screen_scrollback_text(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::ACTIVE_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::ACTIVE_EXISTING,
+        )?;
         let want_escapes = params
             .get("escapes")
             .and_then(|v| v.as_bool())
@@ -8005,8 +8377,11 @@ impl McpHandler {
 
     fn screen_cursor(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let cursor = engine.cursor(pane_id)?;
 
         Ok(json!({
@@ -8019,8 +8394,11 @@ impl McpHandler {
 
     fn screen_detect_errors(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let screen = engine.read_screen(pane_id)?;
 
         let error_patterns = [
@@ -8661,8 +9039,11 @@ impl McpHandler {
 
     fn session_recording_start(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         self.audit(
             "session.recording_start",
             Some(&pane_id.to_string()),
@@ -8678,8 +9059,11 @@ impl McpHandler {
 
     fn session_recording_stop(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         self.audit("session.recording_stop", Some(&pane_id.to_string()), "stop");
         let r = engine.stop_recording(pane_id)?;
         Ok(json!({
@@ -8693,8 +9077,11 @@ impl McpHandler {
 
     fn session_recording_status(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let status = engine.recording_status(pane_id)?;
         if status.enabled {
             Ok(json!({
@@ -8743,8 +9130,11 @@ impl McpHandler {
 
     fn session_recording_attach_trace(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let trace_id = params
             .get("trace_id")
             .and_then(|v| v.as_str())
@@ -8756,8 +9146,11 @@ impl McpHandler {
 
     fn session_export_markdown(&self, params: &Value) -> Result<Value> {
         let engine = self.engine();
-        let pane_id =
-            self.resolve_pane_id(engine.as_ref(), params, PaneResolutionOptions::REQUIRED_EXISTING)?;
+        let pane_id = self.resolve_pane_id(
+            engine.as_ref(),
+            params,
+            PaneResolutionOptions::REQUIRED_EXISTING,
+        )?;
         let path = params
             .get("path")
             .and_then(|v| v.as_str())
@@ -9077,10 +9470,14 @@ fn node_health(obj: &Value) -> (bool, Option<u64>) {
 /// Resolve the Clash/mihomo controller to talk to: the user's manual override
 /// (if set and reachable) wins, otherwise fall back to auto-discovery. The
 /// manual override is the escape hatch for Windows / non-standard setups.
-fn resolve_clash_endpoint(settings: &ProxySettings) -> Option<unterm_services::clash_api::ClashEndpoint> {
+fn resolve_clash_endpoint(
+    settings: &ProxySettings,
+) -> Option<unterm_services::clash_api::ClashEndpoint> {
     if !settings.clash_controller.trim().is_empty() {
-        let ep =
-            unterm_services::clash_api::manual_endpoint(&settings.clash_controller, &settings.clash_secret);
+        let ep = unterm_services::clash_api::manual_endpoint(
+            &settings.clash_controller,
+            &settings.clash_secret,
+        );
         if unterm_services::clash_api::version(&ep).is_ok() {
             return Some(ep);
         }
@@ -9136,7 +9533,9 @@ fn clash_node_alive(
     url: &str,
     timeout_ms: u64,
 ) -> bool {
-    (0..2).any(|_| matches!(unterm_services::clash_api::delay(ep, name, url, timeout_ms), Ok(d) if d > 0))
+    (0..2).any(
+        |_| matches!(unterm_services::clash_api::delay(ep, name, url, timeout_ms), Ok(d) if d > 0),
+    )
 }
 
 /// One clash-mode failover cycle: if the group's current node is unreachable,
@@ -9553,8 +9952,8 @@ mod exec_wait_tests {
         contains_ignoring_line_breaks, extract_wait_output, resolve_exec_wait_shell,
         strip_ignoring_line_breaks,
     };
-    use unterm_engine::{SessionActivitySnapshot, ShellSnapshot};
     use unterm_engine::{LaunchContextSnapshot, ProcessTreeSnapshot};
+    use unterm_engine::{SessionActivitySnapshot, ShellSnapshot};
 
     #[test]
     fn completion_marker_survives_narrow_pane_wrapping() {

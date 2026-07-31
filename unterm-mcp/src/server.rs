@@ -6,13 +6,13 @@
 //! module.
 
 use super::handler::{ConnectionContext, McpHandler};
-use unterm_services::server_info::{self, MCP_PREFERRED_PORT, SERVER_BIND};
 use anyhow::Result;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
+use unterm_services::server_info::{self, MCP_PREFERRED_PORT, SERVER_BIND};
 
 /// Monotonically-increasing connection ID assigned to each accepted
 /// client. Used by the handler to bind `agent.identify` claims to a
@@ -24,6 +24,13 @@ static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 /// accepting clients on a background thread. Returns the bound port and the
 /// generated auth token.
 pub fn start_mcp_server() -> (u16, String) {
+    start_mcp_server_with_version(env!("CARGO_PKG_VERSION"))
+}
+
+/// Start the MCP server and publish the owning product binary's version in the
+/// instance registry.  The MCP crate's version is an internal implementation
+/// detail and can legitimately differ from the GUI product version.
+pub fn start_mcp_server_with_version(product_version: &str) -> (u16, String) {
     let (listener, port) = match server_info::bind_with_fallback(MCP_PREFERRED_PORT) {
         Ok(pair) => pair,
         Err(e) => {
@@ -32,7 +39,7 @@ pub fn start_mcp_server() -> (u16, String) {
         }
     };
 
-    let info = match server_info::write_initial(port) {
+    let info = match server_info::write_initial_with_version(port, product_version) {
         Ok(info) => info,
         Err(e) => {
             log::error!("Could not write ~/.unterm/server.json: {}", e);

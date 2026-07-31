@@ -84,7 +84,13 @@ pub fn unknown_placeholders(format: &str) -> Vec<String> {
 pub fn resolve_name(rules: &TabTitleRules, context: TabContext) -> String {
     let mut title = context.pane_title.trim().to_string();
 
-    if title.is_empty() || rules.ignored_titles.iter().any(|ignored| *ignored == title) {
+    if title.is_empty()
+        || rules.ignored_titles.iter().any(|ignored| *ignored == title)
+        // Sessions created by early 0.60 builds stored an engine-internal
+        // identifier as their title. Workspace restore must not leak it back
+        // into the user's tab strip forever.
+        || internal_placeholder_title(&title)
+    {
         title = program_name(context.process_path);
     }
 
@@ -108,6 +114,12 @@ pub fn resolve_name(rules: &TabTitleRules, context: TabContext) -> String {
         title = rules.fallback.clone();
     }
     title
+}
+
+fn internal_placeholder_title(title: &str) -> bool {
+    title
+        .strip_prefix("next-core:")
+        .is_some_and(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 pub fn render(rules: &TabTitleRules, context: TabContext) -> String {
@@ -196,6 +208,19 @@ mod tests {
         let rendered = render(&TabTitleRules::default(), context("default", "/bin/bash"));
 
         assert_eq!(rendered, "  Bash  ");
+    }
+
+    #[test]
+    fn an_early_next_core_internal_title_falls_back_to_the_program() {
+        let rendered = render(
+            &TabTitleRules::default(),
+            context(
+                "next-core:17",
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            ),
+        );
+
+        assert_eq!(rendered, "  Powershell  ");
     }
 
     #[test]

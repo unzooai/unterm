@@ -247,20 +247,41 @@ pub fn on_title_change(pane_id: u64, title: &str) {
     let Some(sig) = super::title::parse_title(title) else {
         return;
     };
-    apply(pane_id, sig.agent, sig.state, Layer::Osc, "osc-title", sig.task_hint);
+    apply(
+        pane_id,
+        sig.agent,
+        sig.state,
+        Layer::Osc,
+        "osc-title",
+        sig.task_hint,
+    );
 }
 
 /// OSC 9;4 progress state changed. `active` covers Percentage and
 /// Indeterminate; `cleared` is `Progress::None`.
 pub fn on_progress(pane_id: u64, active: bool) {
     if active {
-        apply(pane_id, None, AgentState::Working, Layer::Osc, "osc-progress", None);
+        apply(
+            pane_id,
+            None,
+            AgentState::Working,
+            Layer::Osc,
+            "osc-progress",
+            None,
+        );
     } else {
         // Progress cleared: the turn ended. Done (not Idle) so the user
         // notices completion; decays via poll().
         let has_entry = registry().lock().contains_key(&pane_id);
         if has_entry {
-            apply(pane_id, None, AgentState::Done, Layer::Osc, "osc-progress-clear", None);
+            apply(
+                pane_id,
+                None,
+                AgentState::Done,
+                Layer::Osc,
+                "osc-progress-clear",
+                None,
+            );
         }
     }
 }
@@ -290,7 +311,14 @@ pub fn on_bell(pane_id: u64) {
         return;
     }
     drop(reg);
-    apply(pane_id, None, AgentState::WaitingForUser, Layer::Osc, "bell", None);
+    apply(
+        pane_id,
+        None,
+        AgentState::WaitingForUser,
+        Layer::Osc,
+        "bell",
+        None,
+    );
 }
 
 /// Official hook event (`agent.signal` over MCP / CLI). Strongest layer.
@@ -429,7 +457,11 @@ pub fn status_for_pane(pane_id: u64) -> Option<PaneAgentStatus> {
 }
 
 pub fn snapshot() -> Vec<PaneAgentStatus> {
-    let mut v: Vec<_> = registry().lock().values().map(|e| e.status.clone()).collect();
+    let mut v: Vec<_> = registry()
+        .lock()
+        .values()
+        .map(|e| e.status.clone())
+        .collect();
     // Inbox order: waiting (longest first) → working → done → idle.
     v.sort_by(|a, b| {
         a.state

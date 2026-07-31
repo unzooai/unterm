@@ -544,6 +544,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod { name: "review.rollback", namespace: "cockpit", summary: "Restore a repo's worktree to a checkpoint (destructive; confirm first).", params: &[
         Param { name: "repo", kind: "string", required: true, summary: "Repo path." },
         Param { name: "sha", kind: "string", required: true, summary: "Checkpoint sha to restore." },
+        Param { name: "confirm", kind: "bool", required: true, summary: "Must be true after explicit user confirmation." },
     ] },
     McpMethod { name: "review.merge", namespace: "cockpit", summary: "Squash-merge a fleet member into the base repo, leaving it staged.", params: &[
         Param { name: "fleet_id", kind: "string", required: true, summary: "" },
@@ -614,6 +615,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn public_mcp_inventory_is_unique_and_covers_every_product_namespace() {
+        let names: std::collections::HashSet<_> = MCP_METHODS.iter().map(|m| m.name).collect();
+        assert_eq!(
+            names.len(),
+            MCP_METHODS.len(),
+            "duplicate MCP method metadata"
+        );
+        // The requirements enumerate 101 authenticated public methods plus
+        // auth.login. The current surface keeps those and two compatible
+        // additions (screen.clear and session.paste).
+        assert_eq!(MCP_METHODS.len(), 103);
+        let namespaces: std::collections::HashSet<_> = MCP_METHODS
+            .iter()
+            .filter_map(|method| method.name.split('.').next())
+            .collect();
+        for required in [
+            "meta",
+            "session",
+            "exec",
+            "signal",
+            "screen",
+            "ghost",
+            "orchestrate",
+            "workspace",
+            "capture",
+            "upload",
+            "proxy",
+            "policy",
+            "server",
+            "selftest",
+            "agent",
+            "cockpit",
+            "fleet",
+            "review",
+            "system",
+            "profile",
+            "instance",
+        ] {
+            assert!(
+                namespaces.contains(required),
+                "missing MCP namespace {required}"
+            );
+        }
+    }
+
+    #[test]
     fn cli_surface_includes_agent_onboarding_entrypoints() {
         let names: std::collections::HashSet<_> = CLI_COMMANDS.iter().map(|c| c.name).collect();
         for required in ["reference", "setup-ai", "mcp-stdio", "agent", "settings"] {
@@ -622,6 +669,22 @@ mod tests {
                 "CLI_COMMANDS is missing {required}"
             );
         }
+    }
+
+    #[test]
+    fn review_rollback_declares_required_boolean_confirmation() {
+        let rollback = MCP_METHODS
+            .iter()
+            .find(|method| method.name == "review.rollback")
+            .expect("MCP_METHODS is missing review.rollback");
+        let confirm = rollback
+            .params
+            .iter()
+            .find(|param| param.name == "confirm")
+            .expect("review.rollback params are missing confirm");
+
+        assert!(confirm.required);
+        assert_eq!(confirm.kind, "bool");
     }
 
     #[test]

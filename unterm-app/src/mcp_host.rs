@@ -72,7 +72,11 @@ pub fn split_for(
     Split {
         source,
         axis,
-        first_ratio: if new_pane_is_first { share } else { 1.0 - share },
+        first_ratio: if new_pane_is_first {
+            share
+        } else {
+            1.0 - share
+        },
     }
 }
 
@@ -120,7 +124,6 @@ impl McpHost for AppMcpHost {
         }
     }
 
-
     /// Name the window, so an agent's chosen name is what a person sees in
     /// the taskbar and Alt-Tab -- not only what `instance.list` reports.
     fn set_window_title(&self, title: Option<&str>) -> bool {
@@ -140,9 +143,7 @@ impl McpHost for AppMcpHost {
     /// means the window should be visible, and raising one that is minimised
     /// otherwise does nothing at all.
     fn focus_window(&self) -> Result<()> {
-        let window = WINDOW
-            .get()
-            .context("the window is not open yet")?;
+        let window = WINDOW.get().context("the window is not open yet")?;
         window.set_minimized(false);
         window.focus_window();
         Ok(())
@@ -157,7 +158,12 @@ impl McpHost for AppMcpHost {
         height: usize,
         include_base64: bool,
     ) -> Result<Value> {
-        let region = unterm_services::window_capture::Region { left, top, width, height };
+        let region = unterm_services::window_capture::Region {
+            left,
+            top,
+            width,
+            height,
+        };
         let shot = unterm_services::window_capture::capture_region(region)?;
         write_capture(shot, include_base64)
     }
@@ -271,6 +277,29 @@ impl McpHost for AppMcpHost {
 /// A monospace grid, not a shaped run: a capture wants every column where the
 /// terminal put it, which is the same reason the live renderer places cells
 /// rather than laying out text.
+/// The same standalone scrollback render the MCP method performs, reachable
+/// from the quick menu: the pane's history to one tall PNG, independent of
+/// what the window shows or covers.
+pub fn scrollback_png(pane_id: usize, path: &std::path::Path) -> Result<(u32, u32)> {
+    let engine = unterm_engine::next_core();
+    let scrollback = engine.read_styled_scrollback(
+        pane_id,
+        ScrollbackTextRequest {
+            start_line: None,
+            end_line: None,
+            tail_lines: Some(10_000),
+            escapes: false,
+        },
+    )?;
+    let mut fonts = crate::fonts::FontStack::system(BASE_PIXEL_SIZE)
+        .context("no font to draw the capture with")?;
+    let image = draw(&mut fonts, &scrollback.lines, scrollback.cols, BASE_PIXEL_SIZE);
+    image
+        .save_with_format(path, image::ImageFormat::Png)
+        .with_context(|| format!("write the capture to {}", path.display()))?;
+    Ok((image.width(), image.height()))
+}
+
 fn draw(
     fonts: &mut crate::fonts::FontStack,
     lines: &[StyledScreenLine],
@@ -505,9 +534,8 @@ fn write_capture(
 ) -> Result<Value> {
     use base64::Engine as _;
 
-    let buffer =
-        image::RgbaImage::from_raw(shot.width as u32, shot.height as u32, shot.pixels)
-            .context("the capture's size and its pixels disagree")?;
+    let buffer = image::RgbaImage::from_raw(shot.width as u32, shot.height as u32, shot.pixels)
+        .context("the capture's size and its pixels disagree")?;
 
     let path = capture_path(shot.mode, "png");
     if let Some(parent) = path.parent() {
@@ -544,10 +572,22 @@ mod split_tests {
     /// agent asking to split left got a pane on the right.
     #[test]
     fn every_direction_becomes_the_cut_it_names() {
-        assert_eq!(split_for(1, SplitDirection::Right, 50).axis, SplitAxis::Horizontal);
-        assert_eq!(split_for(1, SplitDirection::Left, 50).axis, SplitAxis::Horizontal);
-        assert_eq!(split_for(1, SplitDirection::Down, 50).axis, SplitAxis::Vertical);
-        assert_eq!(split_for(1, SplitDirection::Up, 50).axis, SplitAxis::Vertical);
+        assert_eq!(
+            split_for(1, SplitDirection::Right, 50).axis,
+            SplitAxis::Horizontal
+        );
+        assert_eq!(
+            split_for(1, SplitDirection::Left, 50).axis,
+            SplitAxis::Horizontal
+        );
+        assert_eq!(
+            split_for(1, SplitDirection::Down, 50).axis,
+            SplitAxis::Vertical
+        );
+        assert_eq!(
+            split_for(1, SplitDirection::Up, 50).axis,
+            SplitAxis::Vertical
+        );
     }
 
     /// The share in the request is always the *new* pane's. Splitting right at

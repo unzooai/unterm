@@ -15,8 +15,8 @@
 Claude Code is great at editing files, but it's blind to my actual terminal —
 the sessions, splits, and output history where my real work state lives.
 
-So I built Unterm: a cross-platform terminal (Rust, customized WezTerm
-engine) that runs a local MCP server. On first launch it auto-registers
+So I built Unterm: a cross-platform terminal with its own native Rust
+kernel and a local MCP server. On first launch it auto-registers
 itself into Claude Code's MCP config, so Claude can immediately:
 
 - list/spawn/focus tabs and panes
@@ -40,7 +40,7 @@ Would love feedback from people who drive Claude Code hard all day.
 
 ## r/mcp(小但精准)
 
-**Title**: `Unterm: a desktop terminal that IS an MCP server — 67 methods across 11 namespaces (exec, screen, capture, session, profile…)`
+**Title**: `Unterm: a desktop terminal that IS an MCP server — 103 authenticated methods (exec, screen, capture, session, profile…)`
 
 **Body**(短版):
 
@@ -53,7 +53,7 @@ record sessions, switch identity profiles.
 Auto-discovery: on install it registers itself into the global MCP configs
 of Claude Code / Codex / Gemini CLI / OpenCode / Aider.
 
-MIT, local-first, macOS/Linux/Windows. Built on a customized WezTerm.
+MIT, local-first, macOS/Linux/Windows. Native Rust terminal kernel.
 
 https://github.com/zhitongblog/unterm
 ```
@@ -75,6 +75,6 @@ switching. `unterm-cli reference` prints the full surface.
 It happens to make the terminal drivable by AI agents over MCP, but
 everything works equally well from a shell script or cron job.
 
-MIT, Rust, customized WezTerm engine, macOS/Linux/Windows.
+MIT, native Rust terminal kernel, macOS/Linux/Windows.
 https://github.com/zhitongblog/unterm
 ```

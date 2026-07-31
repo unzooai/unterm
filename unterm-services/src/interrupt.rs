@@ -149,9 +149,7 @@ fn protect_this_process() {
 pub fn interrupt_process_group(pid: u32) -> anyhow::Result<Interrupt> {
     use anyhow::anyhow;
     use std::sync::Mutex;
-    use winapi::um::wincon::{
-        AttachConsole, FreeConsole, GenerateConsoleCtrlEvent, CTRL_C_EVENT,
-    };
+    use winapi::um::wincon::{AttachConsole, FreeConsole, GenerateConsoleCtrlEvent, CTRL_C_EVENT};
 
     // `AttachConsole` reads (DWORD)-1 as ATTACH_PARENT_PROCESS. A pid that
     // arrives as u32::MAX -- a stale handle, a bad cast, a pane whose child
@@ -235,8 +233,8 @@ pub fn expects_interrupt_signal(pid: u32) -> bool {
     use winapi::um::consoleapi::GetConsoleMode;
     use winapi::um::fileapi::{CreateFileA, OPEN_EXISTING};
     use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
-    use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ, GENERIC_WRITE};
     use winapi::um::wincon::{AttachConsole, FreeConsole, ENABLE_PROCESSED_INPUT};
+    use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ, GENERIC_WRITE};
 
     if pid == u32::MAX || pid == 0 {
         return false;

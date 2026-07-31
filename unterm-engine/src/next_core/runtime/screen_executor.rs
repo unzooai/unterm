@@ -31,6 +31,9 @@ pub(in crate::next_core) fn execute_screen_mutation(command: RuntimeCommand) -> 
         RuntimeCommand::ScrollViewportBy { pane_id, delta } => {
             screen_dispatch::scroll_viewport_by(pane_id, delta)
         }
+        RuntimeCommand::ScrollViewportToPrompt { pane_id, amount } => {
+            screen_dispatch::scroll_viewport_to_prompt(pane_id, amount)
+        }
         RuntimeCommand::EraseScrollback {
             pane_id,
             include_viewport,

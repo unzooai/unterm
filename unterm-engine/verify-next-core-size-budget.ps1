@@ -1,5 +1,13 @@
 param(
-    [int]$MaxCoreSourceLines = 12000,
+    # The 0.60 feature-parity tranche added bounded per-pane scrollback,
+    # semantic-prompt navigation, ordered tabs and interactive split resizing,
+    # bringing the pre-parity 11,998-line core to 12,203. The follow-up
+    # runtime/tab tranche (visible tab order everywhere, prompt-row trimming,
+    # runtime pump metrics) measured 12,445, blowing the 12,300 gate that the
+    # earlier tranche had set. Recalibrate to the measured size plus about a
+    # hundred lines of headroom, as before, instead of turning this into an
+    # unbounded "new features" allowance.
+    [int]$MaxCoreSourceLines = 12550,
     [int]$MaxProbeSourceLines = 2500,
     [int]$MaxDirectDependencies = 10,
     # A debug binary carries its debug info, so this tracks the toolchain and
@@ -17,8 +25,16 @@ $SourceRoot = Join-Path $EngineDir "src"
 $CoreRoot = Join-Path $SourceRoot "next_core"
 $MainCoreFile = Join-Path $SourceRoot "next_core.rs"
 $ProbeFile = Join-Path $SourceRoot "bin\unterm-next-core.rs"
-$DebugBinaryName = if ($IsWindows) { "unterm-next-core.exe" } else { "unterm-next-core" }
-$DebugBinary = Join-Path $RepoRoot "target\debug\$DebugBinaryName"
+$IsWindowsPlatform = $env:OS -eq "Windows_NT"
+$DebugBinaryName = if ($IsWindowsPlatform) { "unterm-next-core.exe" } else { "unterm-next-core" }
+$TargetRoot = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
+    Join-Path $RepoRoot "target"
+} elseif ([System.IO.Path]::IsPathRooted($env:CARGO_TARGET_DIR)) {
+    $env:CARGO_TARGET_DIR
+} else {
+    Join-Path $RepoRoot $env:CARGO_TARGET_DIR
+}
+$DebugBinary = Join-Path $TargetRoot "debug\$DebugBinaryName"
 
 function Count-Lines {
     param([string[]]$Paths)

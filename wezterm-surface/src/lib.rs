@@ -1,13 +1,13 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 use crate::line::CellRef;
 use alloc::borrow::Cow;
+#[cfg(feature = "use_image")]
+use alloc::boxed::Box;
 use core::cmp::min;
 use finl_unicode::grapheme_clusters::Graphemes;
 #[cfg(feature = "use_serde")]
 use serde::{Deserialize, Serialize};
 use wezterm_cell::color::ColorAttribute;
-#[cfg(feature = "use_image")]
-use alloc::boxed::Box;
 #[cfg(feature = "use_image")]
 use wezterm_cell::image::ImageCell;
 use wezterm_cell::{Cell, CellAttributes};

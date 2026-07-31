@@ -4,7 +4,13 @@
 
 ![Agent Cockpit: three agents working, the Inbox surfaces the one that needs you, Enter jumps to it](assets/demo/agent-cockpit.gif)
 
-Cross-platform terminal (macOS / Linux / Windows) built on a customized WezTerm engine, with one design bet: the terminal itself is controllable from the outside by any AI agent over MCP. Claude Code, Codex, Gemini CLI, Cursor, Aider, your own scripts — they all get the same JSON-RPC surface (**99 methods across 21 namespaces**) to spawn shells, run commands, read pane state, capture screenshots, change settings, and record sessions.
+Cross-platform terminal (macOS / Linux / Windows) built on Unterm's native
+`next-core` terminal engine, with one design bet: the terminal itself is
+controllable from the outside by any AI agent over MCP. Claude Code, Codex,
+Gemini CLI, Cursor, Aider, your own scripts — they all get the same JSON-RPC
+surface (**103 authenticated methods plus `auth.login`**) to spawn shells, run
+commands, read pane state, capture screenshots, change settings, and record
+sessions.
 
 Since v0.55 the relationship runs both ways: agents drive the terminal from outside, and the terminal is an **Agent Cockpit** for the agents running inside it — live per-pane agent state, a waiting-first Inbox, fleets of N agents on one task in N isolated git worktrees, and a Review page to diff / merge / roll back what they produced.
 
@@ -17,9 +23,16 @@ Practical implications:
 - **9 languages out of the box**: en / 简体中文 / 繁體中文 / 日本語 / 한국어 / Deutsch / Français / Italiano / हिन्दी. Auto-detects from system locale, can be overridden in Web Settings or via `unterm-cli lang set <code>`.
 - **Multi-instance discovery**: every running Unterm process owns one NATO-named instance (alpha, bravo, charlie…) and writes its ports + auth token to `~/.unterm/instances/<name>.json`. Agents that drive several windows at once enumerate that directory.
 - **Cross-platform parity is a correctness property**: if a feature works on Windows but bails on macOS or Linux, that's a bug, not "not supported yet."
-- **Subtraction over decoration**: no AI overlay inside the terminal, no inline image render that wedges the GUI, no in-terminal custom right-click chrome, no Cmd+Q confirmation, no manual proxy URL config (auto-detected from system). Finder integration on macOS uses the native Finder right-click extension and Services.
+- **Subtraction over decoration**: no AI chat overlay inside the terminal and
+  no cloud dependency for core operation. Proxy settings auto-detect the
+  system by default and also support explicit HTTP/SOCKS overrides, node pools,
+  rotation, and Clash/mihomo controllers. Finder integration on macOS uses the
+  native Finder right-click extension and Services.
 
-Built on top of the WezTerm engine for renderer / font / TUI / SSH / mux work, with a thin product layer on top.
+The GUI and terminal runtime now use Unterm's native `next-core` engine. The
+repository still carries selected upstream components and attribution where
+they remain dependencies, but WezTerm mux/window state is no longer the
+product kernel.
 
 ---
 
@@ -56,7 +69,7 @@ https://github.com/zhitongblog/unterm/releases
 | -------- | ----------------------------------------------------------- |
 | macOS    | `Unterm-macos-<version>.dmg` (universal arm64+x86_64, signed + notarized) |
 | Linux    | `unterm-<version>.deb` or `Unterm-<version>-x86_64.AppImage` |
-| Windows  | `Unterm-<version>-x64.msi` or `Unterm-windows-<version>.zip` |
+| Windows  | `Unterm-<version>-x64.msi` or `Unterm-windows-x64-<version>.zip` |
 
 ### macOS
 
@@ -125,10 +138,17 @@ This README is the short version. The site is the long version.
 ## Features
 
 - **GPU-accelerated rendering** on all three platforms (Metal / OpenGL / DirectX via ANGLE).
-- **MCP server** on `127.0.0.1:<auto-port>` (default 19876) — JSON-RPC over TCP, auth-token gated. 99 methods across 21 namespaces: session, exec, screen, capture, agent, cockpit, fleet, review, orchestrate, proxy, workspace, profile, instance, policy, system, server, signal, upload, selftest, ghost, meta. `meta.surface` (or `unterm-cli reference`) returns the whole live inventory in one call.
+- **MCP server** on `127.0.0.1:<auto-port>` (default 19876) —
+  line-delimited JSON-RPC over TCP, loopback-only and auth-token gated. It
+  exposes 103 authenticated methods plus `auth.login`; `meta.surface` (or
+  `unterm-cli reference`) returns the authoritative live inventory in one
+  call.
 - **Agent Cockpit** — per-pane agent state, waiting-first Inbox, worktree fleets, checkpoint + review. See the section above.
 - **Web Settings UI** on `127.0.0.1:<auto-port>` (default 19877) — open in any browser via `unterm-cli settings open` or the `Settings (Web)` item in the `▼` menu. Tailwind-styled SPA, supports all 9 languages, keyboard + mouse.
-- **Auto proxy detection** — reads macOS System Preferences / Windows registry / GNOME gsettings / `$HTTPS_PROXY`, falls back to scanning common local ports. The single `proxy.json` toggle is `{"enabled": true|false}` — no manual URL configuration needed.
+- **Proxy management** — reads macOS System Preferences / Windows registry /
+  GNOME gsettings / proxy environment variables, and falls back to common
+  local ports. `~/.unterm/proxy.json` also persists manual HTTP/SOCKS URLs,
+  `no_proxy`, named nodes, rotation, and Clash/mihomo controller settings.
 - **Region screenshots** from the status bar (left-click excludes the Unterm window, right-click includes it). PNG lands on disk under `~/.unterm/screenshots/`, on the system image clipboard, and the path on the text clipboard.
 - **Scrolling (long) screenshots**, both directions: `capture.scrollback` re-renders a pane's *entire* history into one tall PNG headlessly (exact fonts/theme, streaming-encoded, works while occluded); `capture.window_scroll` long-shots *another app's* window by synthesizing wheel events and stitching frames via row-hash matching with sticky-header/footer detection (macOS). Both also in the `▼` menu and `unterm-cli screenshot --scrollback / --scroll-app`.
 - **Session recording → markdown** with OSC 133 block segmentation and built-in redaction (GitHub tokens / `KEY=value` / 40+ char hex/base64 patterns are masked). Recordings are stored in the project directory under `<cwd>/.unterm/sessions/<date>/<tab>-<time>.md`, or in `~/.unterm/sessions/_orphan/` when no writable project context.
@@ -189,7 +209,7 @@ unterm-cli lang list / set <code> / current    # en-US / zh-CN / zh-TW / ja-JP /
 
 # Proxy
 unterm-cli proxy status                        # auto-detect health
-unterm-cli proxy nodes / switch <name> / disable / env
+unterm-cli proxy nodes / switch <name> / disable / env / rotation
 
 # Agent Cockpit
 unterm-cli agent status                        # per-pane agent state (working/waiting/idle/done)
@@ -221,7 +241,9 @@ unterm-cli screenshot --scroll-app Safari [--scroll-title SUBSTR] [--max-frames 
 
 Pass `--json` to any subcommand for raw JSON-RPC output (suitable for scripts). Pass `--lang <code>` to override the locale for one invocation. Pass `--instance <id>` (or set `UNTERM_INSTANCE=<id>`) when several Unterm windows are open and you need a deterministic target.
 
-Multi-instance discovery is exposed over MCP rather than as a separate CLI list command — call `instance.list` against any running Unterm's MCP port, or just `ls ~/.unterm/instances/`.
+Multi-instance discovery is available through MCP and CLI: call
+`instance.list`, run `unterm-cli instance list`, or inspect
+`~/.unterm/instances/`.
 
 ## AI agent auto-discovery
 
@@ -259,7 +281,7 @@ Files:
 | `active.json`                | Pointer at the current foreground instance id (auto, updated only when previous active dies) |
 | `instances/<name>.json`      | Per-instance metadata (NATO id, ports, token, pid, started_at, version, platform) |
 | `auth_token`                 | Legacy mirror of the active auth token (for back-compat) |
-| `proxy.json`                 | `{"enabled": true|false}` — URLs auto-detected   |
+| `proxy.json`                 | Auto/manual proxy URLs, exclusions, nodes, rotation, and Clash controller state |
 | `theme.json`                 | Active theme id                                  |
 | `lang.json`                  | Persisted locale override                        |
 | `compat.json`                | `{"term_program": "..."}` override for `$TERM_PROGRAM` |

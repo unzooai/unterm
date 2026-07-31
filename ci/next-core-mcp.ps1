@@ -33,13 +33,16 @@ $RequiredTests = @(
     "handler::engine_neutral_handler_tests::inactive_scrollback_export_markdown_uses_next_core_screen_engine",
     "handler::engine_neutral_handler_tests::cockpit_inbox_uses_engine_session_snapshot",
     "handler::engine_neutral_handler_tests::review_diff_does_not_require_wezterm_mux_in_next_core_mode",
+    "handler::engine_neutral_handler_tests::review_rollback_requires_explicit_confirmation_at_the_mcp_boundary",
     "handler::engine_neutral_handler_tests::review_verify_and_merge_work_for_next_core_fleet_member",
     "handler::engine_neutral_handler_tests::fleet_lifecycle_uses_next_core_session_engine"
 )
 
 Push-Location $RepoRoot
 try {
+    $ErrorActionPreference = "Continue"
     $list = @(& cargo test -p unterm-mcp $TestFilter -- --list 2>&1 | ForEach-Object { $_.ToString() })
+    $ErrorActionPreference = "Stop"
     if ($LASTEXITCODE -ne 0) {
         throw "cargo test list failed:`n$($list -join "`n")"
     }
@@ -55,17 +58,21 @@ try {
         exit 0
     }
 
+    $ErrorActionPreference = "Continue"
     $run = @(& cargo test -p unterm-mcp $TestFilter -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
+    $ErrorActionPreference = "Stop"
     if ($LASTEXITCODE -ne 0) {
         throw "next-core MCP contract tests failed:`n$($run -join "`n")"
     }
-    if (-not @($run | Where-Object { $_ -match "test result: ok\..*44 passed" })) {
-        throw "next-core MCP contract test run did not report 44 passed tests"
+    if (-not @($run | Where-Object { $_ -match "test result: ok\..*45 passed" })) {
+        throw "next-core MCP contract test run did not report 45 passed tests"
     }
 
     # The other half of capture.scrollback: the surface refuses without a
     # front end (above), and a front end hosting it really renders (here).
+    $ErrorActionPreference = "Continue"
     $hostRun = @(& cargo test -p unterm-app --bin unterm "mcp_host::tests::" -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
+    $ErrorActionPreference = "Stop"
     if ($LASTEXITCODE -ne 0) {
         throw "MCP host tests failed:`n$($hostRun -join "`n")"
     }
@@ -73,7 +80,7 @@ try {
         throw "MCP host test run did not report 4 passed tests"
     }
 
-    Write-Host "next-core MCP contract tests ok: required=$($RequiredTests.Count) module_tests=44 host_tests=4"
+    Write-Host "next-core MCP contract tests ok: required=$($RequiredTests.Count) module_tests=45 host_tests=4"
 } finally {
     Pop-Location
 }

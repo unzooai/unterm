@@ -56,8 +56,9 @@ pub fn font_directories() -> Vec<PathBuf> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         if let Some(home) = std::env::var_os("HOME") {
-            dirs.push(PathBuf::from(home).join(".local/share/fonts"));
-            dirs.push(PathBuf::from(home).join(".fonts"));
+            let home = PathBuf::from(home);
+            dirs.push(home.join(".local/share/fonts"));
+            dirs.push(home.join(".fonts"));
         }
         dirs.push(PathBuf::from("/usr/share/fonts"));
         dirs.push(PathBuf::from("/usr/local/share/fonts"));
@@ -285,7 +286,9 @@ mod tests {
         assert_eq!(index.family("TEST FAMILY").len(), 2);
         // Asking for a family by name and getting Bold would be surprising.
         assert_eq!(
-            index.best_in_family("Test Family").map(|e| e.style.as_str()),
+            index
+                .best_in_family("Test Family")
+                .map(|e| e.style.as_str()),
             Some("Regular")
         );
 
@@ -307,7 +310,9 @@ mod tests {
             },
         ]);
         assert_eq!(
-            roman.best_in_family("Roman Family").map(|e| e.style.as_str()),
+            roman
+                .best_in_family("Roman Family")
+                .map(|e| e.style.as_str()),
             Some("Roman")
         );
         assert!(index.family("nothing here").is_empty());

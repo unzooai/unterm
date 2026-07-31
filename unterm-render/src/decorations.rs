@@ -72,14 +72,16 @@ pub fn quads_for(
                     color,
                 });
             }
-            StyledUnderline::Dotted => out.extend(dashes(left, line_top, width, stroke, color, 1.0)),
-            StyledUnderline::Dashed => out.extend(dashes(left, line_top, width, stroke, color, 3.0)),
+            StyledUnderline::Dotted => {
+                out.extend(dashes(left, line_top, width, stroke, color, 1.0))
+            }
+            StyledUnderline::Dashed => {
+                out.extend(dashes(left, line_top, width, stroke, color, 3.0))
+            }
             // Drawn as a dense dash rather than a sine wave: a curl needs a
             // shader or a texture, and a distinct-looking line is worth more
             // than a missing one.
-            StyledUnderline::Curly => {
-                out.extend(dashes(left, line_top, width, stroke, color, 2.0))
-            }
+            StyledUnderline::Curly => out.extend(dashes(left, line_top, width, stroke, color, 2.0)),
         }
     }
 
@@ -109,14 +111,7 @@ pub fn quads_for(
 }
 
 /// A broken line: `on` pixels of stroke, then the same again of gap.
-fn dashes(
-    left: f32,
-    top: f32,
-    width: f32,
-    stroke: f32,
-    color: [f32; 4],
-    on: f32,
-) -> Vec<Quad> {
+fn dashes(left: f32, top: f32, width: f32, stroke: f32, color: [f32; 4], on: f32) -> Vec<Quad> {
     let dash = (stroke * on).max(1.0);
     let step = dash * 2.0;
     let mut out = Vec::new();
@@ -187,7 +182,10 @@ mod tests {
         let mut style = style();
         style.underline_style = Some(StyledUnderline::Dotted);
         let quads = quads_for(&style, 0.0, 0.0, 40.0, metrics(), white());
-        assert!(quads.len() > 1, "a dotted line with one dash is a solid one");
+        assert!(
+            quads.len() > 1,
+            "a dotted line with one dash is a solid one"
+        );
         for quad in &quads {
             assert!(quad.left >= 0.0 && quad.left + quad.width <= 40.0 + 0.01);
         }
@@ -227,7 +225,10 @@ mod tests {
         style.underline = true;
         style.strikethrough = true;
         style.overline = true;
-        assert_eq!(quads_for(&style, 0.0, 0.0, 10.0, metrics(), white()).len(), 3);
+        assert_eq!(
+            quads_for(&style, 0.0, 0.0, 10.0, metrics(), white()).len(),
+            3
+        );
     }
 
     #[test]

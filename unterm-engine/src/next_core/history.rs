@@ -20,18 +20,18 @@ impl HistoryBuffer {
         self.viewport_top = None;
     }
 
-    pub(super) fn push_scrollback(&mut self, line: Vec<ScreenCell>, max_lines: usize) {
+    pub(super) fn push_scrollback(&mut self, line: Vec<ScreenCell>, max_lines: usize) -> usize {
         self.scrollback.push(line);
-        self.trim_overflow(max_lines);
+        self.trim_overflow(max_lines)
     }
 
     pub(super) fn extend_scrollback(
         &mut self,
         lines: impl IntoIterator<Item = Vec<ScreenCell>>,
         max_lines: usize,
-    ) {
+    ) -> usize {
         self.scrollback.extend(lines);
-        self.trim_overflow(max_lines);
+        self.trim_overflow(max_lines)
     }
 
     pub(super) fn take_scrollback(&mut self) -> Vec<Vec<ScreenCell>> {
@@ -136,9 +136,9 @@ impl HistoryBuffer {
         &self.scrollback
     }
 
-    fn trim_overflow(&mut self, max_lines: usize) {
+    fn trim_overflow(&mut self, max_lines: usize) -> usize {
         if self.scrollback.len() <= max_lines {
-            return;
+            return 0;
         }
 
         let overflow = self.scrollback.len() - max_lines;
@@ -146,5 +146,6 @@ impl HistoryBuffer {
         if let Some(top) = self.viewport_top.as_mut() {
             *top = top.saturating_sub(overflow);
         }
+        overflow
     }
 }

@@ -12,7 +12,7 @@ use portable_pty::{Child, MasterPty};
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::OnceLock;
@@ -21,19 +21,23 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod activity;
 mod cell;
+pub mod color;
+pub mod config;
+pub mod config_migrate;
+pub mod config_schema;
 mod csi_params;
+pub mod font_discovery;
+pub mod font_raster;
+pub mod font_shaper;
 mod health_snapshot;
 mod history;
 mod input_dispatch;
 mod input_pipeline;
-pub mod font_discovery;
-pub mod font_raster;
-pub mod font_shaper;
 pub mod key_encoding;
-pub mod layout;
-pub mod mouse_encoding;
 mod launch;
+pub mod layout;
 mod lifecycle;
+pub mod mouse_encoding;
 mod osc133;
 mod osc_params;
 mod parser_state;
@@ -52,12 +56,7 @@ mod screen_search;
 mod screen_snapshot;
 mod screen_state;
 mod screen_text;
-pub mod color;
-pub mod config;
-pub mod config_migrate;
-pub mod config_schema;
 pub mod selection;
-pub mod tab_title;
 mod session_activity;
 mod session_creation;
 mod session_defaults;
@@ -69,6 +68,7 @@ mod session_runtime;
 mod session_snapshots;
 mod sgr;
 mod styled_snapshot;
+pub mod tab_title;
 pub mod tabs;
 mod terminal_parser;
 mod terminal_queries;
@@ -95,7 +95,8 @@ use test_support::{
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_RECORDING_BLOCKS: usize = 256;
-const MAX_SCROLLBACK_LINES: usize = 10_000;
+pub const DEFAULT_SCROLLBACK_LINES: usize = 10_000;
+static NEW_SESSION_SCROLLBACK_LINES: AtomicUsize = AtomicUsize::new(DEFAULT_SCROLLBACK_LINES);
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NextCoreEngine;
@@ -165,6 +166,10 @@ struct NextCoreActiveCommand {
 #[derive(Default)]
 struct NextCoreScreen {
     cols: usize,
+    /// The history capacity chosen when this pane was created.
+    scrollback_limit: usize,
+    /// Absolute history rows at which OSC 133 prompt-start markers arrived.
+    prompt_rows: Vec<usize>,
     history: HistoryBuffer,
     lines: Vec<Vec<ScreenCell>>,
     cursor_x: usize,
@@ -257,9 +262,18 @@ impl NextCoreScreen {
     }
 
     fn new(cols: usize, rows: usize) -> Self {
+        Self::new_with_scrollback_limit(
+            cols,
+            rows,
+            NEW_SESSION_SCROLLBACK_LINES.load(Ordering::Relaxed),
+        )
+    }
+
+    fn new_with_scrollback_limit(cols: usize, rows: usize, scrollback_limit: usize) -> Self {
         let mut screen = Self {
             cols: cols.max(1),
             rows: rows.max(1),
+            scrollback_limit,
             cursor_visible: true,
             bells: 0,
             clipboard_request: None,
@@ -424,6 +438,36 @@ impl NextCoreScreen {
             .scroll_viewport_by(delta, self.rows, self.lines.len());
         self.bump_revision();
         self.mark_all_dirty();
+    }
+
+    fn scroll_viewport_to_prompt(&mut self, amount: isize) -> bool {
+        if amount == 0 || self.alternate.is_some() || self.prompt_rows.is_empty() {
+            return false;
+        }
+        let anchor = self.viewport_start().saturating_add(self.rows / 4);
+        let target = if amount < 0 {
+            let before = self.prompt_rows.partition_point(|row| *row < anchor);
+            before.checked_sub(amount.unsigned_abs())
+        } else {
+            let after = self.prompt_rows.partition_point(|row| *row <= anchor);
+            after.checked_add(amount as usize - 1)
+        }
+        .and_then(|index| self.prompt_rows.get(index))
+        .copied();
+        if let Some(row) = target {
+            self.set_viewport_top_near(row as isize);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn trim_prompt_rows(&mut self, removed: usize) {
+        if removed == 0 {
+            return;
+        }
+        self.prompt_rows.retain(|row| *row >= removed);
+        self.prompt_rows.iter_mut().for_each(|row| *row -= removed);
     }
 
     fn history_range(&self, start: usize, count: usize) -> Vec<&Vec<ScreenCell>> {
@@ -860,9 +904,13 @@ impl NextCoreScreen {
     /// the application can send: the user asked, so the cursor row is kept
     /// where it is rather than homed.
     pub(super) fn erase_scrollback(&mut self, include_viewport: bool) {
+        let removed = self.history.scrollback_rows();
         self.history.clear();
         if include_viewport {
+            self.prompt_rows.clear();
             self.clear_display();
+        } else {
+            self.trim_prompt_rows(removed);
         }
         self.bump_revision();
         self.mark_all_dirty();
@@ -1379,6 +1427,13 @@ impl NextCoreScreen {
             // and should not grow one, but it is the only thing that sees
             // the sequence.
             Some(osc_params::OscCommand::Clipboard(text)) => self.clipboard_request = Some(text),
+            Some(osc_params::OscCommand::PromptStart) if self.alternate.is_none() => {
+                let row = self.history.scrollback_rows() + self.cursor_y;
+                if self.prompt_rows.last() != Some(&row) {
+                    self.prompt_rows.push(row);
+                }
+            }
+            Some(osc_params::OscCommand::PromptStart) => {}
             None => {}
         }
     }
@@ -1450,7 +1505,8 @@ impl NextCoreScreen {
         for _ in 0..count.max(1) {
             let removed = self.lines.remove(top);
             if top == 0 && bottom + 1 >= self.rows && self.alternate.is_none() {
-                self.history.push_scrollback(removed, MAX_SCROLLBACK_LINES);
+                let trimmed = self.history.push_scrollback(removed, self.scrollback_limit);
+                self.trim_prompt_rows(trimmed);
             }
             self.lines.insert(bottom, Vec::new());
         }
@@ -1524,8 +1580,10 @@ impl NextCoreScreen {
             let trim = self.lines.len() - self.rows;
             let drained = self.lines.drain(..trim).collect::<Vec<_>>();
             if self.alternate.is_none() {
-                self.history
-                    .extend_scrollback(drained, MAX_SCROLLBACK_LINES);
+                let trimmed = self
+                    .history
+                    .extend_scrollback(drained, self.scrollback_limit);
+                self.trim_prompt_rows(trimmed);
             }
             self.cursor_y = self.cursor_y.saturating_sub(trim);
             self.saved_cursor_y = self.saved_cursor_y.saturating_sub(trim);
@@ -1723,6 +1781,18 @@ impl NextCoreScreen {
 }
 
 impl NextCoreEngine {
+    /// Choose the history capacity captured by subsequently-created panes.
+    ///
+    /// Existing panes deliberately keep their original capacity, matching the
+    /// settings page's "restart/new pane to apply" contract.
+    pub fn set_new_session_scrollback_lines(lines: usize) {
+        NEW_SESSION_SCROLLBACK_LINES.store(lines, Ordering::Relaxed);
+    }
+
+    pub fn new_session_scrollback_lines() -> usize {
+        NEW_SESSION_SCROLLBACK_LINES.load(Ordering::Relaxed)
+    }
+
     #[doc(hidden)]
     pub fn debug_output(&self, pane_id: usize) -> Result<String> {
         runtime::output(pane_id)
@@ -1737,6 +1807,10 @@ impl NextCoreEngine {
         runtime::scroll_viewport_by(pane_id, delta)
     }
 
+    pub fn scroll_viewport_to_prompt(&self, pane_id: usize, amount: isize) -> Result<()> {
+        runtime::scroll_viewport_to_prompt(pane_id, amount)
+    }
+
     /// Terminal modes a GUI pane has to expose (mouse grab, alternate screen).
     pub fn pane_modes(&self, pane_id: usize) -> Result<crate::PaneModesSnapshot> {
         runtime::pane_modes(pane_id)
@@ -1746,7 +1820,6 @@ impl NextCoreEngine {
     pub fn screen_revision(&self, pane_id: usize) -> Result<u64> {
         runtime::screen_revision(pane_id)
     }
-
 }
 
 impl SessionEngine for NextCoreEngine {
@@ -1865,11 +1938,7 @@ impl NextCoreEngine {
     /// Whether anything reaches the PTY depends on the modes the application
     /// negotiated; with reporting off this is a no-op and the terminal keeps
     /// the mouse for selection and scrollback.
-    pub fn report_mouse(
-        &self,
-        pane_id: usize,
-        event: mouse_encoding::MouseEvent,
-    ) -> Result<()> {
+    pub fn report_mouse(&self, pane_id: usize, event: mouse_encoding::MouseEvent) -> Result<()> {
         runtime::report_mouse(pane_id, event)
     }
 }
@@ -2389,7 +2458,7 @@ mod tests {
     #[test]
     fn encoded_keys_reach_a_real_shell_and_echo_back() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -2441,7 +2510,7 @@ mod tests {
     #[test]
     fn erase_scrollback_drops_history_and_optionally_the_viewport() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 20,
@@ -2490,7 +2559,7 @@ mod tests {
     #[test]
     fn soft_wrapped_rows_are_marked_and_hard_newlines_are_not() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -2524,7 +2593,7 @@ mod tests {
     #[test]
     fn relative_viewport_scroll_steps_and_resumes_following() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 20,
@@ -2573,7 +2642,7 @@ mod tests {
     #[test]
     fn mouse_reports_follow_the_session_modes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -2616,7 +2685,7 @@ mod tests {
     #[test]
     fn paste_activity_reports_last_write_metrics() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -2666,7 +2735,7 @@ mod tests {
     #[test]
     fn input_activity_reports_regular_writes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -2703,7 +2772,7 @@ mod tests {
     #[test]
     fn shell_uses_process_cwd_fallback_until_osc7_updates() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -2742,7 +2811,7 @@ mod tests {
     #[test]
     fn output_activity_reports_screen_updates() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         // The default shell, not a timed command: `idle` is
         // `is_dead || is_idle`, so a command that exits early makes the
@@ -2786,7 +2855,7 @@ mod tests {
     #[test]
     fn health_reports_aggregate_io_metrics() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -2923,7 +2992,7 @@ mod tests {
     #[test]
     fn session_snapshot_records_launch_env_keys_without_values() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -2956,7 +3025,7 @@ mod tests {
     #[test]
     fn manages_session_metadata_lifecycle() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let cwd = std::env::current_dir()
             .ok()
@@ -2979,8 +3048,15 @@ mod tests {
             size_percent: 50,
             command_dir: None,
             command: None,
+            env: vec![("UNTERM_PROFILE".to_string(), "work-acme".to_string())],
+            launch_policy: Default::default(),
         })?;
         assert_eq!(second.id, 2);
+        assert_eq!(
+            second.shell.launch_context.profile.as_deref(),
+            Some("work-acme")
+        );
+        assert_eq!(second.shell.launch_env_keys, vec!["UNTERM_PROFILE"]);
         assert!(engine.get_session(second.id)?.is_active);
         assert!(!engine.get_session(first.id)?.is_active);
 
@@ -3005,7 +3081,7 @@ mod tests {
     #[test]
     fn propagates_reader_dead_marker_to_session_snapshots() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -3039,7 +3115,7 @@ mod tests {
     #[test]
     fn session_activity_tracks_recent_next_core_io() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -3070,7 +3146,7 @@ mod tests {
     #[test]
     fn screen_range_reads_update_activity_metrics() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -3120,7 +3196,7 @@ mod tests {
     #[test]
     fn exposes_buffered_output_for_screen_reads() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -3154,7 +3230,7 @@ mod tests {
     #[test]
     fn screen_snapshots_report_revision_changes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -3194,7 +3270,7 @@ mod tests {
     #[test]
     fn render_frames_report_full_then_dirty_delta() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -3258,7 +3334,7 @@ mod tests {
     #[test]
     fn render_frames_accumulate_dirty_rows_across_chunks() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -3299,7 +3375,7 @@ mod tests {
     #[test]
     fn render_frames_mark_cursor_only_moves_dirty() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -3339,7 +3415,7 @@ mod tests {
     #[test]
     fn screen_buffer_wraps_text_at_configured_columns() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 5,
@@ -3364,7 +3440,7 @@ mod tests {
     #[test]
     fn screen_buffer_honors_decawm_auto_wrap_mode() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 5,
@@ -3394,7 +3470,7 @@ mod tests {
     #[test]
     fn screen_buffer_treats_tab_as_cursor_movement() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -3418,7 +3494,7 @@ mod tests {
     #[test]
     fn screen_buffer_treats_vertical_tab_and_form_feed_as_newline() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -3442,7 +3518,7 @@ mod tests {
     #[test]
     fn screen_buffer_clamps_tab_at_right_edge_without_wrapping() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 5,
@@ -3466,7 +3542,7 @@ mod tests {
     #[test]
     fn screen_buffer_supports_custom_tab_stops() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -3490,7 +3566,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_forward_tab_csi() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 20,
@@ -3514,7 +3590,7 @@ mod tests {
     #[test]
     fn screen_buffer_forward_tab_csi_uses_custom_tab_stops() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -3538,7 +3614,7 @@ mod tests {
     #[test]
     fn screen_buffer_forward_tab_csi_clamps_at_right_edge() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -3562,7 +3638,7 @@ mod tests {
     #[test]
     fn screen_buffer_clears_current_tab_stop() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -3586,7 +3662,7 @@ mod tests {
     #[test]
     fn screen_buffer_clears_all_tab_stops() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 6,
@@ -3610,7 +3686,7 @@ mod tests {
     #[test]
     fn screen_buffer_wraps_wide_cells_before_right_edge() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 5,
@@ -3634,7 +3710,7 @@ mod tests {
     #[test]
     fn screen_buffer_truncates_existing_lines_on_column_resize() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -3659,7 +3735,7 @@ mod tests {
     #[test]
     fn screen_buffer_strips_terminal_control_sequences() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -3687,7 +3763,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_osc_title_updates() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -3718,7 +3794,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_title_stack_window_operations() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -3744,7 +3820,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_osc8_hyperlinks() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -3795,7 +3871,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_osc7_cwd_updates() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let launch_cwd = std::env::current_dir()?.display().to_string();
         let session = engine.create_session(CreateSessionRequest {
@@ -3831,7 +3907,7 @@ mod tests {
     #[test]
     fn screen_buffer_ignores_invalid_osc7_cwd_updates() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let launch_cwd = std::env::current_dir()?.display().to_string();
         let session = engine.create_session(CreateSessionRequest {
@@ -3855,7 +3931,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_sgr_cell_attributes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -3985,7 +4061,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_reverse_video_mode_to_styled_cells() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(80, 24);
         screen.feed("\x1b[?5hA\x1b[7mB\x1b[27mC");
 
@@ -4011,7 +4087,7 @@ mod tests {
     #[test]
     fn screen_buffer_keeps_reverse_video_isolated_across_alternate_screen() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(80, 3);
 
         screen.feed("\x1b[?5hM\x1b[?1049hA");
@@ -4031,7 +4107,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_colon_sgr_extended_colors() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -4072,7 +4148,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_sgr_underline_colors() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -4132,7 +4208,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_extended_underline_styles() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -4196,7 +4272,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_wide_character_cells() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -4227,7 +4303,7 @@ mod tests {
     #[test]
     fn screen_buffer_preserves_combining_marks_on_base_cells() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -4257,7 +4333,7 @@ mod tests {
     #[test]
     fn screen_buffer_attaches_combining_marks_to_previous_wide_cell() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -4288,7 +4364,7 @@ mod tests {
     #[test]
     fn screen_buffer_preserves_emoji_variation_selector_width() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -4319,7 +4395,7 @@ mod tests {
     #[test]
     fn screen_buffer_keeps_zwj_emoji_sequence_in_one_wide_cell() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -4350,7 +4426,7 @@ mod tests {
     #[test]
     fn screen_buffer_keeps_emoji_modifier_in_base_wide_cell() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -4381,7 +4457,7 @@ mod tests {
     #[test]
     fn screen_buffer_keeps_regional_indicator_flag_in_one_wide_cell() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -4412,7 +4488,7 @@ mod tests {
     #[test]
     fn screen_buffer_repeats_previous_character_with_rep() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -4445,7 +4521,7 @@ mod tests {
     #[test]
     fn screen_buffer_repeats_wide_character_with_rep() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -4474,7 +4550,7 @@ mod tests {
     #[test]
     fn read_styled_scrollback_preserves_history_cell_attributes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -4512,7 +4588,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_basic_csi_screen_operations() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -4539,7 +4615,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_character_edit_and_erase_modes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -4586,7 +4662,7 @@ mod tests {
     #[test]
     fn screen_buffer_delete_chars_backfills_cells_to_right_margin() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 6,
@@ -4616,7 +4692,7 @@ mod tests {
     #[test]
     fn screen_buffer_insert_chars_preserves_cells_outside_right_margin() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -4638,7 +4714,7 @@ mod tests {
     #[test]
     fn screen_buffer_delete_chars_preserves_cells_outside_right_margin() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -4660,7 +4736,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_horizontal_scroll() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -4685,7 +4761,7 @@ mod tests {
     #[test]
     fn screen_buffer_limits_horizontal_scroll_to_margins() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -4713,7 +4789,7 @@ mod tests {
     #[test]
     fn screen_buffer_erase_line_modes_backfill_styled_cells() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 6,
@@ -4773,7 +4849,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_escape_index_sequences() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -4806,7 +4882,7 @@ mod tests {
     #[test]
     fn screen_buffer_index_sequences_do_not_scroll_when_cursor_outside_region() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -4842,7 +4918,7 @@ mod tests {
     #[test]
     fn screen_buffer_ignores_charset_and_utf8_designators() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 16,
@@ -4863,7 +4939,7 @@ mod tests {
     #[test]
     fn screen_buffer_ignores_non_osc_string_controls() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 24,
@@ -4913,7 +4989,7 @@ mod tests {
     #[test]
     fn screen_buffer_handles_c1_control_forms() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 16,
@@ -4940,7 +5016,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_decaln_alignment_test() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 5,
@@ -4964,7 +5040,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_decfra_rectangular_fill() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -5002,7 +5078,7 @@ mod tests {
     #[test]
     fn screen_buffer_decfra_clips_to_viewport_and_defaults_to_space() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 6,
@@ -5042,7 +5118,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_decera_rectangular_erase() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -5080,7 +5156,7 @@ mod tests {
     #[test]
     fn screen_buffer_decera_clips_and_defaults_to_full_viewport() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 6,
@@ -5127,7 +5203,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_decsera_selective_rectangular_erase() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -5182,7 +5258,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_decsel_selective_line_erase() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -5228,7 +5304,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_decsed_selective_display_erase() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -5284,7 +5360,7 @@ mod tests {
     #[test]
     fn screen_buffer_decsca_mode_two_returns_to_erasable_cells() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -5306,7 +5382,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_deccara_rectangular_attributes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -5343,7 +5419,7 @@ mod tests {
     #[test]
     fn screen_buffer_deccara_resets_rectangular_attributes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -5385,7 +5461,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_decrara_rectangular_attribute_reverse() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -5422,7 +5498,7 @@ mod tests {
     #[test]
     fn screen_buffer_decrara_toggles_existing_rectangular_attributes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -5465,7 +5541,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_csi_save_and_restore_cursor() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -5489,7 +5565,7 @@ mod tests {
     #[test]
     fn screen_buffer_save_and_restore_cursor_preserves_sgr_attributes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -5521,7 +5597,7 @@ mod tests {
     #[test]
     fn screen_buffer_save_and_restore_cursor_preserves_hyperlinks() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -5555,7 +5631,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_dec_private_cursor_save_and_restore() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -5579,7 +5655,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_extended_cursor_positioning() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -5609,7 +5685,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_reverse_tab_positioning() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 16,
@@ -5633,7 +5709,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_display_erase_modes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
 
         let session = engine.create_session(CreateSessionRequest {
@@ -5672,7 +5748,7 @@ mod tests {
     #[test]
     fn screen_buffer_display_erase_mode_2_preserves_cursor_position() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -5697,7 +5773,7 @@ mod tests {
     #[test]
     fn screen_buffer_clears_scrollback_with_display_erase_mode_3() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -5733,7 +5809,7 @@ mod tests {
     #[test]
     fn screen_buffer_reports_cursor_state() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -5771,7 +5847,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_cursor_shape() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -5805,7 +5881,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_bracketed_paste_mode() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -5829,7 +5905,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_cursor_blink_mode() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(80, 3);
 
         assert!(screen.cursor_blinking);
@@ -5846,7 +5922,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_column_mode_switching() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -5878,7 +5954,7 @@ mod tests {
     #[test]
     fn screen_buffer_honors_left_right_margins() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -5906,7 +5982,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_application_cursor_key_mode() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(80, 3);
 
         assert!(!screen.application_cursor_keys);
@@ -5923,7 +5999,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_application_keypad_mode() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(80, 3);
 
         assert!(!screen.application_keypad);
@@ -5947,7 +6023,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_focus_event_reporting_mode() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(80, 3);
 
         assert!(!screen.focus_event_reporting);
@@ -5964,7 +6040,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_synchronized_output_mode() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(80, 3);
 
         assert!(!screen.synchronized_output);
@@ -5981,7 +6057,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_meta_sends_escape_mode() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(80, 3);
 
         assert!(!screen.meta_sends_escape);
@@ -5998,7 +6074,7 @@ mod tests {
     #[test]
     fn screen_buffer_tracks_mouse_reporting_modes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(80, 3);
 
         assert_eq!(screen.mouse_tracking, MouseTrackingMode::None);
@@ -6044,7 +6120,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_insert_mode() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 8,
@@ -6068,7 +6144,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_combined_modes() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -6095,7 +6171,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_ris_terminal_reset() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -6142,7 +6218,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_decstr_soft_reset() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -6187,7 +6263,7 @@ mod tests {
     #[test]
     fn screen_buffer_decstr_keeps_current_alternate_screen_active() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(20, 3);
 
         screen.feed(concat!("main", "\x1b[?1049h", "alt", "\x1b[!p", "stay"));
@@ -6204,7 +6280,7 @@ mod tests {
     #[test]
     fn screen_buffer_handles_alternate_screen_and_line_mutations() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -6247,7 +6323,7 @@ mod tests {
     #[test]
     fn screen_buffer_scrolls_when_output_exceeds_viewport() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -6315,7 +6391,7 @@ mod tests {
     #[test]
     fn screen_buffer_keeps_viewport_stable_when_scrollback_is_trimmed() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(80, 3);
 
         let initial = (0..10_010)
@@ -6323,7 +6399,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         screen.feed(&initial);
-        assert_eq!(screen.scrollback_rows(), MAX_SCROLLBACK_LINES);
+        assert_eq!(screen.scrollback_rows(), DEFAULT_SCROLLBACK_LINES);
 
         screen.set_viewport_top_near(107);
         let before = screen.snapshot_viewport_lines();
@@ -6342,16 +6418,52 @@ mod tests {
             .join("\n");
         screen.feed(&format!("\n{more}"));
 
-        assert_eq!(screen.scrollback_rows(), MAX_SCROLLBACK_LINES);
+        assert_eq!(screen.scrollback_rows(), DEFAULT_SCROLLBACK_LINES);
         assert_eq!(screen.snapshot_viewport_lines(), before);
 
         Ok(())
     }
 
     #[test]
+    fn each_screen_keeps_the_scrollback_capacity_it_was_created_with() {
+        let mut small = NextCoreScreen::new_with_scrollback_limit(20, 2, 3);
+        small.feed("one\ntwo\nthree\nfour\nfive\nsix");
+        assert_eq!(small.scrollback_rows(), 3);
+
+        let mut none = NextCoreScreen::new_with_scrollback_limit(20, 2, 0);
+        none.feed("one\ntwo\nthree\nfour");
+        assert_eq!(none.scrollback_rows(), 0);
+    }
+
+    #[test]
+    fn osc133_prompts_can_be_navigated_and_survive_history_trimming() {
+        let mut screen = NextCoreScreen::new_with_scrollback_limit(20, 3, 12);
+        for idx in 0..4 {
+            screen.feed(&format!("\x1b]133;A\x07prompt-{idx}\r\nout-{idx}\r\n"));
+        }
+        screen.feed("tail-0\r\ntail-1\r\ntail-2\r\ntail-3\r\ntail-4");
+
+        assert!(screen.prompt_rows.len() >= 2);
+        assert!(screen.scroll_viewport_to_prompt(-1));
+        let newest_prompt_top = screen.viewport_start();
+        assert!(screen.scroll_viewport_to_prompt(-1));
+        assert!(screen.viewport_start() < newest_prompt_top);
+        assert!(screen.scroll_viewport_to_prompt(1));
+        assert_eq!(screen.viewport_start(), newest_prompt_top);
+
+        let before = screen.prompt_rows.clone();
+        screen.feed("\r\nmore-0\r\nmore-1\r\nmore-2\r\nmore-3");
+        assert!(screen
+            .prompt_rows
+            .iter()
+            .all(|row| *row < screen.history_len()));
+        assert_ne!(screen.prompt_rows, before);
+    }
+
+    #[test]
     fn screen_buffer_scroll_to_bottom_follows_new_output() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let mut screen = NextCoreScreen::new(80, 3);
 
         screen.feed("one\ntwo\nthree\nfour\nfive");
@@ -6380,7 +6492,7 @@ mod tests {
     #[test]
     fn search_reports_multiple_matches_and_character_columns() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -6411,7 +6523,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_explicit_scroll_commands() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -6437,7 +6549,7 @@ mod tests {
     #[test]
     fn screen_buffer_applies_scroll_regions() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -6471,7 +6583,7 @@ mod tests {
     #[test]
     fn screen_buffer_limits_line_insert_delete_to_scroll_region() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
 
         let session = engine.create_session(CreateSessionRequest {
@@ -6534,7 +6646,7 @@ mod tests {
     #[test]
     fn screen_buffer_honors_origin_mode_with_scroll_region() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -6574,7 +6686,7 @@ mod tests {
     #[test]
     fn screen_buffer_origin_mode_limits_vertical_cursor_motion_to_scroll_region() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 12,
@@ -6599,7 +6711,7 @@ mod tests {
     #[test]
     fn screen_buffer_line_cursor_motions_return_to_active_left_margin() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 10,
@@ -6627,7 +6739,7 @@ mod tests {
     #[test]
     fn screen_buffer_keeps_alternate_screen_out_of_main_scrollback() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 80,
@@ -6659,7 +6771,7 @@ mod tests {
     #[test]
     fn screen_buffer_keeps_alternate_screen_until_all_active_modes_leave() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let engine = NextCoreEngine;
         let session = engine.create_session(CreateSessionRequest {
             cols: 20,
@@ -6708,7 +6820,7 @@ mod tests {
     #[test]
     fn recording_lifecycle_taps_next_core_output() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
@@ -6778,7 +6890,7 @@ mod tests {
     #[test]
     fn recording_markdown_renders_osc133_command_blocks() -> Result<()> {
         let _guard = test_guard();
-        reset_state_for_test();
+        let _runtime_guard = reset_state_for_test();
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos())

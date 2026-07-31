@@ -105,7 +105,11 @@ impl Selector {
         // Nothing can complete from here, so start again rather than making
         // the next letter useless: a label that cannot be reached is a
         // selector that has stopped responding.
-        if !self.labels.iter().any(|label| label.starts_with(&self.typing)) {
+        if !self
+            .labels
+            .iter()
+            .any(|label| label.starts_with(&self.typing))
+        {
             self.typing.clear();
         }
         Outcome::Typing
@@ -158,10 +162,7 @@ mod picker_tests {
     fn a_label_takes_you_to_its_pane() {
         let mut selector = Selector::new(4, Mode::Activate);
         let second = selector.labels[1].clone();
-        assert_eq!(
-            selector.key(None, Some(&second), false),
-            Outcome::Chose(1)
-        );
+        assert_eq!(selector.key(None, Some(&second), false), Outcome::Chose(1));
     }
 
     /// A capital letter is the same letter. Caps lock is not a reason for the
@@ -208,9 +209,15 @@ mod picker_tests {
     fn backspace_edits_and_escape_gives_up() {
         let mut selector = Selector::new(40, Mode::Activate);
         selector.typing = "as".into();
-        assert_eq!(selector.key(Some("Backspace"), None, false), Outcome::Typing);
+        assert_eq!(
+            selector.key(Some("Backspace"), None, false),
+            Outcome::Typing
+        );
         assert_eq!(selector.typing, "a");
-        assert_eq!(selector.key(Some("Escape"), None, false), Outcome::Cancelled);
+        assert_eq!(
+            selector.key(Some("Escape"), None, false),
+            Outcome::Cancelled
+        );
     }
 
     /// The two chords the previous selector answered.

@@ -69,7 +69,10 @@ mod tests {
     use super::*;
 
     fn labels(installed: &[&str]) -> Vec<String> {
-        crews(installed).into_iter().map(|crew| crew.label).collect()
+        crews(installed)
+            .into_iter()
+            .map(|crew| crew.label)
+            .collect()
     }
 
     /// Nobody installed is nothing to offer -- not an empty crew, which
@@ -97,7 +100,9 @@ mod tests {
             .position(|label| label.ends_with("\u{00D7}1"))
             .expect("there are singles");
         assert!(
-            labels[..first_single].iter().any(|label| label.contains('+')),
+            labels[..first_single]
+                .iter()
+                .any(|label| label.contains('+')),
             "{labels:?}"
         );
     }

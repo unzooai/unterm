@@ -94,7 +94,10 @@ mod tests {
 
         // Rasterize by character first to learn the indices the face uses.
         let glyph = face.rasterize('A').expect("a monospace face can draw 'A'");
-        assert!(glyph.width > 0 && glyph.height > 0, "'A' should have pixels");
+        assert!(
+            glyph.width > 0 && glyph.height > 0,
+            "'A' should have pixels"
+        );
 
         let key = GlyphKey {
             stack: 0,

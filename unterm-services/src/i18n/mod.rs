@@ -252,10 +252,7 @@ mod catalogue_tests {
         let bundles = bundles();
         for (code, dictionary) in &bundles.by_code {
             for key in NEEDED {
-                assert!(
-                    dictionary.contains_key(*key),
-                    "{code} is missing {key}"
-                );
+                assert!(dictionary.contains_key(*key), "{code} is missing {key}");
                 assert!(
                     !dictionary[*key].trim().is_empty(),
                     "{code}'s {key} is empty"

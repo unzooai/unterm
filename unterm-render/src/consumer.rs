@@ -10,10 +10,10 @@ use crate::backend::{
     EngineRenderCachedGlyphUploadDiagnostics, EngineWgpuPreparedFrameDiagnostics,
     EngineWgpuPreparedFramePlan,
 };
+use std::collections::HashMap;
 use unterm_engine::{
     RenderCellMetrics, RenderCommitPlan, RenderConsumerState, RenderRect, ScreenEngine,
 };
-use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineRenderCommitStats {
@@ -408,10 +408,7 @@ impl EngineRenderCommitStats {
 mod tests {
     use super::*;
     use crate::backend::*;
-    use unterm_engine::{
-        next_core, CreateSessionRequest, LaunchPolicySnapshot,
-        SessionEngine,
-    };
+    use unterm_engine::{next_core, CreateSessionRequest, LaunchPolicySnapshot, SessionEngine};
 
     #[test]
     fn next_core_facade_reads_render_commit_plan() {

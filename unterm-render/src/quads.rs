@@ -175,9 +175,7 @@ fn to_rgba(color: StyledColor, palette: &Palette) -> [f32; 4] {
         ],
         // The first sixteen come from the theme; the rest of the 256 are the
         // cube and the greys, which no theme redefines.
-        StyledColor::Palette(index) if (index as usize) < palette.len() => {
-            palette[index as usize]
-        }
+        StyledColor::Palette(index) if (index as usize) < palette.len() => palette[index as usize],
         StyledColor::Palette(index) => {
             let rgb = unterm_engine::next_core::color::palette_rgb(index);
             [
@@ -461,7 +459,17 @@ mod tests {
             width: 2,
         };
 
-        build_row(&[wide], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out, &Default::default());
+        build_row(
+            &[wide],
+            0.0,
+            0.0,
+            metrics(),
+            colors(),
+            &atlas,
+            |_| Some(slot),
+            &mut out,
+            &Default::default(),
+        );
 
         // Covering only one column lets the frame background show through the
         // right half of the character.
@@ -507,7 +515,17 @@ mod tests {
             ..CellStyle::default()
         };
 
-        build_row(&[cell('a', style)], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out, &Default::default());
+        build_row(
+            &[cell('a', style)],
+            0.0,
+            0.0,
+            metrics(),
+            colors(),
+            &atlas,
+            |_| Some(slot),
+            &mut out,
+            &Default::default(),
+        );
 
         // What a selection highlight relies on: the background becomes the
         // frame's foreground, not some third colour.
@@ -520,7 +538,17 @@ mod tests {
         let (atlas, slot) = atlas_with_glyph();
         let mut out = FrameQuads::default();
 
-        build_row(&[cell(' ', CellStyle::default())], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out, &Default::default());
+        build_row(
+            &[cell(' ', CellStyle::default())],
+            0.0,
+            0.0,
+            metrics(),
+            colors(),
+            &atlas,
+            |_| Some(slot),
+            &mut out,
+            &Default::default(),
+        );
 
         assert!(out.glyphs.is_empty());
     }
@@ -535,7 +563,17 @@ mod tests {
             ..CellStyle::default()
         };
 
-        build_row(&[cell('a', style)], 0.0, 0.0, metrics(), colors(), &atlas, |_| Some(slot), &mut out, &Default::default());
+        build_row(
+            &[cell('a', style)],
+            0.0,
+            0.0,
+            metrics(),
+            colors(),
+            &atlas,
+            |_| Some(slot),
+            &mut out,
+            &Default::default(),
+        );
 
         // `hidden` conceals the character, not the cell -- a password prompt
         // still occupies its space.
@@ -549,7 +587,10 @@ mod tests {
         let mut out = FrameQuads::default();
 
         build_row(
-            &[cell('a', CellStyle::default()), cell('b', CellStyle::default())],
+            &[
+                cell('a', CellStyle::default()),
+                cell('b', CellStyle::default()),
+            ],
             0.0,
             0.0,
             metrics(),
@@ -636,7 +677,11 @@ mod drawn_glyph_tests {
     use super::*;
 
     fn metrics() -> CellMetrics {
-        CellMetrics { width: 10.0, height: 20.0, baseline: 16.0 }
+        CellMetrics {
+            width: 10.0,
+            height: 20.0,
+            baseline: 16.0,
+        }
     }
 
     fn colors() -> FrameColors {
@@ -648,7 +693,11 @@ mod drawn_glyph_tests {
     }
 
     fn cell(ch: char) -> StyledCell {
-        StyledCell { ch, width: 1, style: CellStyle::default() }
+        StyledCell {
+            ch,
+            width: 1,
+            style: CellStyle::default(),
+        }
     }
 
     fn row(cells: &[StyledCell]) -> FrameQuads {
@@ -684,8 +733,14 @@ mod drawn_glyph_tests {
     #[test]
     fn a_box_character_is_drawn_rather_than_looked_up() {
         let quads = row(&[cell('\u{2500}')]);
-        assert!(quads.glyphs.is_empty(), "the font's glyph was placed as well");
-        assert!(!quads.backgrounds.is_empty(), "and nothing was drawn instead");
+        assert!(
+            quads.glyphs.is_empty(),
+            "the font's glyph was placed as well"
+        );
+        assert!(
+            !quads.backgrounds.is_empty(),
+            "and nothing was drawn instead"
+        );
     }
 
     /// Drawn to the cell, so two side by side meet with nothing between them.
@@ -718,7 +773,11 @@ mod drawn_glyph_tests {
     fn a_coloured_cell_keeps_its_background_under_the_drawing() {
         let mut style = CellStyle::default();
         style.bg = Some(StyledColor::Rgb(0, 0, 255));
-        let quads = row(&[StyledCell { ch: '\u{2500}', width: 1, style }]);
+        let quads = row(&[StyledCell {
+            ch: '\u{2500}',
+            width: 1,
+            style,
+        }]);
         let blue = quads
             .backgrounds
             .iter()
@@ -770,7 +829,10 @@ mod themed_palette_tests {
 
         let (standard, _) = resolve(&red(1), frame(&DEFAULT_PALETTE));
         assert_ne!(standard, themed, "the default is not the themed one");
-        assert!(standard[0] > standard[1], "and it is still red: {standard:?}");
+        assert!(
+            standard[0] > standard[1],
+            "and it is still red: {standard:?}"
+        );
     }
 
     /// Only the first sixteen. The rest of the 256 are the cube and the
@@ -810,7 +872,13 @@ mod layer_tests {
     use super::*;
 
     fn quad(top: f32) -> Quad {
-        Quad { left: 0.0, top, width: 10.0, height: 10.0, color: [1.0; 4] }
+        Quad {
+            left: 0.0,
+            top,
+            width: 10.0,
+            height: 10.0,
+            color: [1.0; 4],
+        }
     }
 
     /// A panel's background has to be drawn after the text it covers. In one

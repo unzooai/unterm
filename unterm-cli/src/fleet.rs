@@ -132,8 +132,10 @@ pub fn run(cmd: FleetCommand, json_out: bool) -> Result<()> {
             }
         }
         FleetSubCommand::Clean { id, force } => {
-            let result =
-                client.call("fleet.clean", serde_json::json!({ "id": id, "force": force }))?;
+            let result = client.call(
+                "fleet.clean",
+                serde_json::json!({ "id": id, "force": force }),
+            )?;
             if json_out {
                 print_json(&result);
             } else {

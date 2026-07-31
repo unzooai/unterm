@@ -51,7 +51,11 @@ const WEIGHT: f32 = 2.0;
 /// the same background look like one shell with strange wrapping. Centred in
 /// the cell the layout reserved, so the space either side of it belongs to
 /// neither pane and the line itself is the boundary.
-pub fn divider_after(rect: PaneRect, metrics: CellMetrics, vertical: bool) -> Option<(f32, f32, f32, f32)> {
+pub fn divider_after(
+    rect: PaneRect,
+    metrics: CellMetrics,
+    vertical: bool,
+) -> Option<(f32, f32, f32, f32)> {
     if vertical {
         let cell_left = (rect.left + rect.width) as f32 * metrics.width;
         Some((
@@ -137,7 +141,10 @@ mod tests {
         assert_eq!(height, 480.0);
         assert!(width < cell.width, "the divider fills its column");
         // Inside the reserved column, with room either side.
-        assert!(left > 400.0 && left + width < 410.0, "at {left} wide {width}");
+        assert!(
+            left > 400.0 && left + width < 410.0,
+            "at {left} wide {width}"
+        );
     }
 
     #[test]
@@ -149,7 +156,10 @@ mod tests {
         assert_eq!(left, 0.0);
         assert_eq!(width, 800.0);
         assert!(height < cell.height, "the divider fills its row");
-        assert!(top > 240.0 && top + height < 260.0, "at {top} high {height}");
+        assert!(
+            top > 240.0 && top + height < 260.0,
+            "at {top} high {height}"
+        );
     }
 
     /// It never reaches into either pane. A divider a pixel too wide eats the
@@ -157,9 +167,21 @@ mod tests {
     #[test]
     fn a_divider_stays_inside_the_cell_that_was_reserved_for_it() {
         for cell in [
-            CellMetrics { width: 3.0, height: 4.0, baseline: 3.0 },
-            CellMetrics { width: 10.0, height: 20.0, baseline: 16.0 },
-            CellMetrics { width: 1.0, height: 1.0, baseline: 1.0 },
+            CellMetrics {
+                width: 3.0,
+                height: 4.0,
+                baseline: 3.0,
+            },
+            CellMetrics {
+                width: 10.0,
+                height: 20.0,
+                baseline: 16.0,
+            },
+            CellMetrics {
+                width: 1.0,
+                height: 1.0,
+                baseline: 1.0,
+            },
         ] {
             let (left, _, width, _) = divider_after(rect(0, 0, 4, 4), cell, true).expect("one");
             let column = 4.0 * cell.width;
@@ -249,13 +271,22 @@ mod direction_tests {
     use super::*;
 
     fn metrics() -> CellMetrics {
-        CellMetrics { width: 10.0, height: 20.0, baseline: 16.0 }
+        CellMetrics {
+            width: 10.0,
+            height: 20.0,
+            baseline: 16.0,
+        }
     }
 
     fn pane(session_id: usize, left: usize, top: usize, cols: usize, rows: usize) -> PanePlacement {
         place(
             session_id,
-            PaneRect { left, top, width: cols, height: rows },
+            PaneRect {
+                left,
+                top,
+                width: cols,
+                height: rows,
+            },
             metrics(),
         )
     }

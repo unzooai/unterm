@@ -166,7 +166,10 @@ pub fn open(uri: &str) -> std::io::Result<()> {
     }
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open").arg(uri).spawn().map(|_| ())
+        std::process::Command::new("open")
+            .arg(uri)
+            .spawn()
+            .map(|_| ())
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -251,7 +254,10 @@ mod tests {
 
     #[test]
     fn a_click_only_opens_with_the_modifier() {
-        assert!(!opens_on_click(false), "a stray click must not open a browser");
+        assert!(
+            !opens_on_click(false),
+            "a stray click must not open a browser"
+        );
         assert!(opens_on_click(true));
     }
 

@@ -399,7 +399,7 @@ ut.close()
 
 That's the whole client. Drop it into a script, point it at your agent, and you have multi-instance routing. The same skeleton works for any language with a TCP socket and a JSON parser.
 
-The reference implementation lives at `wezterm-gui/src/server_info.rs` (storage layer) and `wezterm-gui/src/mcp/handler.rs` (the four `instance.*` methods). The `unterm-cli` binary uses the same protocol and is a useful smoke test: `unterm-cli instance list --json` does the discovery sequence and dumps it. If your agent's seeing different output than the CLI, the bug's in your client, not the server.
+The reference implementation lives at `unterm-services/src/server_info.rs` (storage layer) and `unterm-mcp/src/handler.rs` (the `instance.*` methods). The `unterm-cli` binary uses the same protocol and is a useful smoke test: `unterm-cli instance list --json` does the discovery sequence and dumps it. If your agent sees different output than the CLI, compare its discovery and authentication sequence with the CLI.
 
 ---
 

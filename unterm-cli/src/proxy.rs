@@ -234,3 +234,23 @@ fn shell_quote(s: &str) -> String {
         format!("'{}'", s.replace('\'', "'\\''"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::shell_quote;
+
+    #[test]
+    fn proxy_env_shell_quote_preserves_safe_urls() {
+        assert_eq!(
+            shell_quote("socks5://127.0.0.1:7890"),
+            "socks5://127.0.0.1:7890"
+        );
+    }
+
+    #[test]
+    fn proxy_env_shell_quote_blocks_command_substitution_and_quotes() {
+        assert_eq!(shell_quote("$(touch /tmp/pwned)"), "'$(touch /tmp/pwned)'");
+        assert_eq!(shell_quote("a'b"), "'a'\\''b'");
+        assert_eq!(shell_quote("a; rm -rf /"), "'a; rm -rf /'");
+    }
+}

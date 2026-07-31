@@ -67,7 +67,10 @@ pub fn migrate_lua(source: &str) -> Migration {
 
     for (index, raw_line) in source.lines().enumerate() {
         let line = index + 1;
-        let text = strip_lua_comment(raw_line).trim().trim_end_matches(',').trim();
+        let text = strip_lua_comment(raw_line)
+            .trim()
+            .trim_end_matches(',')
+            .trim();
         if text.is_empty() {
             continue;
         }
@@ -226,9 +229,97 @@ pub fn migrate_lua(source: &str) -> Migration {
             format!("{}.{}", section.join("."), key)
         };
 
-        match convert_value(raw_value) {
-            Ok(value) => {
-                if let Some((_, first)) = seen.iter().find(|(name, _)| *name == full_key) {
+        if legacy_setting_is_fixed_equivalent(&full_key) {
+            adjust_frames(&mut frames, opens, closes);
+            continue;
+        }
+
+        if full_key.rsplit('.').next() == Some("window_padding") {
+            match simple_window_padding(raw_value) {
+                Ok(values) => {
+                    let prefix = full_key.strip_suffix("window_padding").unwrap_or_default();
+                    for (side, value) in values {
+                        let output_key = format!("{prefix}window.padding_{side}");
+                        if let Some((_, first)) = seen.iter().find(|(name, _)| *name == output_key)
+                        {
+                            unconverted.push(Unconverted {
+                                line,
+                                snippet: text.to_string(),
+                                reason: format!(
+                                    "`{output_key}` is already set on line {first}; pick the one you want"
+                                ),
+                            });
+                        } else {
+                            seen.push((output_key.clone(), line));
+                            settings.push(Setting {
+                                key: output_key,
+                                value,
+                            });
+                        }
+                    }
+                }
+                Err(reason) => unconverted.push(Unconverted {
+                    line,
+                    snippet: text.to_string(),
+                    reason,
+                }),
+            }
+            adjust_frames(&mut frames, opens, closes);
+            continue;
+        }
+
+        if full_key.rsplit('.').next() == Some("inactive_pane_hsb") {
+            match simple_inactive_pane_hsb(raw_value) {
+                Ok(values) => {
+                    let prefix = full_key
+                        .strip_suffix("inactive_pane_hsb")
+                        .unwrap_or_default();
+                    for (name, value) in values {
+                        let output_key = format!("{prefix}inactive_pane.{name}");
+                        if let Some((_, first)) =
+                            seen.iter().find(|(known, _)| *known == output_key)
+                        {
+                            unconverted.push(Unconverted {
+                                line,
+                                snippet: text.to_string(),
+                                reason: format!(
+                                    "`{output_key}` is already set on line {first}; pick the one you want"
+                                ),
+                            });
+                        } else {
+                            seen.push((output_key.clone(), line));
+                            settings.push(Setting {
+                                key: output_key,
+                                value,
+                            });
+                        }
+                    }
+                }
+                Err(reason) => unconverted.push(Unconverted {
+                    line,
+                    snippet: text.to_string(),
+                    reason,
+                }),
+            }
+            adjust_frames(&mut frames, opens, closes);
+            continue;
+        }
+
+        let converted = if full_key.rsplit('.').next() == Some("font") {
+            match simple_font_family(raw_value) {
+                Some(family) => {
+                    let prefix = full_key.strip_suffix("font").unwrap_or_default();
+                    Ok((format!("{prefix}font_family"), render_string(&family)))
+                }
+                None => convert_value(raw_value).map(|value| (full_key.clone(), value)),
+            }
+        } else {
+            convert_value(raw_value).map(|value| (canonical_key(&full_key), value))
+        };
+
+        match converted {
+            Ok((output_key, value)) => {
+                if let Some((_, first)) = seen.iter().find(|(name, _)| *name == output_key) {
                     // Platform branches set the same key more than once. Which
                     // one wins is a question only the user can answer, and
                     // emitting both would produce a file that will not parse.
@@ -236,13 +327,13 @@ pub fn migrate_lua(source: &str) -> Migration {
                         line,
                         snippet: text.to_string(),
                         reason: format!(
-                            "`{full_key}` is already set on line {first}; pick the one you want"
+                            "`{output_key}` is already set on line {first}; pick the one you want"
                         ),
                     });
                 } else {
-                    seen.push((full_key.clone(), line));
+                    seen.push((output_key.clone(), line));
                     settings.push(Setting {
-                        key: full_key,
+                        key: output_key,
                         value,
                     });
                 }
@@ -260,6 +351,45 @@ pub fn migrate_lua(source: &str) -> Migration {
         text: render(&settings),
         unconverted,
     }
+}
+
+/// Rename settings whose 0.57 Lua spelling became a structured declarative
+/// section in next-core. Platform prefixes are retained.
+fn canonical_key(key: &str) -> String {
+    let (prefix, leaf) = key
+        .rsplit_once('.')
+        .map(|(prefix, leaf)| (format!("{prefix}."), leaf))
+        .unwrap_or_else(|| (String::new(), key));
+    let replacement = match leaf {
+        "initial_cols" => "window.initial_cols",
+        "initial_rows" => "window.initial_rows",
+        "window_close_confirmation" => "window.close_confirmation",
+        "window_background_opacity" => "window.background_opacity",
+        "window_decorations" => "window.decorations",
+        "tab_bar_position" => "tab_bar.position",
+        "tab_max_width" => "tab_bar.max_width",
+        "hide_tab_bar_if_only_one_tab" => "tab_bar.hide_if_only_one_tab",
+        "show_tab_index_in_tab_bar" => "tab_bar.show_index",
+        "show_new_tab_button_in_tab_bar" => "tab_bar.show_new_tab_button",
+        "integrated_title_button_style" => "title_button.style",
+        "integrated_title_button_alignment" => "title_button.alignment",
+        "integrated_title_buttons" => "title_button.buttons",
+        "status_update_interval" => "stats.refresh_ms",
+        _ => return key.to_string(),
+    };
+    format!("{prefix}{replacement}")
+}
+
+fn legacy_setting_is_fixed_equivalent(key: &str) -> bool {
+    matches!(
+        key.rsplit('.').next().unwrap_or(key),
+        // next-core has no background updater, always draws its status bar,
+        // owns its decorations, and always uses the richer tab strip.
+        "check_for_updates"
+            | "win32_system_backdrop"
+            | "show_unterm_status_bar"
+            | "use_fancy_tab_bar"
+    )
 }
 
 /// How many Lua blocks this line opens, less how many it closes.
@@ -379,7 +509,11 @@ fn brace_balance(text: &str) -> (usize, usize) {
 fn is_structural(text: &str) -> bool {
     matches!(
         text,
-        "return config" | "return {" | "{" | "local config = {}" | "local wezterm = require 'wezterm'"
+        "return config"
+            | "return {"
+            | "{"
+            | "local config = {}"
+            | "local wezterm = require 'wezterm'"
     ) || text.starts_with("local wezterm = require")
         || text.starts_with("local config = wezterm.config_builder")
         || text == "}"
@@ -426,7 +560,10 @@ fn split_assignment(text: &str) -> Option<(&str, &str)> {
         if chars.get(index + 1) == Some(&'=') {
             return None;
         }
-        if matches!(chars.get(index.wrapping_sub(1)), Some('=' | '<' | '>' | '~')) {
+        if matches!(
+            chars.get(index.wrapping_sub(1)),
+            Some('=' | '<' | '>' | '~')
+        ) {
             return None;
         }
         let byte_index = text.char_indices().nth(index).map(|(offset, _)| offset)?;
@@ -444,7 +581,10 @@ fn normalize_key(raw: &str) -> Option<String> {
         .or_else(|| raw.strip_prefix("M."))
         .unwrap_or(raw);
 
-    if let Some(rest) = raw.strip_prefix("config[").or_else(|| raw.strip_prefix('[')) {
+    if let Some(rest) = raw
+        .strip_prefix("config[")
+        .or_else(|| raw.strip_prefix('['))
+    {
         let inner = rest.strip_suffix(']')?.trim();
         let name = inner
             .strip_prefix('\'')
@@ -482,7 +622,10 @@ fn convert_value(raw: &str) -> Result<String, String> {
         return Ok(render_string(&text));
     }
 
-    if let Some(inner) = raw.strip_prefix('{').and_then(|rest| rest.strip_suffix('}')) {
+    if let Some(inner) = raw
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+    {
         let inner = inner.trim();
         if inner.is_empty() {
             return Ok("[]".to_string());
@@ -516,6 +659,89 @@ fn convert_value(raw: &str) -> Result<String, String> {
     Err(format!(
         "`{raw}` is not a plain value the converter recognises"
     ))
+}
+
+/// The overwhelmingly common old spelling for a single font family.
+///
+/// This call is declarative in practice even though it is expressed through
+/// Lua. Recovering the literal family prevents an upgrade from replacing the
+/// user's chosen typeface while still refusing computed font expressions.
+fn simple_font_family(raw: &str) -> Option<String> {
+    let inner = raw
+        .trim()
+        .strip_prefix("wezterm.font(")?
+        .strip_suffix(')')?
+        .trim();
+    if inner.contains(',') {
+        return None;
+    }
+    lua_string(inner)
+}
+
+/// Recover the common one-line WezTerm padding table.
+fn simple_window_padding(raw: &str) -> Result<Vec<(&'static str, String)>, String> {
+    let inner = raw
+        .trim()
+        .trim_end_matches(',')
+        .trim()
+        .strip_prefix('{')
+        .and_then(|value| value.strip_suffix('}'))
+        .ok_or_else(|| "window padding is not a one-line table".to_string())?;
+    let mut values = Vec::new();
+    for item in inner.split(',') {
+        let Some((name, value)) = split_assignment(item.trim()) else {
+            continue;
+        };
+        let side = match name.trim() {
+            "left" => "left",
+            "right" => "right",
+            "top" => "top",
+            "bottom" => "bottom",
+            other => return Err(format!("unknown window padding side `{other}`")),
+        };
+        let converted = convert_value(value)?;
+        if converted.parse::<f64>().is_err() {
+            return Err(format!("window padding `{side}` is not numeric"));
+        }
+        values.push((side, converted));
+    }
+    if values.is_empty() {
+        return Err("window padding table has no numeric sides".to_string());
+    }
+    Ok(values)
+}
+
+fn simple_inactive_pane_hsb(raw: &str) -> Result<Vec<(&'static str, String)>, String> {
+    let inner = raw
+        .trim()
+        .trim_end_matches(',')
+        .trim()
+        .strip_prefix('{')
+        .and_then(|value| value.strip_suffix('}'))
+        .ok_or_else(|| "inactive pane HSB is not a one-line table".to_string())?;
+    let mut values = Vec::new();
+    for item in inner.split(',') {
+        let Some((name, value)) = split_assignment(item.trim()) else {
+            continue;
+        };
+        let name = match name.trim() {
+            "brightness" => "brightness",
+            "saturation" => "saturation",
+            // Hue is not currently exposed because the old product never
+            // shipped a non-identity value for it.
+            "hue" if value.trim().parse::<f64>().ok() == Some(1.0) => continue,
+            other => return Err(format!("unsupported inactive pane HSB field `{other}`")),
+        };
+        let converted = convert_value(value)?;
+        if converted.parse::<f64>().is_err() {
+            return Err(format!("inactive pane `{name}` is not numeric"));
+        }
+        values.push((name, converted));
+    }
+    if values.is_empty() {
+        return Err("inactive pane HSB table has no supported numeric fields".to_string());
+    }
+    Ok(values)
 }
 
 /// Read a Lua string literal, single- or double-quoted.
@@ -618,6 +844,147 @@ return config
         assert_eq!(parsed.int_of("scrollback_lines").unwrap(), Some(10000));
         assert_eq!(parsed.bool_of("use_ime").unwrap(), Some(true));
         assert_eq!(parsed.str_of("font_family").unwrap(), Some("Cascadia Mono"));
+    }
+
+    #[test]
+    fn a_literal_wezterm_font_keeps_the_users_family() {
+        let migration = migrate_lua("config.font = wezterm.font('Cascadia Code')");
+        let parsed = config::parse(&migration.text).expect("output should parse");
+
+        assert_eq!(parsed.str_of("font_family").unwrap(), Some("Cascadia Code"));
+        assert!(
+            migration.unconverted.is_empty(),
+            "{:?}",
+            migration.unconverted
+        );
+    }
+
+    #[test]
+    fn a_computed_wezterm_font_is_still_reported() {
+        let migration = migrate_lua("config.font = wezterm.font(family_name)");
+
+        assert!(migration.text.trim().is_empty());
+        assert_eq!(migration.unconverted.len(), 1);
+    }
+
+    #[test]
+    fn legacy_window_and_tab_keys_use_the_next_core_schema() {
+        let migration = migrate_lua(
+            r#"
+config.initial_cols = 120
+config.initial_rows = 30
+config.window_close_confirmation = 'NeverPrompt'
+config.window_background_opacity = 0.9
+config.tab_bar_position = 'Left'
+config.tab_max_width = 32
+config.hide_tab_bar_if_only_one_tab = false
+config.show_tab_index_in_tab_bar = true
+config.show_new_tab_button_in_tab_bar = true
+config.status_update_interval = 2000
+"#,
+        );
+        let parsed = config::parse(&migration.text).expect("output should parse");
+
+        assert_eq!(parsed.int_of("window.initial_cols").unwrap(), Some(120));
+        assert_eq!(parsed.int_of("window.initial_rows").unwrap(), Some(30));
+        assert_eq!(
+            parsed.str_of("window.close_confirmation").unwrap(),
+            Some("NeverPrompt")
+        );
+        assert_eq!(
+            parsed.float_of("window.background_opacity").unwrap(),
+            Some(0.9)
+        );
+        assert_eq!(parsed.str_of("tab_bar.position").unwrap(), Some("Left"));
+        assert_eq!(parsed.int_of("tab_bar.max_width").unwrap(), Some(32));
+        assert_eq!(
+            parsed.bool_of("tab_bar.hide_if_only_one_tab").unwrap(),
+            Some(false)
+        );
+        assert_eq!(parsed.bool_of("tab_bar.show_index").unwrap(), Some(true));
+        assert_eq!(
+            parsed.bool_of("tab_bar.show_new_tab_button").unwrap(),
+            Some(true)
+        );
+        assert_eq!(parsed.int_of("stats.refresh_ms").unwrap(), Some(2000));
+    }
+
+    #[test]
+    fn one_line_window_padding_keeps_each_side() {
+        let migration = migrate_lua("config.window_padding = { left=4, right=5, top=6, bottom=7 }");
+        let parsed = config::parse(&migration.text).expect("output should parse");
+
+        assert_eq!(parsed.int_of("window.padding_left").unwrap(), Some(4));
+        assert_eq!(parsed.int_of("window.padding_right").unwrap(), Some(5));
+        assert_eq!(parsed.int_of("window.padding_top").unwrap(), Some(6));
+        assert_eq!(parsed.int_of("window.padding_bottom").unwrap(), Some(7));
+        assert!(
+            migration.unconverted.is_empty(),
+            "{:?}",
+            migration.unconverted
+        );
+    }
+
+    #[test]
+    fn one_line_inactive_pane_hsb_keeps_the_visible_transform() {
+        let migration =
+            migrate_lua("config.inactive_pane_hsb = { brightness=0.55, saturation=0.8 }");
+        let parsed = config::parse(&migration.text).expect("output should parse");
+
+        assert_eq!(
+            parsed.float_of("inactive_pane.brightness").unwrap(),
+            Some(0.55)
+        );
+        assert_eq!(
+            parsed.float_of("inactive_pane.saturation").unwrap(),
+            Some(0.8)
+        );
+        assert!(
+            migration.unconverted.is_empty(),
+            "{:?}",
+            migration.unconverted
+        );
+    }
+
+    #[test]
+    fn fixed_equivalent_legacy_switches_do_not_become_dead_settings() {
+        let migration = migrate_lua(
+            r#"
+config.check_for_updates = false
+config.win32_system_backdrop = 'Disable'
+config.show_unterm_status_bar = true
+config.use_fancy_tab_bar = true
+"#,
+        );
+
+        assert!(migration.text.trim().is_empty());
+        assert!(migration.unconverted.is_empty());
+    }
+
+    #[test]
+    fn platform_title_button_keys_keep_their_platform_prefix() {
+        let migration = migrate_lua(
+            r#"
+if wezterm.target_triple:find('windows') then
+  config.integrated_title_button_style = 'Windows'
+  config.integrated_title_button_alignment = 'Right'
+end
+"#,
+        );
+        let parsed = config::parse(&migration.text).expect("output should parse");
+
+        assert_eq!(
+            parsed
+                .str_of("platform.windows.title_button.style")
+                .unwrap(),
+            Some("Windows")
+        );
+        assert_eq!(
+            parsed
+                .str_of("platform.windows.title_button.alignment")
+                .unwrap(),
+            Some("Right")
+        );
     }
 
     #[test]
@@ -808,7 +1175,10 @@ return config
 
         let parsed = config::parse(&migration.text).unwrap();
         assert_eq!(parsed.int_of("font_size").unwrap(), Some(13));
-        assert_eq!(parsed.float_of("window_frame.font_size").unwrap(), Some(12.0));
+        assert_eq!(
+            parsed.float_of("window_frame.font_size").unwrap(),
+            Some(12.0)
+        );
 
         // The call argument must not become settings, or the file grows keys
         // the user never wrote.
@@ -820,14 +1190,14 @@ return config
         assert_eq!(
             parsed
                 .resolve_platform("macos")
-                .str_of("integrated_title_button_style")
+                .str_of("title_button.style")
                 .unwrap(),
             Some("MacOsCustom")
         );
         assert_eq!(
             parsed
                 .resolve_platform("windows")
-                .str_of("integrated_title_button_style")
+                .str_of("title_button.style")
                 .unwrap(),
             Some("Windows")
         );

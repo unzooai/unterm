@@ -13,16 +13,98 @@
 
 use unterm_services::cockpit::status::{AgentState, PaneAgentStatus};
 
+fn peer_cache() -> &'static parking_lot::Mutex<Vec<LocatedStatus>> {
+    static CACHE: std::sync::OnceLock<parking_lot::Mutex<Vec<LocatedStatus>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+fn parse_state(state: &str) -> Option<AgentState> {
+    match state {
+        "waiting" => Some(AgentState::WaitingForUser),
+        "working" => Some(AgentState::Working),
+        "done" => Some(AgentState::Done),
+        "idle" => Some(AgentState::Idle),
+        _ => None,
+    }
+}
+
+/// Refresh peer-window rows away from paint/input.
+pub fn refresh_peer_statuses(current_instance_id: String) {
+    static REFRESHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if REFRESHING.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("cockpit-peer-snapshot".to_string())
+        .spawn(move || {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+                .min(i64::MAX as u128) as i64;
+            let peers = unterm_services::server_info::list_live_instances()
+                .into_iter()
+                .filter(|instance| instance.id != current_instance_id)
+                .flat_map(|instance| {
+                    let instance_id = instance.id.clone();
+                    let window_title = instance
+                        .title
+                        .clone()
+                        .unwrap_or_else(|| instance.id.clone());
+                    instance.agents.into_iter().filter_map(move |agent| {
+                        Some(LocatedStatus {
+                            pane_id: agent.pane_id,
+                            instance_id: instance_id.clone(),
+                            window_title: window_title.clone(),
+                            tab_id: agent.tab_id,
+                            agent: agent.agent,
+                            state: parse_state(&agent.state)?,
+                            age_seconds: now.saturating_sub(agent.since_unix_ms).max(0) as u64
+                                / 1000,
+                            task_hint: agent.task_hint,
+                        })
+                    })
+                })
+                .collect();
+            *peer_cache().lock() = peers;
+            REFRESHING.store(false, std::sync::atomic::Ordering::Release);
+        });
+    if spawned.is_err() {
+        REFRESHING.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+pub fn peer_statuses() -> Vec<LocatedStatus> {
+    peer_cache().lock().clone()
+}
+
 /// A row of the inbox.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     pub pane_id: u64,
+    /// Empty for the current process's legacy/local row.
+    pub instance_id: String,
+    pub window_title: String,
+    pub tab_id: Option<u64>,
     /// What the row says: agent, state, and how long it has been that way.
     pub label: String,
     /// The task, if the agent said what it was doing.
     pub hint: String,
     /// True when this pane wants the person.
     pub needs_you: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocatedStatus {
+    pub pane_id: u64,
+    pub instance_id: String,
+    pub window_title: String,
+    pub tab_id: Option<u64>,
+    pub agent: String,
+    pub state: AgentState,
+    pub age_seconds: u64,
+    pub task_hint: Option<String>,
 }
 
 /// Whether a state is one the person has to answer.
@@ -61,22 +143,41 @@ pub fn rows(
     statuses: &[PaneAgentStatus],
     mut age_of: impl FnMut(&PaneAgentStatus) -> u64,
 ) -> Vec<Row> {
+    let located: Vec<LocatedStatus> = statuses
+        .iter()
+        .map(|status| LocatedStatus {
+            pane_id: status.pane_id,
+            instance_id: String::new(),
+            window_title: String::new(),
+            tab_id: None,
+            agent: status.agent.clone(),
+            state: status.state,
+            age_seconds: age_of(status),
+            task_hint: status.task_hint.clone(),
+        })
+        .collect();
+    located_rows(&located)
+}
+
+pub fn located_rows(statuses: &[LocatedStatus]) -> Vec<Row> {
     let mut rows: Vec<(u8, u64, Row)> = statuses
         .iter()
         .map(|status| {
-            let age = age_of(status);
             let row = Row {
                 pane_id: status.pane_id,
+                instance_id: status.instance_id.clone(),
+                window_title: status.window_title.clone(),
+                tab_id: status.tab_id,
                 label: format!(
                     "{}  {}  {}",
                     status.agent,
                     describe_state(status.state),
-                    describe_age(age)
+                    describe_age(status.age_seconds)
                 ),
                 hint: status.task_hint.clone().unwrap_or_default(),
                 needs_you: needs_attention(status.state),
             };
-            (rank(status.state), age, row)
+            (rank(status.state), status.age_seconds, row)
         })
         .collect();
 
@@ -103,6 +204,21 @@ pub fn attention_count(statuses: &[PaneAgentStatus]) -> usize {
         .iter()
         .filter(|status| needs_attention(status.state))
         .count()
+}
+
+/// Move the inbox selection one row, wrapping at both ends.
+pub fn step_selection(selected: usize, count: usize, forward: bool) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    let selected = selected.min(count - 1);
+    if forward {
+        (selected + 1) % count
+    } else if selected == 0 {
+        count - 1
+    } else {
+        selected - 1
+    }
 }
 
 #[cfg(test)]
@@ -142,7 +258,10 @@ mod tests {
             status(1, "claude", AgentState::WaitingForUser),
             status(2, "codex", AgentState::WaitingForUser),
         ];
-        let rows = rows(&statuses, |status| if status.pane_id == 2 { 300 } else { 5 });
+        let rows = rows(
+            &statuses,
+            |status| if status.pane_id == 2 { 300 } else { 5 },
+        );
         assert_eq!(rows[0].pane_id, 2);
     }
 
@@ -205,6 +324,34 @@ mod tests {
         status.task_hint = Some("refactoring the parser".to_string());
         let rows = rows(&[status], |_| 0);
         assert_eq!(rows[0].hint, "refactoring the parser");
+    }
+
+    #[test]
+    fn inbox_selection_wraps_and_survives_a_shorter_list() {
+        assert_eq!(step_selection(0, 3, false), 2);
+        assert_eq!(step_selection(2, 3, true), 0);
+        assert_eq!(step_selection(99, 2, false), 0);
+        assert_eq!(step_selection(4, 0, true), 0);
+    }
+
+    #[test]
+    fn cross_instance_rows_keep_window_and_tab_location() {
+        let rows = located_rows(&[LocatedStatus {
+            pane_id: 7,
+            instance_id: "bravo".to_string(),
+            window_title: "payments".to_string(),
+            tab_id: Some(3),
+            agent: "codex".to_string(),
+            state: AgentState::WaitingForUser,
+            age_seconds: 90,
+            task_hint: Some("fix checkout".to_string()),
+        }]);
+
+        assert_eq!(rows[0].instance_id, "bravo");
+        assert_eq!(rows[0].window_title, "payments");
+        assert_eq!(rows[0].tab_id, Some(3));
+        assert_eq!(rows[0].hint, "fix checkout");
+        assert!(rows[0].needs_you);
     }
 }
 

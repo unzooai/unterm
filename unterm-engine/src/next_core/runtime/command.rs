@@ -78,6 +78,10 @@ pub(in crate::next_core) enum RuntimeCommand {
         pane_id: usize,
         delta: isize,
     },
+    ScrollViewportToPrompt {
+        pane_id: usize,
+        amount: isize,
+    },
     /// Drop the scrollback, and the visible screen with it when requested.
     EraseScrollback {
         pane_id: usize,
@@ -172,6 +176,7 @@ impl RuntimeCommand {
             }
             Self::ScrollViewport { .. }
             | Self::ScrollViewportBy { .. }
+            | Self::ScrollViewportToPrompt { .. }
             | Self::EraseScrollback { .. } => RuntimeCommandClass::ScreenMutation,
             Self::ReadScreen { .. }
             | Self::ReadStyledScreen { .. }
@@ -210,6 +215,7 @@ impl RuntimeCommand {
             | Self::ReportMouse { pane_id, .. }
             | Self::ScrollViewport { pane_id, .. }
             | Self::ScrollViewportBy { pane_id, .. }
+            | Self::ScrollViewportToPrompt { pane_id, .. }
             | Self::EraseScrollback { pane_id, .. }
             | Self::ReadScreen { pane_id }
             | Self::ReadStyledScreen { pane_id }
@@ -248,6 +254,7 @@ impl RuntimeCommand {
             Self::ReadRenderFrame { .. } => RuntimeCommandLane::Render,
             Self::ScrollViewport { .. }
             | Self::ScrollViewportBy { .. }
+            | Self::ScrollViewportToPrompt { .. }
             | Self::EraseScrollback { .. }
             | Self::ReadScreen { .. }
             | Self::ReadStyledScreen { .. }
@@ -285,6 +292,7 @@ impl RuntimeCommand {
                 | Self::ReportMouse { .. }
                 | Self::ScrollViewport { .. }
                 | Self::ScrollViewportBy { .. }
+                | Self::ScrollViewportToPrompt { .. }
                 | Self::EraseScrollback { .. }
                 | Self::StartRecording { .. }
                 | Self::StopRecording { .. }
@@ -380,6 +388,8 @@ mod tests {
             size_percent: 50,
             command_dir: None,
             command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
         });
 
         assert_eq!(command.class(), RuntimeCommandClass::SessionLifecycle);

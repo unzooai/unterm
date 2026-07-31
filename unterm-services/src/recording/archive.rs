@@ -282,7 +282,11 @@ pub fn timestamp_components() -> (String, String, String) {
     (date, hms, iso)
 }
 
-pub fn preferred_session_dir(project_path: Option<&str>, project_slug: &str, date: &str) -> PathBuf {
+pub fn preferred_session_dir(
+    project_path: Option<&str>,
+    project_slug: &str,
+    date: &str,
+) -> PathBuf {
     if let Some(p) = project_path {
         let path = PathBuf::from(p);
         let in_project = path.join(".unterm").join("sessions").join(date);

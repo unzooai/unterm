@@ -235,7 +235,7 @@ A few things that look like they should be MCP methods aren't, on purpose:
 
 ## MCP method reference (most-used)
 
-Every method below appears in the dispatch table at `wezterm-gui/src/mcp/handler.rs`. All under the `unterm` namespace.
+Every method below appears in the dispatch table at `unterm-mcp/src/handler.rs`. All are under the `unterm` namespace.
 
 | Method | Purpose |
 |---|---|

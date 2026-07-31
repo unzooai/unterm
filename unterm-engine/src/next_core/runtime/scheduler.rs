@@ -214,6 +214,17 @@ pub(in crate::next_core) fn scroll_viewport_by(pane_id: usize, delta: isize) -> 
     }
 }
 
+pub(in crate::next_core) fn scroll_viewport_to_prompt(pane_id: usize, amount: isize) -> Result<()> {
+    let command = RuntimeCommand::ScrollViewportToPrompt { pane_id, amount };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Unit => Ok(()),
+        other => bail!(
+            "runtime scheduler expected screen-mutation dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
 pub(in crate::next_core) fn read_screen(pane_id: usize) -> Result<ScreenSnapshot> {
     let command = RuntimeCommand::ReadScreen { pane_id };
     match consumer::submit_and_dispatch_response(command)? {
@@ -576,6 +587,8 @@ mod tests {
             size_percent: 50,
             command_dir: None,
             command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
         })
         .expect_err("missing split source should fail after dispatch");
 

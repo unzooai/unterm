@@ -23,6 +23,27 @@ pub const SETTINGS: &[&str] = &[
     "colors.foreground",
     "colors.tab_bar_lift",
     "colors.inactive_dim",
+    "colors.tab_bar.background",
+    "colors.tab_bar.active_tab.bg_color",
+    "colors.tab_bar.active_tab.fg_color",
+    "colors.tab_bar.inactive_tab.bg_color",
+    "colors.tab_bar.inactive_tab.fg_color",
+    "colors.tab_bar.inactive_tab_hover.bg_color",
+    "colors.tab_bar.inactive_tab_hover.fg_color",
+    "colors.tab_bar.new_tab.bg_color",
+    "colors.tab_bar.new_tab.fg_color",
+    "colors.tab_bar.new_tab_hover.bg_color",
+    "colors.tab_bar.new_tab_hover.fg_color",
+    "window_frame.active_titlebar_bg",
+    "window_frame.active_titlebar_fg",
+    "window_frame.inactive_titlebar_bg",
+    "window_frame.inactive_titlebar_fg",
+    "window_frame.active_titlebar_border_bottom",
+    "window_frame.inactive_titlebar_border_bottom",
+    "window_frame.button_bg",
+    "window_frame.button_fg",
+    "window_frame.button_hover_bg",
+    "window_frame.button_hover_fg",
     "scrollback_lines",
     "enable_scroll_bar",
     "shell",
@@ -31,6 +52,12 @@ pub const SETTINGS: &[&str] = &[
     "window.decorations",
     "window.initial_cols",
     "window.initial_rows",
+    "window.padding_left",
+    "window.padding_right",
+    "window.padding_top",
+    "window.padding_bottom",
+    "inactive_pane.brightness",
+    "inactive_pane.saturation",
     "window.close_confirmation",
     "tab_bar.position",
     "tab_bar.max_width",
@@ -41,6 +68,7 @@ pub const SETTINGS: &[&str] = &[
     "tab_bar.fallback_title",
     "tab_bar.strip_extension",
     "tab_bar.capitalize",
+    "stats.refresh_ms",
     "mcp.input_confirmation",
     "mcp.trusted_agents",
     "mcp.confirmation_timeout_ms",
@@ -144,7 +172,7 @@ mod tests {
             "#,
         );
 
-        assert!(errors.is_empty(), "{errors:?}");
+        assert!(errors.is_empty(), "{:?}", errors);
     }
 
     #[test]
@@ -152,7 +180,11 @@ mod tests {
         let errors = check_source("font_sze = 13");
 
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("font_size"), "{}", errors[0].message);
+        assert!(
+            errors[0].message.contains("font_size"),
+            "{}",
+            errors[0].message
+        );
     }
 
     #[test]
@@ -160,7 +192,7 @@ mod tests {
         let errors = check_source("[env]\nMY_OWN_VARIABLE = \"1\"");
 
         // These cannot be listed in advance, but nothing else gets the pass.
-        assert!(errors.is_empty(), "{errors:?}");
+        assert!(errors.is_empty(), "{:?}", errors);
     }
 
     #[test]
@@ -168,7 +200,11 @@ mod tests {
         let errors = check_source("[tab_bar]\npositon = \"Left\"");
 
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("tab_bar.position"), "{}", errors[0].message);
+        assert!(
+            errors[0].message.contains("tab_bar.position"),
+            "{}",
+            errors[0].message
+        );
     }
 
     #[test]
@@ -176,7 +212,11 @@ mod tests {
         let errors = check_source("[tab_bar]\ntitle_format = \"{tittle}\"");
 
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("{title}"), "{}", errors[0].message);
+        assert!(
+            errors[0].message.contains("{title}"),
+            "{}",
+            errors[0].message
+        );
     }
 
     #[test]
@@ -184,7 +224,11 @@ mod tests {
         let errors = check_source("[window]\nbackground_opacity = 1.5");
 
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("between 0 and 1"), "{}", errors[0].message);
+        assert!(
+            errors[0].message.contains("between 0 and 1"),
+            "{}",
+            errors[0].message
+        );
         // The endpoints themselves are fine.
         assert!(check_source("[window]\nbackground_opacity = 1.0").is_empty());
     }
@@ -196,7 +240,11 @@ mod tests {
         // Checking before resolution would see `platform.windows.shel` and
         // suggest nothing useful; checking after sees the real key.
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("did you mean `shell`"), "{}", errors[0].message);
+        assert!(
+            errors[0].message.contains("did you mean `shell`"),
+            "{}",
+            errors[0].message
+        );
     }
 
     #[test]
@@ -227,7 +275,7 @@ mod tests {
         for platform in ["windows", "macos", "linux"] {
             let resolved = config.resolve_platform(platform);
             let errors = check(&resolved);
-            assert!(errors.is_empty(), "{platform}: {errors:?}");
+            assert!(errors.is_empty(), "{}: {:?}", platform, errors);
         }
 
         // The platform branch the Lua version wrote as if/elseif/else.
@@ -248,7 +296,11 @@ mod tests {
         let errors = check_source("line_height = \"tall\"");
 
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("number"), "{}", errors[0].message);
+        assert!(
+            errors[0].message.contains("number"),
+            "{}",
+            errors[0].message
+        );
     }
 }
 

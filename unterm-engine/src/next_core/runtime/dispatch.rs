@@ -227,6 +227,8 @@ mod tests {
             size_percent: 50,
             command_dir: None,
             command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
         }))
         .expect_err("missing split source should come from lifecycle executor");
 

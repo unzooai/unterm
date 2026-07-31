@@ -48,6 +48,22 @@ pub const NATO_NAMES: &[&str] = &[
 /// On-disk metadata for one Unterm instance. Lives at
 /// `~/.unterm/instances/<id>.json`. Both port fields can be 0 briefly
 /// during startup before both servers have bound.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstanceAgentInfo {
+    pub pane_id: u64,
+    #[serde(default)]
+    pub tab_id: Option<u64>,
+    #[serde(default)]
+    pub window_id: Option<u64>,
+    #[serde(default)]
+    pub pane_title: Option<String>,
+    pub agent: String,
+    pub state: String,
+    pub since_unix_ms: i64,
+    #[serde(default)]
+    pub task_hint: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct InstanceInfo {
     pub id: String,
@@ -77,6 +93,9 @@ pub struct InstanceInfo {
     pub version: String,
     #[serde(default)]
     pub platform: String,
+    /// Serializable Cockpit snapshot for cross-instance Inbox aggregation.
+    #[serde(default)]
+    pub agents: Vec<InstanceAgentInfo>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -189,6 +208,12 @@ fn current_info() -> &'static Mutex<Option<InstanceInfo>> {
 fn last_written_cwd() -> &'static Mutex<Option<Option<String>>> {
     static CWD: std::sync::OnceLock<Mutex<Option<Option<String>>>> = std::sync::OnceLock::new();
     CWD.get_or_init(|| Mutex::new(None))
+}
+
+fn last_written_agents() -> &'static Mutex<Option<Vec<InstanceAgentInfo>>> {
+    static AGENTS: std::sync::OnceLock<Mutex<Option<Vec<InstanceAgentInfo>>>> =
+        std::sync::OnceLock::new();
+    AGENTS.get_or_init(|| Mutex::new(None))
 }
 
 pub fn current_instance_id() -> Option<String> {
@@ -506,7 +531,7 @@ fn apply_instance_shutdown_from_paths_locked(
                                 .push(format!("create legacy auth token dir failed: {err}"));
                         }
                     }
-                    if let Err(err) = fs::write(token_path, &next.auth_token) {
+                    if let Err(err) = write_private_file(token_path, next.auth_token.as_bytes()) {
                         result
                             .errors
                             .push(format!("write legacy auth token handoff failed: {err}"));
@@ -579,10 +604,14 @@ fn claim_instance_name() -> Result<String> {
 }
 
 fn try_o_excl_create(path: &Path) -> std::io::Result<()> {
-    let mut f = OpenOptions::new()
-        .write(true)
-        .create_new(true) // O_EXCL: fail if already exists
-        .open(path)?;
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut f = options.open(path)?;
     // Touch the file with an empty {} so concurrent peers see it as
     // taken. Real metadata gets written by `write_initial` immediately
     // after this returns.
@@ -635,6 +664,14 @@ pub fn read_current() -> InstanceInfo {
 /// Also seeds active.json (if there's no live active currently) and
 /// keeps server.json + auth_token in sync for legacy clients.
 pub fn write_initial(mcp_port: u16) -> Result<InstanceInfo> {
+    write_initial_with_version(mcp_port, env!("CARGO_PKG_VERSION"))
+}
+
+/// Register a process while reporting the version of the product binary that
+/// owns it.  `unterm-services` deliberately has its own internal crate
+/// version, so GUI callers must not expose that implementation detail as the
+/// installed Unterm version.
+pub fn write_initial_with_version(mcp_port: u16, product_version: &str) -> Result<InstanceInfo> {
     let _g = file_lock().lock();
     fs::create_dir_all(unterm_dir())?;
     fs::create_dir_all(instances_dir())?;
@@ -656,8 +693,9 @@ pub fn write_initial(mcp_port: u16) -> Result<InstanceInfo> {
         // the default profile, or showing the picker) or by an MCP
         // `profile.spawn` call that names a profile up front.
         profile: None,
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: product_version.to_string(),
         platform: std::env::consts::OS.to_string(),
+        agents: Vec::new(),
     };
     write_atomic(&instance_file(&id), &info)?;
     *current_info().lock() = Some(info.clone());
@@ -734,6 +772,37 @@ pub fn set_cwd(cwd: Option<String>) -> Result<()> {
     *current_info().lock() = Some(info.clone());
     claim_compat_files_if_needed(&info)?;
     *last_written_cwd().lock() = Some(cwd);
+    Ok(())
+}
+
+/// Publish this window's Cockpit rows for peer windows.
+///
+/// The caller prepares a bounded snapshot off the UI hot path. Identical
+/// snapshots do not rewrite the instance file.
+pub fn set_agents(agents: Vec<InstanceAgentInfo>) -> Result<()> {
+    {
+        let last = last_written_agents().lock();
+        if last.as_ref() == Some(&agents) {
+            return Ok(());
+        }
+    }
+    let id = match current_instance_id() {
+        Some(id) => id,
+        None => return Ok(()),
+    };
+    let _g = file_lock().lock();
+    let path = instance_file(&id);
+    let mut info: InstanceInfo = fs::read_to_string(&path)
+        .ok()
+        .and_then(|body| serde_json::from_str(&body).ok())
+        .or_else(|| current_info().lock().clone())
+        .unwrap_or_default();
+    info.id = id;
+    info.agents = agents.clone();
+    write_atomic(&path, &info)?;
+    *current_info().lock() = Some(info.clone());
+    claim_compat_files_if_needed(&info)?;
+    *last_written_agents().lock() = Some(agents);
     Ok(())
 }
 
@@ -823,18 +892,36 @@ fn write_atomic<T: Serialize>(path: &Path, info: &T) -> Result<()> {
     }
     let body = serde_json::to_string_pretty(info)?;
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, body)?;
+    write_private_file(&tmp, body.as_bytes())?;
     fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+fn write_private_file(path: &Path, body: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    file.write_all(body)?;
+    file.sync_all()?;
     Ok(())
 }
 
 fn write_legacy_token(token: &str) -> Result<()> {
     let path = auth_token_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, token)?;
-    Ok(())
+    write_private_file(&path, token.as_bytes())
 }
 
 fn claim_compat_files_if_needed(info: &InstanceInfo) -> Result<()> {
@@ -860,8 +947,33 @@ fn claim_compat_files_if_needed(info: &InstanceInfo) -> Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn auth_bearing_files_are_user_only() -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir()?;
+        let direct = root.path().join("auth_token");
+        write_private_file(&direct, b"secret")?;
+        assert_eq!(fs::metadata(&direct)?.permissions().mode() & 0o777, 0o600);
+
+        let atomic = root.path().join("instance.json");
+        write_atomic(&atomic, &serde_json::json!({"auth_token": "secret"}))?;
+        assert_eq!(fs::metadata(&atomic)?.permissions().mode() & 0o777, 0o600);
+        Ok(())
+    }
+
     fn test_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("unterm-server-info-{name}-{}", std::process::id()))
+    }
+
+    #[test]
+    fn legacy_instance_files_default_to_no_published_agents() {
+        let info: InstanceInfo = serde_json::from_str(
+            r#"{"id":"alpha","mcp_port":1,"http_port":2,"auth_token":"x","pid":3,"started_at":"now"}"#,
+        )
+        .unwrap();
+        assert!(info.agents.is_empty());
     }
 
     #[test]

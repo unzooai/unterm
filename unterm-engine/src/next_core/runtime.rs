@@ -24,9 +24,10 @@ mod status_facade;
 pub(super) mod test_facade;
 
 pub(super) use io_facade::{
-    cursor, erase_scrollback, pane_modes, paste_input, read_lines, read_render_frame, read_screen, read_scrollback,
-    read_scrollback_text, read_styled_screen, read_styled_scrollback, read_visible_text,
-    report_mouse, screen_revision, scroll_viewport_by, scroll_viewport_to, search_screen, write_input,
+    cursor, erase_scrollback, pane_modes, paste_input, read_lines, read_render_frame, read_screen,
+    read_scrollback, read_scrollback_text, read_styled_screen, read_styled_scrollback,
+    read_visible_text, report_mouse, screen_revision, scroll_viewport_by, scroll_viewport_to,
+    scroll_viewport_to_prompt, search_screen, write_input,
 };
 pub(super) use recording_facade::{
     attach_recording_trace, export_recording_markdown, recording_status, start_recording,

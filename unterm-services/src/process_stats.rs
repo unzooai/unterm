@@ -199,7 +199,10 @@ fn sample(pid: u32) -> Option<ProcStatus> {
             Some((_, previous))
                 if now_100ns > previous.wall_100ns && cpu_100ns >= previous.cpu_100ns =>
             {
-                (now_100ns - previous.wall_100ns, cpu_100ns - previous.cpu_100ns)
+                (
+                    now_100ns - previous.wall_100ns,
+                    cpu_100ns - previous.cpu_100ns,
+                )
             }
             _ => (now_100ns.saturating_sub(created_100ns), cpu_100ns),
         };
@@ -287,7 +290,10 @@ fn parse_etime(text: &str) -> u64 {
         Some((days, rest)) => (days.parse::<u64>().unwrap_or(0), rest),
         None => (0, text),
     };
-    let parts: Vec<u64> = rest.split(':').filter_map(|part| part.parse().ok()).collect();
+    let parts: Vec<u64> = rest
+        .split(':')
+        .filter_map(|part| part.parse().ok())
+        .collect();
     let (hours, minutes, seconds) = match parts.as_slice() {
         [hours, minutes, seconds] => (*hours, *minutes, *seconds),
         [minutes, seconds] => (0, *minutes, *seconds),

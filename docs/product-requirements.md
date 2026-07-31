@@ -145,14 +145,13 @@ FR-UI-005: The tree sidebar must expose project navigation without disturbing te
 
 FR-UI-006: The Git panel must show repository branch, upstream ahead/behind, and staged/unstaged/untracked files in a read-only right-docked panel.
 
-FR-UI-007: The quick-action overlay must remain intentionally small and include:
-
-- change working directory
-- open folder in new tab
-- split right
-- toggle session recording
-- export current session
-- settings web link
+FR-UI-007: The quick menu must carry 0.57.4's entries in its order: new tab,
+split right, directory jump, file tree, Git panel, left tab strip, find, and
+the command palette (each with its chord where one exists); then session
+recording toggle, export current session, and the scrollback long screenshot;
+then the settings web link; then the product's version and website. Directory
+changes are reachable through the directory jump rather than as separate
+change-cwd/open-folder rows.
 
 FR-UI-008: The command palette must expose high-frequency commands, keybindings, and product workflows.
 
@@ -288,7 +287,7 @@ FR-MCP-003: The first call on a connection must be `auth.login` with the per-lau
 
 FR-MCP-004: MCP auth tokens must be generated per launch and written to per-instance files with user-only permissions where supported.
 
-FR-MCP-005: MCP must expose 99 documented methods across these namespaces:
+FR-MCP-005: MCP must expose 103 authenticated methods plus the `auth.login` handshake across these namespaces:
 
 - auth
 - meta
@@ -591,7 +590,7 @@ FR-REL-006: Website/docs/release metadata must match shipped product capabilitie
 
 ## 9. MCP Method Coverage Requirement
 
-The product must document and keep working these 102 public MCP methods plus `auth.login`:
+The product must document and keep working these 103 authenticated MCP methods plus `auth.login`:
 
 - `agent.identify`
 - `agent.list_trusted`
@@ -650,6 +649,7 @@ The product must document and keep working these 102 public MCP methods plus `au
 - `review.merge`
 - `review.rollback`
 - `review.verify`
+- `screen.clear`
 - `screen.cursor`
 - `screen.detect_errors`
 - `screen.read`
@@ -673,6 +673,7 @@ The product must document and keep working these 102 public MCP methods plus `au
 - `session.idle`
 - `session.input`
 - `session.list`
+- `session.paste`
 - `session.recording_attach_trace`
 - `session.recording_list`
 - `session.recording_read`

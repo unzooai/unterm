@@ -11,10 +11,10 @@
 //! terminal, not the program", which is how you copy text out of vim without
 //! leaving it.
 
+use termwiz::input::Modifiers;
 use unterm_engine::next_core::mouse_encoding::{
     MouseButton, MouseEvent, MouseEventKind, MouseModes, MouseTracking,
 };
-use termwiz::input::Modifiers;
 
 /// What the front end should do with a mouse event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,9 +75,7 @@ pub fn route(
         MouseTracking::X10 => kind == MouseEventKind::Press,
         MouseTracking::ButtonEvent => kind != MouseEventKind::Motion,
         // Motion, but only while a button is down.
-        MouseTracking::ButtonMotion => {
-            kind != MouseEventKind::Motion || button.is_some()
-        }
+        MouseTracking::ButtonMotion => kind != MouseEventKind::Motion || button.is_some(),
         MouseTracking::AnyEvent => true,
     };
     if !wanted {
@@ -158,16 +156,16 @@ mod tests {
             shift: true,
             ..Default::default()
         };
-        assert_eq!(press(modes(MouseTracking::AnyEvent), held), Route::ToTerminal);
+        assert_eq!(
+            press(modes(MouseTracking::AnyEvent), held),
+            Route::ToTerminal
+        );
     }
 
     #[test]
     fn x10_gets_presses_only() {
         let m = modes(MouseTracking::X10);
-        assert!(matches!(
-            press(m, Held::default()),
-            Route::ToProgram(_)
-        ));
+        assert!(matches!(press(m, Held::default()), Route::ToProgram(_)));
         assert_eq!(
             route(
                 m,

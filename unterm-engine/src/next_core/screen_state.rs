@@ -82,7 +82,10 @@ mod resize_cursor_tests {
                 .lines
                 .iter()
                 .position(|line| {
-                    line.iter().map(|cell| cell.ch).collect::<String>().contains(PROMPT)
+                    line.iter()
+                        .map(|cell| cell.ch)
+                        .collect::<String>()
+                        .contains(PROMPT)
                 })
                 .expect("the prompt is on screen")
         };
@@ -126,7 +129,10 @@ mod resize_cursor_tests {
                 .lines
                 .iter()
                 .position(|line| {
-                    line.iter().map(|cell| cell.ch).collect::<String>().contains(PROMPT)
+                    line.iter()
+                        .map(|cell| cell.ch)
+                        .collect::<String>()
+                        .contains(PROMPT)
                 })
                 .expect("the prompt is on screen")
         };
@@ -170,7 +176,11 @@ mod resize_cursor_tests {
                 .styled_viewport_lines(0)
                 .iter()
                 .position(|line| {
-                    line.cells.iter().map(|cell| cell.ch).collect::<String>().contains(PROMPT)
+                    line.cells
+                        .iter()
+                        .map(|cell| cell.ch)
+                        .collect::<String>()
+                        .contains(PROMPT)
                 })
                 .map(|row| row as isize)
         };
@@ -283,7 +293,11 @@ mod bell_tests {
         screen.feed("hi\x07there");
         assert_eq!(screen.bells, 1);
         assert_eq!(
-            screen.lines[0].iter().map(|cell| cell.ch).collect::<String>().trim_end(),
+            screen.lines[0]
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>()
+                .trim_end(),
             "hithere",
             "the bell is not a character and takes no cell"
         );

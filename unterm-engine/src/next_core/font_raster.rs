@@ -18,8 +18,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use freetype::{
-    FT_Done_Face, FT_Done_FreeType, FT_Face, FT_Init_FreeType, FT_Library, FT_Load_Char,
-    FT_Set_Pixel_Sizes, FT_LOAD_RENDER, FT_Get_Char_Index};
+    FT_Done_Face, FT_Done_FreeType, FT_Face, FT_Get_Char_Index, FT_Init_FreeType, FT_Library,
+    FT_Load_Char, FT_Set_Pixel_Sizes, FT_LOAD_RENDER,
+};
 
 /// A rasterized glyph: 8-bit coverage plus where to put it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -208,7 +209,8 @@ impl FontFace {
                     .to_string_lossy()
                     .into_owned()
             };
-            let monospace = face.face_flags & (freetype::FT_FACE_FLAG_FIXED_WIDTH as freetype::FT_Long) != 0;
+            let monospace =
+                face.face_flags & (freetype::FT_FACE_FLAG_FIXED_WIDTH as freetype::FT_Long) != 0;
             Some((family, style, monospace))
         }
     }
@@ -355,7 +357,10 @@ mod tests {
                 r"C:\Windows\Fonts\arial.ttf",
             ]
         } else if cfg!(target_os = "macos") {
-            &["/System/Library/Fonts/Menlo.ttc", "/Library/Fonts/Arial.ttf"]
+            &[
+                "/System/Library/Fonts/Menlo.ttc",
+                "/Library/Fonts/Arial.ttf",
+            ]
         } else {
             &[
                 "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
@@ -379,7 +384,10 @@ mod tests {
 
         let glyph = face.rasterize('M').expect("rasterize M");
 
-        assert!(glyph.width > 0 && glyph.height > 0, "M should have an outline");
+        assert!(
+            glyph.width > 0 && glyph.height > 0,
+            "M should have an outline"
+        );
         assert_eq!(glyph.coverage.len(), glyph.width * glyph.height);
         assert!(glyph.advance_x > 0, "the pen must advance past an M");
 

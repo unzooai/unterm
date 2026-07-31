@@ -184,10 +184,7 @@ impl GlyphAtlas {
     /// Coverage of one pixel, for tests and for looking at a glyph in a
     /// debugger without a GPU.
     pub fn pixel(&self, x: usize, y: usize) -> u8 {
-        self.coverage
-            .get(y * self.width + x)
-            .copied()
-            .unwrap_or(0)
+        self.coverage.get(y * self.width + x).copied().unwrap_or(0)
     }
 }
 

@@ -448,16 +448,22 @@ fn wait_for_stable_screen_revision(
     let started = Instant::now();
     let poll_interval = poll_interval.max(Duration::from_millis(5));
     let mut previous = engine.read_screen(pane_id)?.revision;
+    let mut stable_polls = 0usize;
     loop {
         std::thread::sleep(poll_interval);
         let current = engine.read_screen(pane_id)?.revision;
         if current == previous {
-            return Ok(current);
+            stable_polls += 1;
+            if stable_polls >= 3 {
+                return Ok(current);
+            }
+        } else {
+            stable_polls = 0;
+            previous = current;
         }
         if started.elapsed() >= timeout {
             bail!("timed out waiting for stable screen revision");
         }
-        previous = current;
     }
 }
 

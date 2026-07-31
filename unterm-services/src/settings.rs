@@ -12,6 +12,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use unterm_engine::next_core::config::{Config, ConfigError};
 
+pub const MAX_SCROLLBACK_LINES: usize = 999_999_999;
+
 /// When an agent's write to a pty needs the user to say yes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum McpInputConfirmation {
@@ -191,6 +193,55 @@ pub fn set_current(config: &Config) {
     }
 }
 
+/// The platform shell used by the previous Windows front end when no shell
+/// was named explicitly. Keep this decision shared by the window and MCP
+/// surfaces so a keyboard split and `unterm-cli session split` cannot open
+/// different shells.
+pub fn preferred_platform_shell() -> Option<Vec<String>> {
+    #[cfg(windows)]
+    {
+        let pwsh = PathBuf::from(r"C:\Program Files\PowerShell\7\pwsh.exe");
+        if pwsh.is_file() {
+            return Some(vec![
+                pwsh.to_string_lossy().into_owned(),
+                "-NoLogo".to_string(),
+            ]);
+        }
+        Some(vec!["powershell.exe".to_string(), "-NoLogo".to_string()])
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// Scrollback capacity for panes created after startup.
+///
+/// An explicit declarative setting wins. Otherwise preserve the previous
+/// product's Web Settings contract by reading `~/.unterm/scrollback.json`.
+pub fn scrollback_lines(config: &Config) -> usize {
+    if let Ok(Some(value)) = config.int_of("scrollback_lines") {
+        if let Ok(value) = usize::try_from(value) {
+            if value <= MAX_SCROLLBACK_LINES {
+                return value;
+            }
+        }
+    }
+    scrollback_override(default_scrollback_path().as_deref())
+        .unwrap_or(unterm_engine::next_core::DEFAULT_SCROLLBACK_LINES)
+}
+
+fn default_scrollback_path() -> Option<PathBuf> {
+    dirs_next::home_dir().map(|home| home.join(".unterm").join("scrollback.json"))
+}
+
+fn scrollback_override(path: Option<&std::path::Path>) -> Option<usize> {
+    let content = std::fs::read_to_string(path?).ok()?;
+    let value = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+    let lines = usize::try_from(value.get("lines")?.as_u64()?).ok()?;
+    (lines > 0 && lines <= MAX_SCROLLBACK_LINES).then_some(lines)
+}
+
 /// Where the config file lives when the user does not say.
 pub fn default_path() -> Option<PathBuf> {
     dirs_next::home_dir().map(|home| home.join(".unterm").join("unterm.conf"))
@@ -300,5 +351,33 @@ mod tests {
     fn settings_are_available_before_anything_loads_a_config() {
         // The MCP surface starts before the window does.
         assert!(current().cockpit_enabled);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_legacy_windows_default_is_powershell_not_cmd() {
+        let shell = preferred_platform_shell().expect("Windows has a preferred shell");
+        assert!(
+            shell[0].to_ascii_lowercase().ends_with("powershell.exe"),
+            "{shell:?}"
+        );
+        assert_eq!(shell.get(1).map(String::as_str), Some("-NoLogo"));
+    }
+
+    #[test]
+    fn declarative_scrollback_capacity_is_used_for_new_panes() {
+        let config = parse("scrollback_lines = 123456").unwrap();
+        assert_eq!(scrollback_lines(&config), 123_456);
+    }
+
+    #[test]
+    fn the_legacy_web_override_is_still_understood() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("scrollback.json");
+        std::fs::write(&path, r#"{"lines":4321}"#).unwrap();
+        assert_eq!(scrollback_override(Some(&path)), Some(4_321));
+
+        std::fs::write(&path, r#"{"lines":1000000000}"#).unwrap();
+        assert_eq!(scrollback_override(Some(&path)), None);
     }
 }

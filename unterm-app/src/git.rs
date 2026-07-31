@@ -82,7 +82,12 @@ fn parse_branch(header: &str, status: &mut Status) {
         None => (header, ""),
     };
     // `main...origin/main` -- the local name is the part before the dots.
-    status.branch = names.split("...").next().unwrap_or(names).trim().to_string();
+    status.branch = names
+        .split("...")
+        .next()
+        .unwrap_or(names)
+        .trim()
+        .to_string();
     if status.branch == "HEAD (no branch)" {
         status.branch.clear();
     }
@@ -134,7 +139,10 @@ impl Panel {
         match self {
             Panel::Status(status) => format!("{title}  {}", status.summary()),
             Panel::NotARepository => {
-                format!("{title}  ({})", unterm_services::i18n::t("git.not_a_repository"))
+                format!(
+                    "{title}  ({})",
+                    unterm_services::i18n::t("git.not_a_repository")
+                )
             }
             Panel::NoGit => format!("{title}  ({})", unterm_services::i18n::t("git.no_git")),
         }
@@ -226,7 +234,9 @@ fn shorten_branch(branch: &str) -> String {
     format!(
         "{}\u{2026}{}",
         characters[..head].iter().collect::<String>(),
-        characters[characters.len() - tail..].iter().collect::<String>()
+        characters[characters.len() - tail..]
+            .iter()
+            .collect::<String>()
     )
 }
 
@@ -356,7 +366,11 @@ mod tests {
     fn a_detached_head_says_so_rather_than_naming_a_branch() {
         let status = parse("## HEAD (no branch)\n");
         assert!(status.branch.is_empty());
-        assert!(status.summary().starts_with("(detached)"), "{}", status.summary());
+        assert!(
+            status.summary().starts_with("(detached)"),
+            "{}",
+            status.summary()
+        );
     }
 
     #[test]

@@ -12,39 +12,45 @@
 
 use portable_pty::CommandBuilder;
 
-pub fn apply_unterm_profile_env(cmd_builder: &mut Option<CommandBuilder>) {
+/// Resolve the identity environment bound to the current Unterm window.
+///
+/// next-core uses `CreateSessionRequest::env` both for the child process and
+/// for the redacted launch metadata exposed through MCP, so callers should
+/// pass these values there rather than only attaching them to a command.
+pub fn current_profile_env() -> Vec<(String, String)> {
     let info = crate::server_info::read_current();
     let Some(profile_id) = info.profile.as_deref() else {
-        return;
+        return Vec::new();
     };
     if profile_id.is_empty() {
-        return;
+        return Vec::new();
     }
 
     let registry = match unterm_profile::ProfileRegistry::load() {
-        Ok(r) => r,
-        Err(e) => {
-            log::warn!("apply_unterm_profile_env: registry load failed: {e:#}");
-            return;
+        Ok(registry) => registry,
+        Err(error) => {
+            log::warn!("current_profile_env: registry load failed: {error:#}");
+            return vec![("UNTERM_PROFILE".to_string(), profile_id.to_string())];
         }
     };
     let store = match unterm_profile::default_store() {
-        Ok(s) => s,
-        Err(e) => {
-            // Backend unavailable on this platform — expected on Linux
-            // headless / Windows before backend lands. Debug level: this
-            // is not an error, just "feature not active here".
-            log::debug!("apply_unterm_profile_env: no secret store: {e:#}");
-            return;
+        Ok(store) => store,
+        Err(error) => {
+            log::warn!("current_profile_env: no secret store: {error:#}");
+            return vec![("UNTERM_PROFILE".to_string(), profile_id.to_string())];
         }
     };
-    let env = match registry.resolve_env(store.as_ref(), profile_id) {
-        Ok(e) => e,
-        Err(e) => {
-            log::warn!("apply_unterm_profile_env: resolve_env({profile_id}) failed: {e:#}");
-            return;
+    match registry.resolve_env(store.as_ref(), profile_id) {
+        Ok(env) => env.into_iter().collect(),
+        Err(error) => {
+            log::warn!("current_profile_env: resolve_env({profile_id}) failed: {error:#}");
+            vec![("UNTERM_PROFILE".to_string(), profile_id.to_string())]
         }
-    };
+    }
+}
+
+pub fn apply_unterm_profile_env(cmd_builder: &mut Option<CommandBuilder>) {
+    let env = current_profile_env();
     if env.is_empty() {
         return;
     }
@@ -68,7 +74,6 @@ pub fn apply_unterm_proxy_env(cmd_builder: &mut Option<CommandBuilder>) {
         builder.env(key, value);
     }
 }
-
 
 pub fn apply_unterm_proxy_to_process_env() {
     let Some(proxy) = read_unterm_proxy_env() else {
@@ -179,8 +184,6 @@ fn chcp_command() -> String {
     let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
     format!(r"{root}\System32\chcp.com")
 }
-
-
 
 pub fn read_unterm_proxy_env() -> Option<Vec<(String, String)>> {
     // Reads ~/.unterm/proxy.json (managed by the ▼ menu / Web Settings).

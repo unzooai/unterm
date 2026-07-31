@@ -11,8 +11,8 @@
 //! Every lookup here asks `has_glyph` first.
 
 use unterm_engine::next_core::font_discovery::{FontEntry, FontIndex};
-use unterm_engine::next_core::font_shaper::{ShapedGlyph, Shaper};
 use unterm_engine::next_core::font_raster::{FontFace, RasterizedGlyph};
+use unterm_engine::next_core::font_shaper::{ShapedGlyph, Shaper};
 
 /// Families to try when the primary face has nothing, in order.
 ///
@@ -73,6 +73,13 @@ fn bundled_font_dirs() -> Vec<std::path::PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(beside) = exe.parent() {
             dirs.push(beside.join("assets").join("fonts"));
+            if let Some(prefix) = beside.parent() {
+                // Linux packages and AppImages keep architecture-independent
+                // data under usr/share. macOS keeps it in the app bundle's
+                // Resources directory beside MacOS.
+                dirs.push(prefix.join("share").join("unterm").join("fonts"));
+                dirs.push(prefix.join("Resources").join("assets").join("fonts"));
+            }
             for up in [1usize, 2, 3] {
                 let mut at = beside.to_path_buf();
                 for _ in 0..up {
@@ -88,6 +95,15 @@ fn bundled_font_dirs() -> Vec<std::path::PathBuf> {
     if let Ok(here) = std::env::current_dir() {
         dirs.push(here.join("assets").join("fonts"));
     }
+    // Cargo permits the target directory to live anywhere. In that case the
+    // executable-relative walk above cannot reach the checkout, and tests (or
+    // a developer build launched from another directory) would silently lose
+    // the product's own symbol and emoji faces. The manifest location is fixed
+    // at compile time, so it remains a reliable source-tree fallback without
+    // affecting an installed copy, which finds its assets beside the exe.
+    if let Some(workspace) = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent() {
+        dirs.push(workspace.join("assets").join("fonts"));
+    }
     dirs
 }
 
@@ -96,7 +112,10 @@ fn bundled_faces(pixel_size: u32) -> Vec<FontFace> {
     let dirs = bundled_font_dirs();
     let mut faces = Vec::new();
     for name in BUNDLED {
-        let found = dirs.iter().map(|dir| dir.join(name)).find(|path| path.is_file());
+        let found = dirs
+            .iter()
+            .map(|dir| dir.join(name))
+            .find(|path| path.is_file());
         match found {
             Some(path) => match FontFace::open(&path, pixel_size) {
                 Ok(face) => faces.push(face),
@@ -245,7 +264,10 @@ impl FontStack {
 
     /// Rasterize one glyph of a face by its index, as the shaper reports it.
     pub fn rasterize_index(&mut self, face: usize, glyph_index: u32) -> Option<RasterizedGlyph> {
-        self.faces.get_mut(face)?.rasterize_glyph_index(glyph_index).ok()
+        self.faces
+            .get_mut(face)?
+            .rasterize_glyph_index(glyph_index)
+            .ok()
     }
 
     /// Rasterize `ch` from whichever face can actually draw it.

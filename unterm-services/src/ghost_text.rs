@@ -21,7 +21,7 @@
 //! not just commands), but it's local, free, and improves
 //! immediately as the user works.
 
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -153,6 +153,15 @@ pub fn cancel_input(pane_id: u64) {
     state.ghost = None;
 }
 
+/// Remove all pane-local prediction state when a pane closes.
+///
+/// Session ids may be reused by the new kernel, so retaining the old command
+/// buffer would make a newly-created pane inherit a closed pane's unfinished
+/// input. Cross-pane committed history deliberately remains available.
+pub fn forget(pane_id: u64) {
+    registry().lock().remove(&pane_id);
+}
+
 /// Best ghost continuation for `pane_id` — the substring to render
 /// in dim grey to the right of the cursor. Returns `None` when the
 /// buffer is empty, no candidate matches, or the buffer already
@@ -277,8 +286,10 @@ fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {
     fn first_prefix_match<'a>(
         prefix: &str,
         candidates: impl Iterator<Item = &'a String>,
+        remaining: &mut usize,
     ) -> Option<String> {
-        for candidate in candidates.take(MAX_CANDIDATES_SCANNED) {
+        for candidate in candidates.take(*remaining) {
+            *remaining = (*remaining).saturating_sub(1);
             if candidate.len() <= prefix.len() {
                 continue;
             }
@@ -297,14 +308,16 @@ fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {
     // Priority: pane-local > cross-pane global > caller-supplied
     // external pool. Pane-local wins because the user has just been
     // working in this pane; their last commands are the strongest
-    // signal of what they're about to retype.
-    let mut best = first_prefix_match(prefix, state.commits.iter().rev());
-    if best.is_none() {
+    // signal of what they're about to retype. The scan budget is shared
+    // across the pools so the total work per keystroke stays bounded.
+    let mut remaining = MAX_CANDIDATES_SCANNED;
+    let mut best = first_prefix_match(prefix, state.commits.iter().rev(), &mut remaining);
+    if best.is_none() && remaining > 0 {
         let global = global_commits().lock();
-        best = first_prefix_match(prefix, global.iter().rev());
+        best = first_prefix_match(prefix, global.iter().rev(), &mut remaining);
     }
-    if best.is_none() {
-        best = first_prefix_match(prefix, external.iter().rev());
+    if best.is_none() && remaining > 0 {
+        best = first_prefix_match(prefix, external.iter().rev(), &mut remaining);
     }
     // Fallback: if shell history didn't predict anything and the user is
     // typing a known AI coding-CLI, offer a flag completion from that CLI's
@@ -323,11 +336,11 @@ fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {
     state.ghost = best;
 }
 
-/// Map of agent exec name → flag completion tokens. Keep this fully in-memory:
-/// the key-event path calls it while the user types, so even an offline
-/// manifest disk read is too expensive here.
-fn agent_flag_tokens() -> &'static HashMap<String, Vec<String>> {
-    static MAP: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
+/// Map of agent exec name → flag completion tokens. Built-ins initialize
+/// synchronously so the key-event path never touches the disk; installed
+/// manifest additions are merged later through `merge_manifest_flags`.
+fn agent_flag_tokens() -> &'static RwLock<HashMap<String, Vec<String>>> {
+    static MAP: OnceLock<RwLock<HashMap<String, Vec<String>>>> = OnceLock::new();
     MAP.get_or_init(|| {
         let mut m: HashMap<String, Vec<String>> = HashMap::new();
         for (exec, args) in BUILTIN_AGENT_FLAGS {
@@ -339,8 +352,23 @@ fn agent_flag_tokens() -> &'static HashMap<String, Vec<String>> {
                 }
             }
         }
-        m
+        RwLock::new(m)
     })
+}
+
+/// Merge flag templates discovered outside this crate — the GUI loads the
+/// signed on-disk manifest catalog on a background thread and feeds each
+/// agent's `flag_catalog` here, so a manifest-only agent completes like a
+/// built-in without the key-event path ever reading the disk.
+pub fn merge_manifest_flags(exec: &str, args: &[String]) {
+    let mut map = agent_flag_tokens().write();
+    let bucket = map.entry(exec.to_string()).or_default();
+    for arg in args {
+        let tok = flag_completion_token(arg);
+        if !bucket.contains(&tok) {
+            bucket.push(tok);
+        }
+    }
 }
 
 /// Built-in flag templates per AI coding-CLI, kept current with the tools'
@@ -488,7 +516,7 @@ fn agent_exec_ghost(input: &str) -> Option<String> {
     if input.is_empty() || input.contains(' ') {
         return None;
     }
-    let map = agent_flag_tokens();
+    let map = agent_flag_tokens().read();
     let mut best: Option<&str> = None;
     for exec in map.keys() {
         if exec.len() > input.len() && exec.starts_with(input) {
@@ -509,7 +537,7 @@ fn agent_flag_ghost(input: &str) -> Option<String> {
     if exec.is_empty() {
         return None;
     }
-    let map = agent_flag_tokens();
+    let map = agent_flag_tokens().read();
     let flags = map.get(exec)?;
     let last_space = input.rfind(' ')?;
     let current = &input[last_space + 1..];

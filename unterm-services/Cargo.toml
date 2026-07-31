@@ -36,7 +36,7 @@ unterm-profile.workspace = true
 libc.workspace = true
 
 [target."cfg(windows)".dependencies]
-winapi = { workspace = true, features = ["handleapi", "processthreadsapi", "winnt", "synchapi", "errhandlingapi", "consoleapi", "wincon", "winuser", "wingdi", "psapi", "sysinfoapi", "winbase", "minwindef"] }
+winapi = { workspace = true, features = ["handleapi", "jobapi2", "processthreadsapi", "winnt", "synchapi", "errhandlingapi", "consoleapi", "wincon", "winuser", "wingdi", "psapi", "sysinfoapi", "winbase", "minwindef"] }
 winreg.workspace = true
 
 [dev-dependencies]

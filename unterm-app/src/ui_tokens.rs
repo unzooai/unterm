@@ -15,10 +15,10 @@
 
 /// Chrome text: tabs, sidebar rows, status bar. Keep this close to the
 /// terminal font while using the title/UI font's natural weight; oversizing
-/// chrome makes the app read less precise than Warp. Set to 13pt so the
-/// sidebar/tab labels stay readable without making the chrome feel oversized.
-/// 13pt also leaves enough horizontal room for project and process identity.
-pub const UI_FONT_SIZE: f64 = 13.0;
+/// chrome makes the app read less precise than Warp. The shipped 0.57.4
+/// configuration set `window_frame.font_size = 12.0`, so 12pt is what every
+/// released window actually drew its chrome at — match it.
+pub const UI_FONT_SIZE: f64 = 12.0;
 /// Command palette / modal body text.
 pub const PALETTE_FONT_SIZE: f64 = 14.0;
 /// Small overline / badge text.

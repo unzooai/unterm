@@ -53,11 +53,24 @@ pub fn title_segment(foreground: &str, shell: &str) -> String {
     // The pane's own shell is not consulted: which program is in front is the
     // question, and the answer does not change because the pane started with it.
     let _ = shell;
-    let name = program_name(foreground);
-    if name.is_empty() || QUIET_SHELLS.contains(&name.to_lowercase().as_str()) {
+    let shown = shown_name(foreground);
+    if shown.is_empty() || QUIET_SHELLS.contains(&program_name(foreground).to_lowercase().as_str())
+    {
         return String::new();
     }
-    format!("\u{25B6} {name}")
+    format!("\u{25B6} {shown}")
+}
+
+/// The name as 0.57.4 showed it: the path gone, the extension kept.
+/// `powershell.exe` in the bar is the platform's own spelling of the program,
+/// and stripping it made the bar read differently from every released window.
+fn shown_name(program: &str) -> String {
+    program
+        .trim()
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .to_string()
 }
 
 /// A program's name with neither its path nor its extension.
@@ -102,13 +115,10 @@ pub fn compose(segments: &[String]) -> String {
 pub fn fit(segments: &[String], give_up: &[usize], columns: usize) -> String {
     let mut kept: Vec<Option<String>> = segments
         .iter()
-        .map(|segment| {
-            Some(segment.clone()).filter(|segment| !segment.trim().is_empty())
-        })
+        .map(|segment| Some(segment.clone()).filter(|segment| !segment.trim().is_empty()))
         .collect();
-    let line_of = |kept: &[Option<String>]| {
-        compose(&kept.iter().flatten().cloned().collect::<Vec<_>>())
-    };
+    let line_of =
+        |kept: &[Option<String>]| compose(&kept.iter().flatten().cloned().collect::<Vec<_>>());
 
     // Anything the caller did not name is given up afterwards, so a short list
     // still ends at an empty line rather than at one that does not fit.
@@ -133,6 +143,8 @@ pub fn width_of(text: &str) -> usize {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Facts {
     pub agent: String,
+    /// Stable raw identity used by Cockpit; `agent` above is presentation.
+    pub agent_id: Option<String>,
     pub git: String,
     pub process: String,
     pub title: String,
@@ -172,7 +184,20 @@ impl Facts {
 /// percentage, a memory figure, an uptime and a branch. None of them is read
 /// four times a second by anybody, and the uptime is the only one that ticks --
 /// in whole seconds.
-const FACTS_TTL: std::time::Duration = std::time::Duration::from_millis(1000);
+const DEFAULT_FACTS_TTL_MS: u64 = 1000;
+static FACTS_TTL_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(DEFAULT_FACTS_TTL_MS);
+
+pub fn set_refresh_ms(milliseconds: u64) {
+    FACTS_TTL_MS.store(
+        milliseconds.clamp(250, 60_000),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+fn facts_ttl() -> std::time::Duration {
+    std::time::Duration::from_millis(FACTS_TTL_MS.load(std::sync::atomic::Ordering::Relaxed))
+}
 
 type FactsCache = std::collections::HashMap<usize, (std::time::Instant, Facts)>;
 
@@ -198,7 +223,7 @@ pub fn facts_for(pane_id: usize) -> Facts {
     {
         let cache = facts_cache().lock();
         match cache.get(&pane_id) {
-            Some((at, facts)) if at.elapsed() < FACTS_TTL => return facts.clone(),
+            Some((at, facts)) if at.elapsed() < facts_ttl() => return facts.clone(),
             Some((_, facts)) => previous = facts.clone(),
             None => previous = Facts::default(),
         }
@@ -242,13 +267,69 @@ pub fn forget(pane_id: usize) {
     facts_cache().lock().remove(&pane_id);
 }
 
+fn command_stem(command: &str) -> String {
+    command
+        .trim()
+        .trim_matches('"')
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(".exe")
+        .trim_end_matches(".cmd")
+        .trim_end_matches(".bat")
+        .trim_end_matches(".ps1")
+        .to_ascii_lowercase()
+}
+
+fn manifest_agent_match<'a>(
+    candidates: impl IntoIterator<Item = &'a str>,
+    manifests: &[(String, String)],
+) -> Option<String> {
+    let candidates: Vec<String> = candidates
+        .into_iter()
+        .map(command_stem)
+        .filter(|candidate| !candidate.is_empty())
+        .collect();
+    manifests
+        .iter()
+        .find(|(command, _)| candidates.iter().any(|candidate| candidate == command))
+        .map(|(_, id)| id.clone())
+}
+
+fn manifest_agent_for_process(process: &unterm_engine::ProcessTreeSnapshot) -> Option<String> {
+    static MANIFEST_COMMANDS: std::sync::OnceLock<Vec<(String, String)>> =
+        std::sync::OnceLock::new();
+    let manifests = MANIFEST_COMMANDS.get_or_init(|| {
+        unterm_agents::fetch_manifests_offline()
+            .map(|set| {
+                set.envelope
+                    .manifests
+                    .into_iter()
+                    .filter_map(|manifest| {
+                        let command = command_stem(&manifest.detect.command);
+                        (!command.is_empty()).then_some((command, manifest.id))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
+    manifest_agent_match(
+        std::iter::once(process.foreground_process.as_str())
+            .chain(process.foreground_argv.first().map(String::as_str))
+            .chain(std::iter::once(process.root_process.as_str())),
+        manifests,
+    )
+}
+
 /// Ask the machine. Only ever called from the refresh thread.
 fn read_facts(pane_id: usize) -> Facts {
     // The engine handle carries no state of its own, so the refresh thread can
     // make its own rather than borrowing the window's.
     let engine = unterm_engine::next_core::NextCoreEngine;
     let activity = unterm_engine::SessionEngine::activity(&engine, pane_id).ok();
-    let process = activity.as_ref().and_then(|activity| activity.process.clone());
+    let process = activity
+        .as_ref()
+        .and_then(|activity| activity.process.clone());
 
     let directory = process
         .as_ref()
@@ -264,12 +345,30 @@ fn read_facts(pane_id: usize) -> Facts {
                 .and_then(|shell| shell.cwd)
         });
 
+    let manifest_agent = process
+        .as_ref()
+        .filter(|process| process.detected_agent.is_none())
+        .and_then(manifest_agent_for_process);
+    let detected_agent = process
+        .as_ref()
+        .and_then(|process| process.detected_agent.as_deref())
+        .or(manifest_agent.as_deref());
+    // This already runs on the facts worker, so taking a dangling Git
+    // snapshot cannot hold paint/input. It covers loose, process-detected
+    // agents; the checkpoint service itself debounces repeated refreshes.
+    if let (Some(agent), Some(cwd)) = (detected_agent, directory.as_deref()) {
+        if let Err(err) = unterm_services::cockpit::review::record_auto_checkpoint(
+            std::path::Path::new(cwd),
+            agent,
+            pane_id as u64,
+        ) {
+            log::debug!("automatic agent checkpoint skipped: {err:#}");
+        }
+    }
+
     Facts {
-        agent: agent_segment(
-            process
-                .as_ref()
-                .and_then(|process| process.detected_agent.as_deref()),
-        ),
+        agent: agent_segment(detected_agent),
+        agent_id: detected_agent.map(str::to_string),
         git: directory
             .as_deref()
             // Blocking is fine here: this is already the refresh thread, and
@@ -328,11 +427,11 @@ mod tests {
     /// showed `pwsh.exe`, and that was right.
     #[test]
     fn a_windows_shell_is_still_named() {
-        assert_eq!(title_segment("pwsh.exe", "pwsh"), "\u{25B6} pwsh");
-        assert_eq!(title_segment("cmd.exe", "cmd"), "\u{25B6} cmd");
+        assert_eq!(title_segment("pwsh.exe", "pwsh"), "\u{25B6} pwsh.exe");
+        assert_eq!(title_segment("cmd.exe", "cmd"), "\u{25B6} cmd.exe");
         assert_eq!(
             title_segment("C:\\Windows\\System32\\cmd.exe", "cmd"),
-            "\u{25B6} cmd"
+            "\u{25B6} cmd.exe"
         );
     }
 
@@ -341,7 +440,30 @@ mod tests {
     #[test]
     fn a_program_is_named_however_its_path_is_spelled() {
         assert_eq!(title_segment("/usr/bin/vim", "bash"), "\u{25B6} vim");
-        assert_eq!(title_segment("CARGO.EXE", "cmd"), "\u{25B6} CARGO");
+        assert_eq!(title_segment("CARGO.EXE", "cmd"), "\u{25B6} CARGO.EXE");
+    }
+
+    #[test]
+    fn future_manifest_agents_match_process_names_and_script_paths() {
+        let manifests = vec![
+            ("future-agent".to_string(), "future-agent-id".to_string()),
+            ("other".to_string(), "other-id".to_string()),
+        ];
+        assert_eq!(
+            manifest_agent_match(
+                [
+                    "node.exe",
+                    "C:\\Users\\me\\AppData\\Roaming\\npm\\future-agent.cmd",
+                ],
+                &manifests,
+            )
+            .as_deref(),
+            Some("future-agent-id")
+        );
+        assert_eq!(
+            manifest_agent_match(["/opt/bin/unrelated"], &manifests),
+            None
+        );
     }
 
     /// And a shell running another program is named, which is what the segment
@@ -350,13 +472,13 @@ mod tests {
     fn a_shell_running_something_else_is_worth_naming() {
         assert_eq!(
             title_segment("powershell.exe", "cmd.exe"),
-            "\u{25B6} powershell"
+            "\u{25B6} powershell.exe"
         );
     }
 
     #[test]
     fn anything_else_running_is_named() {
-        assert_eq!(title_segment("cargo.exe", "cmd"), "\u{25B6} cargo");
+        assert_eq!(title_segment("cargo.exe", "cmd"), "\u{25B6} cargo.exe");
         assert_eq!(title_segment("  vim ", "bash"), "\u{25B6} vim");
         assert_eq!(title_segment("", "bash"), "");
     }
@@ -401,6 +523,7 @@ mod tests {
     fn a_narrow_bar_gives_up_the_numbers_before_anything_else() {
         let facts = Facts {
             agent: "A".into(),
+            agent_id: None,
             git: "GGGG".into(),
             process: "PPPP".into(),
             title: "TT".into(),
@@ -458,7 +581,7 @@ mod tests {
         ]);
         assert_eq!(
             line,
-            "\u{26A1} claude    \u{E0A0} main *3    8.0% cpu  1.4G  4m    \u{25B6} cargo"
+            "\u{26A1} claude    \u{E0A0} main *3    8.0% cpu  1.4G  4m    \u{25B6} cargo.exe"
         );
     }
 }

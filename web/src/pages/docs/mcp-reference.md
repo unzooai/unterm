@@ -6,7 +6,14 @@ kicker: Docs / MCP reference
 date: 2026-07-20
 ---
 
-This page documents every JSON-RPC method an MCP client can call against a running Unterm instance — 99 methods across 21 namespaces as of v0.57. The dispatch table lives in `wezterm-gui/src/mcp/handler.rs`; the connection handshake is in `wezterm-gui/src/mcp/server.rs`. Both are MIT-licensed in the public repo. For a machine-readable version of this page, call [`meta.surface`](#meta) or run `unterm-cli reference` in any shell.
+This page explains the JSON-RPC surface exposed by a running Unterm instance.
+The current native `next-core` build exposes 103 authenticated methods plus
+`auth.login`. The authoritative inventory lives in
+`unterm-agents/src/mcp_meta.rs`, dispatch is in
+`unterm-mcp/src/handler.rs`, and the connection handshake is in
+`unterm-mcp/src/server.rs`. For a machine-readable list that always matches
+the running binary, call [`meta.surface`](#meta) or run
+`unterm-cli reference` in any shell.
 
 For higher-level patterns (director/worker, multi-pane orchestration, recording for review) see the [agent integration guide](agent-integration). This page is the wire-level companion — the doc you check when your client got back `-32603` and you want to know which field you fat-fingered.
 
@@ -113,7 +120,7 @@ Same method, two names. Get full state for one pane, including scrollback row co
 
 ### `session.create`
 
-Spawn a new pane in the active window using the default domain.
+Spawn a new tab/pane.
 
 **Params:**
 
@@ -122,10 +129,11 @@ Spawn a new pane in the active window using the default domain.
 | `cols` | number | no | Terminal width, default `120` |
 | `rows` | number | no | Terminal height, default `30` |
 | `cwd` | string | no | Initial working directory; defaults to user home |
+| `command` | string | no | Explicit command to launch instead of the default shell |
+| `profile` | string | no | Identity profile whose resolved launch environment is applied |
 
-**Returns:** `{ id, session_id, title, cols, rows }`
-
-The call blocks for up to 10 seconds waiting for the pty to come up. It runs the user's default shell — there is currently no `prog` parameter to launch a non-shell process directly. If you need that, `session.create` then `exec.run` with the command.
+**Returns:** pane identity/dimensions plus a redacted `launch` decision showing
+the selected profile, proxy/env keys, command source, and launch policy.
 
 ```json
 {"jsonrpc":"2.0","id":4,"method":"session.create",
@@ -135,6 +143,22 @@ The call blocks for up to 10 seconds waiting for the pty to come up. It runs the
 ```json
 {"jsonrpc":"2.0","id":4,"result":{"id":7,"session_id":"7","title":"zsh","cols":160,"rows":48}}
 ```
+
+### `session.split`
+
+Split an existing pane in `left`, `right`, `up`, or `down` direction.
+
+**Params:** `id`/`session_id` (target pane) and `direction`.
+
+**Returns:** the new pane identity and split relationship.
+
+### `session.focus`
+
+Focus a pane and bring its tab to the front.
+
+**Params:** `id`/`session_id`.
+
+**Returns:** `{ ok: true, id }`.
 
 ### `session.input` / `exec.send`
 
@@ -150,6 +174,15 @@ Aliases. Write arbitrary bytes into the pane's stdin, exactly as if the user had
 **Returns:** `{ status: "ok" }`
 
 If you want to submit a command, you almost always want `\r` (carriage return) at the end. Most shells treat `\n` as a literal line continuation; `\r` is what a real keypress sends.
+
+### `session.paste`
+
+Paste text using the terminal's paste path. Like all PTY writes, it is audited
+and subject to the configured per-agent confirmation policy.
+
+**Params:** `id`/`session_id`, plus `text`.
+
+**Returns:** `{ status: "ok" }`.
 
 ### `session.resize`
 
@@ -187,14 +220,17 @@ Get the pane's current working directory (from OSC 7 if the shell sets it, falls
 
 ### `session.env` / `session.set_env`
 
-Read launch environment metadata for a pane, or request live env mutation.
+Read launch environment metadata for a pane, or set a future-launch overlay.
 
 `session.env` is engine-specific:
 
 - `next-core`: returns launch env variable names with values redacted: `{ supported: true, mutable: false, scope: "launch", variables: [{ name, value: null, redacted: true, scope: "launch" }] }`.
-- WezTerm mode: returns `{ supported: false, value: null, message }` because live per-pane env is not exposed.
+- compatibility engines may return `{ supported: false, value: null, message }`
+  when launch metadata is unavailable.
 
-`session.set_env` remains unsupported. Use `session.create` profile/proxy launch context for new shells, or write shell-specific `export`/`set` commands when you intentionally want to mutate the running shell.
+`session.set_env` sets `{name, value}` in the process's future-launch overlay;
+omit `value` or pass `null` to clear it. Existing shells are never mutated and
+values are never returned through MCP.
 
 ### `session.history`
 
@@ -354,7 +390,9 @@ The bytes sent: `SIGINT`→`\x03`, `SIGTSTP`→`\x1a`, `SIGQUIT`→`\x1c`, `EOF`
 
 ## Screen
 
-Read what's on the pane right now. None of these methods mutate state.
+Read or navigate what's on the pane. Reads are side-effect free;
+`screen.scroll` only changes the visible viewport when `goto: true`, and
+`screen.clear` explicitly discards history.
 
 ### `screen.read`
 
@@ -393,8 +431,19 @@ Read an absolute slice of the scrollback. Use this when you want history before 
 | `id`/`session_id` | number/string | yes | Target pane |
 | `offset` | number | no | Starting row, default `0` |
 | `count` | number | no | Number of rows to read, default `100` |
+| `goto` | bool | no | Also move the pane's logical viewport to `offset` |
 
-**Returns:** `{ lines: string[], offset: number, count: number }` (count = lines actually returned).
+**Returns:** `{ lines, offset, count, scrolled_to, goto_skipped }`.
+
+### `screen.clear`
+
+Discard a pane's scrollback. By default the current viewport remains visible;
+pass `include_screen: true` to clear it as well.
+
+**Params:** optional `id`/`session_id` (defaults to active pane), optional
+`include_screen`.
+
+**Returns:** `{ ok: true, id, include_screen }`.
 
 ### `screen.search`
 
@@ -1123,7 +1172,7 @@ Server identity. Static, doesn't reach into the mux.
 
 ### `server.health`
 
-Health probe — asks the selected terminal engine for readiness and includes MCP/server config details. For the WezTerm engine this still reports mux readiness; for next-core it reports the next-core session registry instead of depending on WezTerm mux state.
+Health probe — asks the native next-core engine for readiness and includes MCP/server configuration, session-registry, runtime-pump, and terminal-I/O diagnostics.
 
 **Params:** none.
 
@@ -1348,4 +1397,4 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 | `workspace.restore` | Open new tabs from a saved workspace; supports dry-run planning |
 | `workspace.save` | Snapshot the current set of panes |
 
-That's 99 methods plus `auth.login`. If you find a method in the codebase that isn't listed here, file an issue — the `MCP_METHODS` table behind `meta.surface` (dispatched in `wezterm-gui/src/mcp/handler.rs`) is the source of truth and this page should track it.
+That's 103 authenticated methods plus `auth.login`. If you find a method in the codebase that isn't listed here, file an issue — the `MCP_METHODS` table in `unterm-agents/src/mcp_meta.rs`, exposed by `meta.surface` and dispatched in `unterm-mcp/src/handler.rs`, is the source of truth and this page should track it.

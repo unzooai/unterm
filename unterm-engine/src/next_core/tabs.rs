@@ -44,6 +44,8 @@ pub enum CloseResult {
 #[derive(Debug, Default)]
 pub struct TabRegistry {
     tabs: HashMap<TabId, Tab>,
+    /// Visible order, independent of stable tab ids.
+    order: Vec<TabId>,
     /// Reverse index so a pane resolves to its tab without scanning.
     tab_of_pane: HashMap<PaneId, TabId>,
     active_tab: Option<TabId>,
@@ -63,11 +65,9 @@ impl TabRegistry {
         self.tabs.is_empty()
     }
 
-    /// Tab ids, ascending, so iteration order does not depend on hashing.
+    /// Tab ids in the order the tab bar presents them.
     pub fn tab_ids(&self) -> Vec<TabId> {
-        let mut ids: Vec<TabId> = self.tabs.keys().copied().collect();
-        ids.sort_unstable();
-        ids
+        self.order.clone()
     }
 
     pub fn active_tab(&self) -> Option<TabId> {
@@ -98,6 +98,7 @@ impl TabRegistry {
                 zoomed_pane: None,
             },
         );
+        self.order.push(tab_id);
         self.tab_of_pane.insert(pane_id, tab_id);
         self.active_tab = Some(tab_id);
         Ok(tab_id)
@@ -118,15 +119,20 @@ impl TabRegistry {
         positions: &[PositionedPane],
         active_pane: PaneId,
     ) -> Result<()> {
-        let layout = Layout::from_positions(positions)
-            .ok_or_else(|| anyhow!("tab {tab_id} is not an arrangement a split tree can express"))?;
+        let layout = Layout::from_positions(positions).ok_or_else(|| {
+            anyhow!("tab {tab_id} is not an arrangement a split tree can express")
+        })?;
         if !layout.contains(active_pane) {
             return Err(anyhow!(
                 "active pane {active_pane} is not in tab {tab_id}'s arrangement"
             ));
         }
         for pane_id in layout.pane_ids() {
-            if self.tab_of_pane.get(&pane_id).is_some_and(|owner| *owner != tab_id) {
+            if self
+                .tab_of_pane
+                .get(&pane_id)
+                .is_some_and(|owner| *owner != tab_id)
+            {
                 return Err(anyhow!("pane {pane_id} already belongs to another tab"));
             }
         }
@@ -141,6 +147,7 @@ impl TabRegistry {
         for pane_id in layout.pane_ids() {
             self.tab_of_pane.insert(pane_id, tab_id);
         }
+        let was_present = self.tabs.contains_key(&tab_id);
         self.tabs.insert(
             tab_id,
             Tab {
@@ -149,6 +156,9 @@ impl TabRegistry {
                 zoomed_pane: None,
             },
         );
+        if !was_present {
+            self.order.push(tab_id);
+        }
         self.next_tab_id = self.next_tab_id.max(tab_id + 1);
         Ok(())
     }
@@ -158,6 +168,7 @@ impl TabRegistry {
         let Some(tab) = self.tabs.remove(&tab_id) else {
             return false;
         };
+        self.order.retain(|id| *id != tab_id);
         for pane_id in tab.layout.pane_ids() {
             self.tab_of_pane.remove(&pane_id);
         }
@@ -261,6 +272,7 @@ impl TabRegistry {
 
         if tab.layout.is_empty() {
             self.tabs.remove(&tab_id);
+            self.order.retain(|id| *id != tab_id);
             if self.active_tab == Some(tab_id) {
                 // Focus the lowest surviving tab rather than nothing: the
                 // window is still open and needs somewhere to send input.
@@ -322,6 +334,31 @@ impl TabRegistry {
             .get_mut(&tab_id)
             .is_some_and(|tab| tab.layout.set_split_ratio(pane_id, first_ratio))
     }
+
+    /// Move the nearest matching divider around `pane_id`.
+    pub fn adjust_split_ratio(&mut self, pane_id: PaneId, axis: SplitAxis, delta: f64) -> bool {
+        let Some(tab_id) = self.tab_of_pane(pane_id) else {
+            return false;
+        };
+        self.tabs
+            .get_mut(&tab_id)
+            .is_some_and(|tab| tab.layout.adjust_split_ratio(pane_id, axis, delta))
+    }
+
+    /// Reorder a tab relative to its current position, clamping at the ends.
+    pub fn move_tab_relative(&mut self, tab_id: TabId, delta: isize) -> bool {
+        let Some(from) = self.order.iter().position(|id| *id == tab_id) else {
+            return false;
+        };
+        let last = self.order.len().saturating_sub(1) as isize;
+        let to = (from as isize + delta).clamp(0, last) as usize;
+        if from == to {
+            return true;
+        }
+        let moved = self.order.remove(from);
+        self.order.insert(to, moved);
+        true
+    }
 }
 
 #[cfg(test)]
@@ -338,6 +375,22 @@ mod tests {
         assert_eq!(tabs.active_pane(tab), Some(10));
         assert_eq!(tabs.pane_ids(tab), vec![10]);
         assert_eq!(tabs.tab_of_pane(10), Some(tab));
+    }
+
+    #[test]
+    fn tabs_can_move_without_changing_their_stable_ids() {
+        let mut tabs = TabRegistry::new();
+        let first = tabs.create_tab(10).unwrap();
+        let second = tabs.create_tab(20).unwrap();
+        let third = tabs.create_tab(30).unwrap();
+
+        assert!(tabs.move_tab_relative(third, -2));
+        assert_eq!(tabs.tab_ids(), vec![third, first, second]);
+        assert_eq!(tabs.active_tab(), Some(third));
+
+        assert!(tabs.move_tab_relative(third, 99));
+        assert_eq!(tabs.tab_ids(), vec![first, second, third]);
+        assert!(!tabs.move_tab_relative(404, 1));
     }
 
     #[test]
@@ -481,12 +534,21 @@ mod tests {
         assert!(!tabs.set_active_tab(999));
     }
 
-    fn positioned(pane_id: PaneId, left: usize, top: usize, width: usize, height: usize)
-        -> PositionedPane
-    {
+    fn positioned(
+        pane_id: PaneId,
+        left: usize,
+        top: usize,
+        width: usize,
+        height: usize,
+    ) -> PositionedPane {
         PositionedPane {
             pane_id,
-            rect: PaneRect { left, top, width, height },
+            rect: PaneRect {
+                left,
+                top,
+                width,
+                height,
+            },
         }
     }
 
@@ -497,10 +559,7 @@ mod tests {
         // Ids come from the other side, so they need not start at zero.
         tabs.adopt_tab(
             7,
-            &[
-                positioned(10, 0, 0, 39, 24),
-                positioned(11, 40, 0, 40, 24),
-            ],
+            &[positioned(10, 0, 0, 39, 24), positioned(11, 40, 0, 40, 24)],
             11,
         )
         .unwrap();
@@ -530,7 +589,8 @@ mod tests {
         .unwrap();
 
         // The other side closed pane 11.
-        tabs.adopt_tab(1, &[positioned(10, 0, 0, 80, 24)], 10).unwrap();
+        tabs.adopt_tab(1, &[positioned(10, 0, 0, 80, 24)], 10)
+            .unwrap();
 
         assert_eq!(tabs.pane_ids(1), vec![10]);
         // A lingering reverse-index entry would resolve a dead pane to a tab.
@@ -551,7 +611,8 @@ mod tests {
             .is_err());
 
         // A pane already owned by another tab.
-        tabs.adopt_tab(1, &[positioned(10, 0, 0, 80, 24)], 10).unwrap();
+        tabs.adopt_tab(1, &[positioned(10, 0, 0, 80, 24)], 10)
+            .unwrap();
         assert!(tabs
             .adopt_tab(2, &[positioned(10, 0, 0, 80, 24)], 10)
             .is_err());
@@ -561,8 +622,10 @@ mod tests {
     #[test]
     fn forgetting_a_tab_releases_its_panes() {
         let mut tabs = TabRegistry::new();
-        tabs.adopt_tab(1, &[positioned(10, 0, 0, 80, 24)], 10).unwrap();
-        tabs.adopt_tab(2, &[positioned(20, 0, 0, 80, 24)], 20).unwrap();
+        tabs.adopt_tab(1, &[positioned(10, 0, 0, 80, 24)], 10)
+            .unwrap();
+        tabs.adopt_tab(2, &[positioned(20, 0, 0, 80, 24)], 20)
+            .unwrap();
         tabs.set_active_tab(2);
 
         assert!(tabs.forget_tab(2));
@@ -587,7 +650,9 @@ mod tests {
     fn zooming_gives_one_pane_the_whole_tab() {
         let mut registry = TabRegistry::new();
         let tab = registry.create_tab(1).expect("create");
-        registry.split(1, 2, SplitAxis::Vertical, 0.5).expect("split");
+        registry
+            .split(1, 2, SplitAxis::Vertical, 0.5)
+            .expect("split");
 
         assert_eq!(registry.positions(tab, 80, 24).len(), 2);
 
@@ -603,7 +668,9 @@ mod tests {
     fn unzooming_restores_the_arrangement_exactly() {
         let mut registry = TabRegistry::new();
         let tab = registry.create_tab(1).expect("create");
-        registry.split(1, 2, SplitAxis::Vertical, 0.5).expect("split");
+        registry
+            .split(1, 2, SplitAxis::Vertical, 0.5)
+            .expect("split");
         let before = registry.positions(tab, 80, 24);
 
         registry.set_zoomed(2, true);
@@ -618,7 +685,9 @@ mod tests {
     fn zooming_also_focuses_the_pane() {
         let mut registry = TabRegistry::new();
         let tab = registry.create_tab(1).expect("create");
-        registry.split(1, 2, SplitAxis::Vertical, 0.5).expect("split");
+        registry
+            .split(1, 2, SplitAxis::Vertical, 0.5)
+            .expect("split");
         registry.set_active_pane(1);
 
         registry.set_zoomed(2, true);
@@ -632,7 +701,9 @@ mod tests {
     fn unzooming_a_pane_that_is_not_zoomed_leaves_the_zoom_alone() {
         let mut registry = TabRegistry::new();
         let tab = registry.create_tab(1).expect("create");
-        registry.split(1, 2, SplitAxis::Vertical, 0.5).expect("split");
+        registry
+            .split(1, 2, SplitAxis::Vertical, 0.5)
+            .expect("split");
         registry.set_zoomed(2, true);
 
         registry.set_zoomed(1, false);
@@ -648,5 +719,4 @@ mod tests {
         assert_eq!(registry.zoomed_pane(tab), None);
         assert!(!registry.set_zoomed(99, true));
     }
-
 }

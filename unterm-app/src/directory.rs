@@ -164,10 +164,20 @@ mod tests {
     fn a_picker_opened_for_a_new_tab_ends_in_a_new_tab() {
         const NAME: &str = "a_picker_opened_for_a_new_tab_ends_in_a_new_tab";
         let rows = entries(&scratch(NAME), BrowseThen::NewTab);
-        assert!(matches!(rows[1].command, Command::NewTabIn { .. }), "{:?}", rows[1]);
+        assert!(
+            matches!(rows[1].command, Command::NewTabIn { .. }),
+            "{:?}",
+            rows[1]
+        );
         let alpha = rows.iter().find(|row| row.label == "Alpha").unwrap();
         assert!(
-            matches!(alpha.command, Command::Browse { then: BrowseThen::NewTab, .. }),
+            matches!(
+                alpha.command,
+                Command::Browse {
+                    then: BrowseThen::NewTab,
+                    ..
+                }
+            ),
             "descending must carry the intent: {:?}",
             alpha.command
         );
@@ -181,7 +191,10 @@ mod tests {
         let missing = std::env::temp_dir().join("unterm-directory-tests-missing");
         let _ = std::fs::remove_dir_all(&missing);
         let rows = entries(&missing, BrowseThen::ChangeDirectory);
-        assert_eq!(labels(&rows), vec!["..".to_string(), "Use this folder".to_string()]);
+        assert_eq!(
+            labels(&rows),
+            vec!["..".to_string(), "Use this folder".to_string()]
+        );
     }
 
     /// The root of a drive has no parent, and asking for one must not panic.

@@ -219,10 +219,7 @@ impl FleetPaneSpawner for EngineFleetPanes {
 
 impl FleetPaneRemover for EngineFleetPanes {
     fn remove_member(&mut self, pane_id: u64) -> Result<()> {
-        unterm_engine::SessionEngine::destroy_session(
-            &unterm_engine::next_core(),
-            pane_id as usize,
-        )
+        unterm_engine::SessionEngine::destroy_session(&unterm_engine::next_core(), pane_id as usize)
     }
 }
 
@@ -707,7 +704,11 @@ mod precheck_tests {
             "could not make a commit"
         );
 
-        assert_eq!(precheck(repo.path()), Ok(()), "a clean repository was refused");
+        assert_eq!(
+            precheck(repo.path()),
+            Ok(()),
+            "a clean repository was refused"
+        );
 
         std::fs::write(repo.path().join("a.txt"), b"changed").expect("change the file");
         assert_eq!(

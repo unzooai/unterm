@@ -1021,6 +1021,8 @@ pub struct SplitSessionRequest {
     /// the platform default, which is what the kernel would have picked
     /// anyway.
     pub command: Option<CommandBuilder>,
+    pub env: Vec<(String, String)>,
+    pub launch_policy: LaunchPolicySnapshot,
 }
 
 pub trait SessionEngine {
@@ -1179,7 +1181,6 @@ pub trait InputEngine {
         self.write_input(pane_id, text)
     }
 }
-
 
 /// What focusing a window told us.
 ///
@@ -1665,7 +1666,11 @@ mod tests {
 
     fn frame(cells: Vec<StyledCell>) -> RenderFrameSnapshot {
         RenderFrameSnapshot {
-            lines: vec![StyledScreenLine { row: 0, wrapped: false, cells }],
+            lines: vec![StyledScreenLine {
+                row: 0,
+                wrapped: false,
+                cells,
+            }],
             cursor: CursorSnapshot {
                 x: 2,
                 y: 0,

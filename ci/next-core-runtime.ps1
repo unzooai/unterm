@@ -31,7 +31,9 @@ $RequiredTests = @(
 
 Push-Location $RepoRoot
 try {
+    $ErrorActionPreference = "Continue"
     $list = @(& cargo test -p unterm-engine $TestFilter -- --list 2>&1 | ForEach-Object { $_.ToString() })
+    $ErrorActionPreference = "Stop"
     if ($LASTEXITCODE -ne 0) {
         throw "cargo test list failed:`n$($list -join "`n")"
     }
@@ -47,7 +49,9 @@ try {
         exit 0
     }
 
+    $ErrorActionPreference = "Continue"
     $run = @(& cargo test -p unterm-engine $TestFilter -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
+    $ErrorActionPreference = "Stop"
     if ($LASTEXITCODE -ne 0) {
         throw "next-core runtime tests failed:`n$($run -join "`n")"
     }

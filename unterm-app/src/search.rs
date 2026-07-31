@@ -92,12 +92,7 @@ pub enum Key {
 /// Separated from the window so the rules can be checked without a keyboard:
 /// which keys the search takes decides which keys the shell never sees, and
 /// taking one too many is how a search bar breaks a program underneath it.
-pub fn key_for(
-    named: Option<&str>,
-    character: Option<&str>,
-    ctrl: bool,
-    shift: bool,
-) -> Key {
+pub fn key_for(named: Option<&str>, character: Option<&str>, ctrl: bool, shift: bool) -> Key {
     match named {
         Some("Escape") => return Key::Close,
         Some("Enter") => return Key::Step(if shift { -1 } else { 1 }),
@@ -226,7 +221,10 @@ mod tests {
     #[test]
     fn escape_closes_and_backspace_shortens() {
         assert_eq!(key_for(Some("Escape"), None, false, false), Key::Close);
-        assert_eq!(key_for(Some("Backspace"), None, false, false), Key::Backspace);
+        assert_eq!(
+            key_for(Some("Backspace"), None, false, false),
+            Key::Backspace
+        );
     }
 
     #[test]

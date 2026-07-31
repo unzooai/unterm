@@ -2109,7 +2109,8 @@ mod tests {
             indices: vec![0],
         };
 
-        let fullscreen = EngineRenderGpuUploadPlan::from_buffer_plan_for_viewport(&plan, 800.0, 600.0);
+        let fullscreen =
+            EngineRenderGpuUploadPlan::from_buffer_plan_for_viewport(&plan, 800.0, 600.0);
         let offset = EngineRenderGpuUploadPlan::from_buffer_plan_for_placement(
             &plan,
             EngineRenderViewportPlacement::at(400.0, 300.0, 800.0, 600.0),
@@ -2141,13 +2142,17 @@ mod tests {
             indices: vec![0],
         };
 
-        let viewport = EngineRenderGpuUploadPlan::from_buffer_plan_for_viewport(&plan, 640.0, 480.0);
+        let viewport =
+            EngineRenderGpuUploadPlan::from_buffer_plan_for_viewport(&plan, 640.0, 480.0);
         let placement = EngineRenderGpuUploadPlan::from_buffer_plan_for_placement(
             &plan,
             EngineRenderViewportPlacement::fullscreen(640.0, 480.0),
         );
 
-        assert_eq!(viewport.vertices[0].position, placement.vertices[0].position);
+        assert_eq!(
+            viewport.vertices[0].position,
+            placement.vertices[0].position
+        );
     }
 
     #[test]

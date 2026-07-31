@@ -31,7 +31,9 @@ $ErrorActionPreference = "Stop"
 # Resolve version: prefer arg, else read installer/Unterm.wxs
 if (-not $Version) {
   $wxs = Get-Content installer\Unterm.wxs -Raw
-  if ($wxs -match 'Version="([0-9.]+)"') { $Version = $Matches[1] } else { throw "version not found" }
+  # Do not take the XML declaration's `version="1.0"` for the product
+  # version. Match the Package element explicitly.
+  if ($wxs -match '(?s)<Package\b.*?\bVersion="([0-9.]+)"') { $Version = $Matches[1] } else { throw "package version not found" }
 }
 
 $stage = Join-Path $OutDir ("unterm-stage-" + $Version)
@@ -69,6 +71,14 @@ $defaults = Join-Path $stage "defaults"
 New-Item -ItemType Directory -Path $defaults | Out-Null
 Copy-Item "assets\unterm.conf" $defaults
 
+# The new renderer draws product chrome with the bundled symbols face and
+# uses the bundled emoji face as its last fallback. They are runtime assets,
+# not development-only test data.
+$fonts = Join-Path $stage "assets\fonts"
+New-Item -ItemType Directory -Path $fonts -Force | Out-Null
+Copy-Item "assets\fonts\SymbolsNerdFontMono-Regular.ttf" $fonts
+Copy-Item "assets\fonts\NotoColorEmoji.ttf" $fonts
+
 if (-not (Test-Path $WixPath)) {
   throw "WiX not found at $WixPath. Download wix.exe from https://github.com/wixtoolset/wix and place it there."
 }
@@ -77,6 +87,9 @@ if (-not (Test-Path $WixPath)) {
 # resolve the <ui:WixUI Id="WixUI_Minimal"/> reference at build time.
 # `wix extension add` is idempotent; it noops if already added.
 & $WixPath extension add -g WixToolset.UI.wixext/6.0.1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  throw "WiX UI extension registration failed with exit code $LASTEXITCODE"
+}
 
 $msiName = "Unterm-$Version-$Arch.msi"
 $msiPath = Join-Path $OutDir $msiName
@@ -86,5 +99,8 @@ $msiPath = Join-Path $OutDir $msiName
   -d "SourceDir=$stage" `
   -arch $Arch `
   -o $msiPath
+if ($LASTEXITCODE -ne 0) {
+  throw "WiX MSI build failed with exit code $LASTEXITCODE"
+}
 
 Write-Host "MSI: $msiPath"

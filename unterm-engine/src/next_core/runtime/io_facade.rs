@@ -13,6 +13,10 @@ pub(in crate::next_core) fn scroll_viewport_by(pane_id: usize, delta: isize) -> 
     scheduler::scroll_viewport_by(pane_id, delta)
 }
 
+pub(in crate::next_core) fn scroll_viewport_to_prompt(pane_id: usize, amount: isize) -> Result<()> {
+    scheduler::scroll_viewport_to_prompt(pane_id, amount)
+}
+
 pub(in crate::next_core) fn pane_modes(pane_id: usize) -> Result<crate::PaneModesSnapshot> {
     scheduler::pane_modes(pane_id)
 }

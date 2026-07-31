@@ -9,6 +9,7 @@ mod background;
 mod charselect;
 mod chrome;
 mod chrome_font;
+mod clipboard;
 mod cockpit;
 mod composer;
 mod confirm;
@@ -17,6 +18,7 @@ mod dir_jump;
 mod directory;
 mod fleet;
 mod fonts;
+mod ghost;
 mod git;
 mod ime;
 mod keys;
@@ -24,30 +26,27 @@ mod links;
 mod mcp_host;
 mod mouse;
 mod palette;
-mod paneselect;
 mod panes;
+mod paneselect;
 mod scroll;
 mod scrollbar;
 mod search;
+mod select;
 mod shape;
 mod sidebar;
 mod statsbar;
 mod statusbar;
+mod terminal;
 mod theme;
 mod topbar;
 mod tree;
-mod select;
-mod terminal;
 mod ui_tokens;
 mod window;
 mod window_buttons;
 
-
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(
-        env_logger::Env::default().filter_or("UNTERM_LOG", "info"),
-    )
-    .init();
+    env_logger::Builder::from_env(env_logger::Env::default().filter_or("UNTERM_LOG", "info"))
+        .init();
 
     let args = args::parse(std::env::args().skip(1));
     for argument in &args.unrecognised {
@@ -67,7 +66,19 @@ fn main() -> anyhow::Result<()> {
     for error in &errors {
         log::warn!("config line {}: {}", error.line, error.message);
     }
+    apply_path_append(&config);
+    if let Ok(Some(milliseconds)) = config.int_of("stats.refresh_ms") {
+        if let Ok(milliseconds) = u64::try_from(milliseconds) {
+            statsbar::set_refresh_ms(milliseconds);
+        }
+    }
     unterm_services::settings::set_current(&config);
+    unterm_engine::next_core::NextCoreEngine::set_new_session_scrollback_lines(
+        unterm_services::settings::scrollback_lines(&config),
+    );
+    if let Some(profile) = args.profile.as_deref() {
+        std::env::set_var("UNTERM_STARTUP_PROFILE", profile);
+    }
 
     // The agent-facing API. next-core answers everything about sessions and
     // screens; this app answers the two things that need a font stack and a
@@ -75,7 +86,7 @@ fn main() -> anyhow::Result<()> {
     // early finds a working surface rather than a half-built one.
     unterm_engine::install_next_core_provider();
     mcp_host::install();
-    let (port, token) = unterm_mcp::start_mcp_server();
+    let (port, token) = unterm_mcp::start_mcp_server_with_version(env!("CARGO_PKG_VERSION"));
     log::info!("MCP server listening on 127.0.0.1:{port}");
 
     // The settings UI, on the same token. `unterm-cli settings` opens it.
@@ -85,8 +96,82 @@ fn main() -> anyhow::Result<()> {
     let event_loop = winit::event_loop::EventLoop::new()?;
     let mut app = window::App::new(&config)?;
     app.set_start_directory(args.cwd);
-    event_loop.run_app(&mut app)?;
+    app.set_start_command(args.command);
+    let run_result = event_loop.run_app(&mut app);
+    let shutdown = unterm_services::server_info::unregister_current_instance();
+    if !shutdown.errors.is_empty() {
+        log::warn!(
+            "could not fully unregister instance during shutdown: {}",
+            shutdown.errors.join("; ")
+        );
+    }
+    run_result?;
     Ok(())
+}
+
+/// Extend the environment inherited by every new pane.
+///
+/// The 0.57 Windows config did this in Lua. Keeping it at process startup
+/// makes shell discovery, agent discovery and the shells themselves see one
+/// identical PATH.
+fn apply_path_append(config: &unterm_engine::next_core::config::Config) {
+    let mut additions: Vec<std::path::PathBuf> = config
+        .list_of("path_append")
+        .ok()
+        .flatten()
+        .into_iter()
+        .flatten()
+        .filter_map(|value| match value {
+            unterm_engine::next_core::config::Value::Str(path) => {
+                Some(std::path::PathBuf::from(path))
+            }
+            _ => None,
+        })
+        .collect();
+
+    #[cfg(windows)]
+    {
+        let mut standard = vec![
+            std::path::PathBuf::from(r"C:\Program Files\nodejs"),
+            std::path::PathBuf::from(r"C:\Strawberry\perl\bin"),
+        ];
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            standard.push(std::path::PathBuf::from(appdata).join("npm"));
+        }
+        if let Some(home) = std::env::var_os("USERPROFILE") {
+            standard.push(std::path::PathBuf::from(home).join(".bun").join("bin"));
+        }
+        additions.extend(standard.into_iter().filter(|path| path.is_dir()));
+    }
+
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    let paths = merged_path(std::env::split_paths(&current), additions);
+    match std::env::join_paths(paths) {
+        Ok(path) => std::env::set_var("PATH", path),
+        Err(error) => log::warn!("could not extend PATH: {error}"),
+    }
+}
+
+fn merged_path(
+    current: impl IntoIterator<Item = std::path::PathBuf>,
+    additions: impl IntoIterator<Item = std::path::PathBuf>,
+) -> Vec<std::path::PathBuf> {
+    let mut paths: Vec<std::path::PathBuf> = current.into_iter().collect();
+    for addition in additions {
+        let duplicate = paths.iter().any(|known| {
+            if cfg!(windows) {
+                known
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&addition.to_string_lossy())
+            } else {
+                known == &addition
+            }
+        });
+        if !duplicate {
+            paths.push(addition);
+        }
+    }
+    paths
 }
 
 /// Convert a Lua config from an older build, once.
@@ -111,6 +196,11 @@ fn migrate_old_config() -> anyhow::Result<()> {
     }
 
     let candidates = [
+        // This was the normal Windows/Linux config location used by the
+        // WezTerm-based releases. Missing it made an upgrade silently fall
+        // back to the new bundled font and spacing even though the user's
+        // v0.57.4 configuration was still present.
+        home.join(".config").join("unterm").join("unterm.lua"),
         home.join(".unterm").join("unterm.lua"),
         home.join(".unterm.lua"),
         home.join(".wezterm.lua"),
@@ -126,13 +216,48 @@ fn migrate_old_config() -> anyhow::Result<()> {
     }
     std::fs::write(&new_path, &migration.text)?;
 
-    log::info!(
-        "converted {} to {}",
-        old_path.display(),
-        new_path.display()
-    );
+    log::info!("converted {} to {}", old_path.display(), new_path.display());
     for left in &migration.unconverted {
         log::info!("  not converted: {left:?}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn path_extensions_keep_order_and_do_not_duplicate_entries() {
+        let current = [
+            std::path::PathBuf::from("first"),
+            std::path::PathBuf::from("second"),
+        ];
+        let merged = merged_path(
+            current,
+            [
+                std::path::PathBuf::from("second"),
+                std::path::PathBuf::from("third"),
+            ],
+        );
+
+        assert_eq!(
+            merged,
+            [
+                std::path::PathBuf::from("first"),
+                std::path::PathBuf::from("second"),
+                std::path::PathBuf::from("third"),
+            ]
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_path_deduplication_ignores_case() {
+        let merged = merged_path(
+            [std::path::PathBuf::from(r"C:\Tools")],
+            [std::path::PathBuf::from(r"c:\tools")],
+        );
+        assert_eq!(merged.len(), 1);
+    }
 }

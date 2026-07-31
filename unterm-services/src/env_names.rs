@@ -20,7 +20,8 @@ pub fn var(name: &str) -> Option<String> {
 /// Same, without requiring the value to be UTF-8 -- paths on Windows are not
 /// guaranteed to be.
 pub fn var_os(name: &str) -> Option<std::ffi::OsString> {
-    std::env::var_os(format!("UNTERM_{name}")).or_else(|| std::env::var_os(format!("WEZTERM_{name}")))
+    std::env::var_os(format!("UNTERM_{name}"))
+        .or_else(|| std::env::var_os(format!("WEZTERM_{name}")))
 }
 
 /// Set a terminal-provided variable under both names.
@@ -85,8 +86,14 @@ mod tests {
             cmd.env(name, "7");
         }
 
-        assert_eq!(cmd.get_env("UNTERM_PANE").and_then(|v| v.to_str()), Some("7"));
-        assert_eq!(cmd.get_env("WEZTERM_PANE").and_then(|v| v.to_str()), Some("7"));
+        assert_eq!(
+            cmd.get_env("UNTERM_PANE").and_then(|v| v.to_str()),
+            Some("7")
+        );
+        assert_eq!(
+            cmd.get_env("WEZTERM_PANE").and_then(|v| v.to_str()),
+            Some("7")
+        );
     }
 
     #[test]

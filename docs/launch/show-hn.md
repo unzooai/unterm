@@ -29,10 +29,10 @@ The 2026 terminals all answer this by embedding an AI chat into the terminal
 thirty-year tools; AI models are six-month components. And I already have
 agents I like — what they're missing isn't a brain, it's hands.
 
-So I built Unterm: a cross-platform terminal (customized WezTerm engine,
-Rust) where the terminal itself is the MCP server. Any agent — Claude Code,
+So I built Unterm: a cross-platform terminal with its own native Rust kernel,
+where the terminal itself is the MCP server. Any agent — Claude Code,
 Codex, Gemini CLI, your own script — gets the same local JSON-RPC surface
-(99 methods across 21 namespaces):
+(103 authenticated methods plus `auth.login`):
 
 - spawn tabs/panes, run commands, poll or block on output
 - read the screen and the entire scrollback as text (no OCR)

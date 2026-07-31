@@ -76,12 +76,7 @@ impl CopyMode {
     ///
     /// `line_width` gives the length of a row, so `$` lands on the last
     /// character rather than in the blank space a terminal pads rows with.
-    pub fn apply(
-        &mut self,
-        motion: Motion,
-        rows: usize,
-        line_width: impl Fn(usize) -> usize,
-    ) {
+    pub fn apply(&mut self, motion: Motion, rows: usize, line_width: impl Fn(usize) -> usize) {
         let last_row = rows.saturating_sub(1);
         let width = |row: usize| line_width(row).saturating_sub(1);
 
@@ -276,8 +271,7 @@ fn is_interesting(word: &str) -> bool {
         .any(|scheme| word.starts_with(scheme));
     let looks_like_path = word.contains('/') || (word.contains('\\') && word.contains(':'));
     // A hash: long, and hexadecimal all the way through.
-    let looks_like_hash =
-        word.len() >= 7 && word.chars().all(|ch| ch.is_ascii_hexdigit());
+    let looks_like_hash = word.len() >= 7 && word.chars().all(|ch| ch.is_ascii_hexdigit());
     let looks_like_ip = word.split('.').count() == 4
         && word
             .split('.')
@@ -413,12 +407,18 @@ mod tests {
 
     #[test]
     fn labels_never_run_out() {
-        let lines: Vec<_> = (0..40).map(|i| line(&format!("/path/number/{i}"))).collect();
+        let lines: Vec<_> = (0..40)
+            .map(|i| line(&format!("/path/number/{i}")))
+            .collect();
         let found = labelled(&lines);
         assert_eq!(found.len(), 40);
         let mut seen = std::collections::HashSet::new();
         for item in &found {
-            assert!(seen.insert(item.label.clone()), "duplicate label {}", item.label);
+            assert!(
+                seen.insert(item.label.clone()),
+                "duplicate label {}",
+                item.label
+            );
         }
     }
 
@@ -427,7 +427,10 @@ mod tests {
         let mut line = line("中 /usr/bin");
         line.cells[0].width = 2;
         let found = labelled(&[line]);
-        assert_eq!(found[0].start, 3, "two columns for the character, one space");
+        assert_eq!(
+            found[0].start, 3,
+            "two columns for the character, one space"
+        );
     }
 }
 

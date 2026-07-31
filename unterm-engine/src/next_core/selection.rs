@@ -258,7 +258,10 @@ mod tests {
         sel.extend_to(SelectionPoint::new(79, 0));
 
         // Leading spaces are indentation the user selected on purpose.
-        assert_eq!(selected_text(&sel, &[row(0, "    indented   ")]), "    indented");
+        assert_eq!(
+            selected_text(&sel, &[row(0, "    indented   ")]),
+            "    indented"
+        );
     }
 
     #[test]
@@ -311,7 +314,10 @@ mod tests {
         let mut sel = Selection::new(SelectionPoint::new(0, 0), SelectionShape::Block);
         sel.extend_to(SelectionPoint::new(2, 2));
 
-        let text = selected_text(&sel, &[row(0, "abcdef"), row(1, "ghijkl"), row(2, "mnopqr")]);
+        let text = selected_text(
+            &sel,
+            &[row(0, "abcdef"), row(1, "ghijkl"), row(2, "mnopqr")],
+        );
 
         assert_eq!(text, "abc\nghi\nmno");
     }

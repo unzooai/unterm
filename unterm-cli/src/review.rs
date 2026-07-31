@@ -178,7 +178,11 @@ pub fn run(cmd: ReviewCommand, json_out: bool) -> Result<()> {
                 }
             }
         }
-        ReviewSubCommand::Merge { fleet, member, force } => {
+        ReviewSubCommand::Merge {
+            fleet,
+            member,
+            force,
+        } => {
             let mut client = McpClient::connect()?;
             let result = client.call(
                 "review.merge",
@@ -197,7 +201,12 @@ pub fn run(cmd: ReviewCommand, json_out: bool) -> Result<()> {
                 );
             }
         }
-        ReviewSubCommand::Verify { fleet, member, command, timeout_secs } => {
+        ReviewSubCommand::Verify {
+            fleet,
+            member,
+            command,
+            timeout_secs,
+        } => {
             let mut client = McpClient::connect()?;
             let mut params = serde_json::json!({ "fleet_id": fleet, "member": member });
             if let Some(command) = command {
@@ -238,7 +247,7 @@ pub fn run(cmd: ReviewCommand, json_out: bool) -> Result<()> {
             let mut client = McpClient::connect()?;
             let result = client.call(
                 "review.rollback",
-                serde_json::json!({ "repo": repo, "sha": sha }),
+                serde_json::json!({ "repo": repo, "sha": sha, "confirm": true }),
             )?;
             if json_out {
                 print_json(&result);

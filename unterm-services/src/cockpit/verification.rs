@@ -272,7 +272,9 @@ pub fn for_fleet(fleet_id: &str) -> Vec<VerificationRecord> {
 /// Require a successful latest verification before a normal merge.
 pub fn ensure_passed(fleet_id: &str, member: &str) -> Result<VerificationRecord> {
     let record = latest_for_member(fleet_id, member).ok_or_else(|| {
-        anyhow!("member has not been verified; run review.verify first or explicitly force the merge")
+        anyhow!(
+            "member has not been verified; run review.verify first or explicitly force the merge"
+        )
     })?;
     if record.status != VerificationStatus::Passed {
         bail!(
@@ -311,10 +313,14 @@ pub fn enrich_overview(mut overview: Value) -> Value {
                 Some(VerificationStatus::Failed | VerificationStatus::TimedOut) => 0,
                 None => 100,
             };
-            let changed = member.get("changed_files").and_then(Value::as_u64).unwrap_or(0);
+            let changed = member
+                .get("changed_files")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
             let churn = member.get("additions").and_then(Value::as_u64).unwrap_or(0)
                 + member.get("deletions").and_then(Value::as_u64).unwrap_or(0);
-            let score = (base - (changed.min(100) as i64 * 2) - (churn.min(5000) as i64 / 100)).max(0);
+            let score =
+                (base - (changed.min(100) as i64 * 2) - (churn.min(5000) as i64 / 100)).max(0);
             if let Some(object) = member.as_object_mut() {
                 object.insert("score".into(), score.into());
                 object.insert(
@@ -400,6 +406,8 @@ fn execute(worktree: &Path, command: &str, timeout: Duration) -> Result<Executio
     let mut child = process
         .spawn()
         .with_context(|| format!("start verification command {command:?}"))?;
+    #[cfg(windows)]
+    let verification_job = WindowsJob::assign(&child);
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let stdout_reader = std::thread::spawn(move || read_pipe(stdout));
@@ -409,6 +417,13 @@ fn execute(worktree: &Path, command: &str, timeout: Duration) -> Result<Executio
             break (status, false);
         }
         if started.elapsed() >= timeout {
+            #[cfg(windows)]
+            if let Some(job) = verification_job.as_ref() {
+                job.terminate();
+            } else {
+                terminate_process_tree(&mut child);
+            }
+            #[cfg(not(windows))]
             terminate_process_tree(&mut child);
             let _ = child.kill();
             break (
@@ -429,6 +444,68 @@ fn execute(worktree: &Path, command: &str, timeout: Duration) -> Result<Executio
         timed_out,
         log,
     })
+}
+
+#[cfg(windows)]
+struct WindowsJob {
+    handle: winapi::shared::ntdef::HANDLE,
+}
+
+#[cfg(windows)]
+impl WindowsJob {
+    /// Put the verifier shell in a kill-on-close Job Object as soon as it is
+    /// spawned. Descendants inherit job membership, so timeout cleanup does
+    /// not depend on starting and waiting for the comparatively slow
+    /// `taskkill.exe` helper.
+    fn assign(child: &std::process::Child) -> Option<Self> {
+        use std::os::windows::io::AsRawHandle;
+        use std::ptr::{null_mut, NonNull};
+        use winapi::shared::minwindef::FALSE;
+        use winapi::um::handleapi::CloseHandle;
+        use winapi::um::jobapi2::{
+            AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
+        };
+        use winapi::um::winnt::{
+            JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        };
+
+        unsafe {
+            let handle = CreateJobObjectW(null_mut(), null_mut());
+            NonNull::new(handle)?;
+
+            let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let configured = SetInformationJobObject(
+                handle,
+                JobObjectExtendedLimitInformation,
+                &mut limits as *mut _ as *mut _,
+                std::mem::size_of_val(&limits) as u32,
+            ) != FALSE;
+            let assigned =
+                configured && AssignProcessToJobObject(handle, child.as_raw_handle() as _) != FALSE;
+            if !assigned {
+                CloseHandle(handle);
+                return None;
+            }
+            Some(Self { handle })
+        }
+    }
+
+    fn terminate(&self) {
+        unsafe {
+            winapi::um::jobapi2::TerminateJobObject(self.handle, 1);
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsJob {
+    fn drop(&mut self) {
+        unsafe {
+            winapi::um::handleapi::CloseHandle(self.handle);
+        }
+    }
 }
 
 fn terminate_process_tree(child: &mut std::process::Child) {
@@ -515,6 +592,38 @@ mod tests {
         )
         .unwrap();
         assert_eq!(infer_command(js.path()).as_deref(), Some("npm test"));
+    }
+
+    #[test]
+    fn infers_every_documented_project_marker() {
+        for (marker, expected) in [
+            ("go.mod", "go test ./..."),
+            ("uv.lock", "uv run pytest"),
+            ("pyproject.toml", "python -m pytest"),
+            ("pom.xml", "mvn test"),
+            (
+                if cfg!(windows) {
+                    "gradlew.bat"
+                } else {
+                    "gradlew"
+                },
+                if cfg!(windows) {
+                    "gradlew.bat test"
+                } else {
+                    "./gradlew test"
+                },
+            ),
+            ("example.sln", "dotnet test"),
+            ("example.csproj", "dotnet test"),
+        ] {
+            let project = tempfile::tempdir().unwrap();
+            std::fs::write(project.path().join(marker), "").unwrap();
+            assert_eq!(
+                infer_command(project.path()).as_deref(),
+                Some(expected),
+                "marker {marker}"
+            );
+        }
     }
 
     #[test]

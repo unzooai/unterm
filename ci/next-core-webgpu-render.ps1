@@ -35,7 +35,9 @@ Push-Location $RepoRoot
 try {
     $totalRequired = 0
     foreach ($suite in $Suites) {
+        $ErrorActionPreference = "Continue"
         $list = @(& cargo test -p $($suite.Package) $suite.Filter -- --list 2>&1 | ForEach-Object { $_.ToString() })
+        $ErrorActionPreference = "Stop"
         if ($LASTEXITCODE -ne 0) {
             throw "cargo test list failed for $($suite.Name):`n$($list -join "`n")"
         }
@@ -54,7 +56,9 @@ try {
     }
 
     foreach ($suite in $Suites) {
+        $ErrorActionPreference = "Continue"
         $run = @(& cargo test -p $($suite.Package) $suite.Filter -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
+        $ErrorActionPreference = "Stop"
         if ($LASTEXITCODE -ne 0) {
             throw "next-core WebGPU render tests failed for $($suite.Name):`n$($run -join "`n")"
         }

@@ -165,7 +165,10 @@ pub fn run(cmd: ThemeCommand, json_out: bool) -> Result<()> {
 
 fn apply_theme_live(preset: &ThemePreset) -> Result<bool> {
     match client::http_post_json("/api/theme", json!({ "name": preset.id })) {
-        Ok(_) => Ok(true),
+        Ok(response) => Ok(response
+            .get("applied_to_open_windows")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)),
         Err(err) => {
             let message = err.to_string();
             if message.contains("not running")

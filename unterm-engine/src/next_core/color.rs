@@ -118,7 +118,10 @@ mod tests {
 
     #[test]
     fn lightening_moves_toward_white_without_passing_it() {
-        assert_eq!(Rgb::new(255, 255, 255).lighten(0.5), Rgb::new(255, 255, 255));
+        assert_eq!(
+            Rgb::new(255, 255, 255).lighten(0.5),
+            Rgb::new(255, 255, 255)
+        );
         assert_eq!(Rgb::new(0, 0, 0).lighten(1.0), Rgb::new(255, 255, 255));
     }
 
@@ -139,7 +142,10 @@ mod tests {
     #[test]
     fn an_out_of_range_amount_is_clamped_rather_than_wrapping() {
         assert_eq!(Rgb::new(0, 0, 0).lighten(5.0), Rgb::new(255, 255, 255));
-        assert_eq!(Rgb::new(200, 200, 200).darken(-1.0), Rgb::new(200, 200, 200));
+        assert_eq!(
+            Rgb::new(200, 200, 200).darken(-1.0),
+            Rgb::new(200, 200, 200)
+        );
     }
 
     #[test]
@@ -214,11 +220,7 @@ pub fn palette_rgb(index: u8) -> Rgb {
         }
         16..=231 => {
             let offset = index as usize - 16;
-            Rgb::new(
-                CUBE[offset / 36],
-                CUBE[(offset / 6) % 6],
-                CUBE[offset % 6],
-            )
+            Rgb::new(CUBE[offset / 36], CUBE[(offset / 6) % 6], CUBE[offset % 6])
         }
         232..=255 => {
             let level = 8 + (index as usize - 232) * 10;

@@ -74,12 +74,15 @@ impl Offscreen {
         let unpadded = self.width * 4;
         let padded = unpadded.div_ceil(256) * 256;
 
-        let buffer = self.renderer.device().create_buffer(&wgpu::BufferDescriptor {
-            label: Some("readback"),
-            size: (padded * self.height) as u64,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let buffer = self
+            .renderer
+            .device()
+            .create_buffer(&wgpu::BufferDescriptor {
+                label: Some("readback"),
+                size: (padded * self.height) as u64,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
 
         let mut encoder =
             self.renderer
@@ -289,7 +292,10 @@ fn offscreen_a_glyph_is_tinted_by_its_colour_and_shaped_by_the_atlas() {
     // The atlas carries coverage, not colour: the glyph comes out in the
     // colour the cell asked for. Sampling the wrong channel would give black
     // or white here instead of yellow.
-    assert!(drawn[0] > 200 && drawn[1] > 200, "expected yellow, got {drawn:?}");
+    assert!(
+        drawn[0] > 200 && drawn[1] > 200,
+        "expected yellow, got {drawn:?}"
+    );
     assert!(drawn[2] < 60, "expected no blue, got {drawn:?}");
 }
 
@@ -403,11 +409,7 @@ fn offscreen_a_rounded_panel_has_its_corners_taken_off() {
     // of and the rectangle between them.
     for y in 0..24 {
         for x in 8..32 {
-            assert_eq!(
-                target.pixel(&pixels, x, y),
-                RED,
-                "a hole at {x},{y}"
-            );
+            assert_eq!(target.pixel(&pixels, x, y), RED, "a hole at {x},{y}");
         }
     }
     // And each edge is reached between its corners.

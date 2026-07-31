@@ -37,5 +37,9 @@ procinfo = { workspace = true, default-features = false }
 [target."cfg(windows)".dependencies]
 winapi = { workspace = true, features = ["winuser", "winbase", "minwindef", "handleapi", "processthreadsapi", "wingdi", "shellapi"] }
 
+[target."cfg(target_os = \"macos\")".dependencies]
+core-foundation.workspace = true
+core-graphics.workspace = true
+
 [dev-dependencies]
 unterm-services = { workspace = true, features = ["test-support"] }

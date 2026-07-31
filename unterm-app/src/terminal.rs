@@ -6,9 +6,9 @@
 use crate::fonts::FontStack;
 use unterm_engine::next_core::font_raster::FontFace;
 use unterm_engine::next_core::{config::Config, font_discovery};
+use unterm_engine::{StyledCell, StyledScreenSnapshot};
 use unterm_render::atlas::{GlyphAtlas, GlyphKey};
 use unterm_render::quads::{build_row, CellMetrics, FrameColors, FrameQuads, Quad};
-use unterm_engine::{StyledCell, StyledScreenSnapshot};
 
 /// Pixels per em for a size in points on a display at `scale`.
 ///
@@ -377,7 +377,15 @@ pub fn append_pane(
 
     // The cursor goes in before the glyphs so text lands on top of it, which is
     // what makes an inverted cell readable.
-    let inverted = push_cursor(snapshot, metrics, colors, origin, solid_cursor, cursor, quads);
+    let inverted = push_cursor(
+        snapshot,
+        metrics,
+        colors,
+        origin,
+        solid_cursor,
+        cursor,
+        quads,
+    );
 
     for (row, line) in snapshot.lines.iter().enumerate() {
         let top = origin.1 + row as f32 * metrics.height;
@@ -430,8 +438,12 @@ pub fn append_pane(
         // disappeared, and only there.
         let cell_of = |left: f32, top: f32| {
             (
-                ((left - origin.0) / metrics.width.max(1.0)).floor().max(0.0) as usize,
-                ((top - origin.1) / metrics.height.max(1.0)).floor().max(0.0) as usize,
+                ((left - origin.0) / metrics.width.max(1.0))
+                    .floor()
+                    .max(0.0) as usize,
+                ((top - origin.1) / metrics.height.max(1.0))
+                    .floor()
+                    .max(0.0) as usize,
             )
         };
         for glyph in &mut quads.glyphs {
@@ -480,8 +492,7 @@ pub fn append_text(
     // code point while it was stored by glyph index: every label, banner and
     // bar drew whatever glyph happened to have that number, which is not the
     // letter asked for and often nothing at all.
-    let mut key_of: std::collections::HashMap<char, GlyphKey> =
-        std::collections::HashMap::new();
+    let mut key_of: std::collections::HashMap<char, GlyphKey> = std::collections::HashMap::new();
     for ch in text.chars() {
         if let std::collections::hash_map::Entry::Vacant(slot) = key_of.entry(ch) {
             slot.insert(glyph_key(font, ch));
@@ -906,7 +917,8 @@ mod tests {
         // shell that thinks it is shorter than the window.
         for rows in [1usize, 5, 24, 60] {
             assert_eq!(
-                font.grid_for(metrics.width * 80.0, metrics.height * rows as f32).1,
+                font.grid_for(metrics.width * 80.0, metrics.height * rows as f32)
+                    .1,
                 rows
             );
         }
@@ -1000,14 +1012,18 @@ mod tests {
         }
 
         // And the ink has to be in the atlas, not just a slot with a size.
-        let any_ink = (0..atlas.height())
-            .any(|y| (0..atlas.width()).any(|x| atlas.pixel(x, y) > 0));
+        let any_ink =
+            (0..atlas.height()).any(|y| (0..atlas.width()).any(|x| atlas.pixel(x, y) > 0));
         assert!(any_ink, "the fallback face should have left ink");
     }
 
-    fn snapshot_with_cursor(text: &str, x: usize, y: isize, visible: bool, shape: &str)
-        -> StyledScreenSnapshot
-    {
+    fn snapshot_with_cursor(
+        text: &str,
+        x: usize,
+        y: isize,
+        visible: bool,
+        shape: &str,
+    ) -> StyledScreenSnapshot {
         let mut snap = snapshot(text);
         snap.cursor = unterm_engine::CursorSnapshot {
             x,
@@ -1095,9 +1111,7 @@ mod tests {
         let under = quads
             .glyphs
             .iter()
-            .find(|glyph| {
-                (glyph.quad.left - font.metrics().width).abs() < font.metrics().width
-            })
+            .find(|glyph| (glyph.quad.left - font.metrics().width).abs() < font.metrics().width)
             .expect("the character under the cursor should still be drawn");
         assert_eq!(under.quad.color, colors.background);
     }
@@ -1394,7 +1408,16 @@ mod missing_glyph_regression {
             clipboard_request: None,
         };
 
-        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), true, CursorStyle::default(), &mut quads);
+        append_pane(
+            &snapshot,
+            &mut font,
+            &mut atlas,
+            colors,
+            (0.0, 0.0),
+            true,
+            CursorStyle::default(),
+            &mut quads,
+        );
 
         let metrics = font.metrics();
         let last_row_top = 2.0 * metrics.height;
@@ -1479,7 +1502,16 @@ mod cursor_inversion_tests {
 
         // Text on the row above, cursor at column 2 of the row below.
         let snapshot = snapshot(&["abcde", "abcde"], (2, 1));
-        append_pane(&snapshot, &mut font, &mut atlas, colors, (0.0, 0.0), true, CursorStyle::default(), &mut quads);
+        append_pane(
+            &snapshot,
+            &mut font,
+            &mut atlas,
+            colors,
+            (0.0, 0.0),
+            true,
+            CursorStyle::default(),
+            &mut quads,
+        );
 
         let metrics = font.metrics();
         let above: Vec<_> = quads
@@ -1693,8 +1725,8 @@ mod shape_tests {
         let Some(plain) = face().map(|f| TerminalFont::from_face(f, &[], 20)) else {
             return;
         };
-        let Some(shaped) = face()
-            .map(|f| TerminalFont::from_face_shaped(f, &[], 20, Shape::default()))
+        let Some(shaped) =
+            face().map(|f| TerminalFont::from_face_shaped(f, &[], 20, Shape::default()))
         else {
             return;
         };
@@ -1707,7 +1739,10 @@ mod shape_tests {
         let Some(plain) = face().map(|f| TerminalFont::from_face(f, &[], 20)) else {
             return;
         };
-        let shape = Shape { line_height: 1.4, cell_width: 1.0 };
+        let shape = Shape {
+            line_height: 1.4,
+            cell_width: 1.0,
+        };
         let tall = TerminalFont::from_face_shaped(face().unwrap(), &[], 20, shape);
         assert!(tall.metrics().height > plain.metrics().height);
         assert_eq!(tall.metrics().width, plain.metrics().width);
@@ -1719,7 +1754,10 @@ mod shape_tests {
         let Some(plain) = face().map(|f| TerminalFont::from_face(f, &[], 20)) else {
             return;
         };
-        let shape = Shape { line_height: 1.0, cell_width: 1.3 };
+        let shape = Shape {
+            line_height: 1.0,
+            cell_width: 1.3,
+        };
         let wide = TerminalFont::from_face_shaped(face().unwrap(), &[], 20, shape);
         assert!(wide.metrics().width > plain.metrics().width);
         assert_eq!(wide.metrics().height, plain.metrics().height);
@@ -1730,7 +1768,10 @@ mod shape_tests {
     #[test]
     fn a_taller_line_keeps_its_text_off_the_bottom() {
         let Some(_) = face() else { return };
-        let shape = Shape { line_height: 1.6, cell_width: 1.0 };
+        let shape = Shape {
+            line_height: 1.6,
+            cell_width: 1.0,
+        };
         let tall = TerminalFont::from_face_shaped(face().unwrap(), &[], 20, shape);
         let metrics = tall.metrics();
         assert!(metrics.baseline < metrics.height, "{metrics:?}");
@@ -1808,11 +1849,15 @@ mod focus_cursor_tests {
         let unfocused = drawn(false).unwrap();
 
         let solid = |quads: &FrameQuads| {
-            quads.backgrounds.iter().any(|quad| {
-                quad.width > 4.0 && quad.height > 8.0 && quad.color == [1.0; 4]
-            })
+            quads
+                .backgrounds
+                .iter()
+                .any(|quad| quad.width > 4.0 && quad.height > 8.0 && quad.color == [1.0; 4])
         };
-        assert!(solid(&focused), "the focused pane's cursor is a solid block");
+        assert!(
+            solid(&focused),
+            "the focused pane's cursor is a solid block"
+        );
         assert!(!solid(&unfocused), "the unfocused one's is not");
         assert!(
             unfocused.backgrounds.len() > 1,
@@ -2038,13 +2083,20 @@ mod chrome_text_tests {
         );
         let mut previous = 0.0f32;
         for glyph in &quads.glyphs {
-            assert!(glyph.quad.left >= 99.0, "{:?} is before the origin", glyph.quad);
+            assert!(
+                glyph.quad.left >= 99.0,
+                "{:?} is before the origin",
+                glyph.quad
+            );
             assert!(
                 glyph.quad.left <= 100.0 + width + 2.0,
                 "{:?} is past the run",
                 glyph.quad
             );
-            assert!(glyph.quad.left >= previous - 1.0, "the glyphs went backwards");
+            assert!(
+                glyph.quad.left >= previous - 1.0,
+                "the glyphs went backwards"
+            );
             previous = glyph.quad.left;
         }
     }
@@ -2057,14 +2109,8 @@ mod chrome_text_tests {
         };
         let mut atlas = GlyphAtlas::new(512, 512);
         let mut quads = FrameQuads::default();
-        let width = append_chrome_text(
-            " ",
-            &mut font,
-            &mut atlas,
-            [1.0; 4],
-            (0.0, 0.0),
-            &mut quads,
-        );
+        let width =
+            append_chrome_text(" ", &mut font, &mut atlas, [1.0; 4], (0.0, 0.0), &mut quads);
         assert!(width > 0.0, "a space took no room");
         assert!(quads.glyphs.is_empty(), "a space drew something");
     }
