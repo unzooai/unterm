@@ -112,6 +112,62 @@ impl CopyMode {
         }
     }
 
+    /// `w` and `b`: to the start of the next word, or back to the start of
+    /// the previous one, wrapping across lines the way vim does.
+    pub fn apply_word(&mut self, motion: Motion, rows: usize, line_text: impl Fn(usize) -> String) {
+        let last_row = rows.saturating_sub(1);
+        let chars = |row: usize| line_text(row).chars().collect::<Vec<char>>();
+        match motion {
+            Motion::WordRight => {
+                let line = chars(self.row);
+                let mut at = self.column.min(line.len());
+                while at < line.len() && !line[at].is_whitespace() {
+                    at += 1;
+                }
+                while at < line.len() && line[at].is_whitespace() {
+                    at += 1;
+                }
+                if at < line.len() {
+                    self.column = at;
+                } else if self.row < last_row {
+                    self.row += 1;
+                    let next = chars(self.row);
+                    self.column = next.iter().position(|ch| !ch.is_whitespace()).unwrap_or(0);
+                } else {
+                    self.column = line.len().saturating_sub(1);
+                }
+            }
+            Motion::WordLeft => {
+                let mut row = self.row;
+                let mut line = chars(row);
+                let mut at = self.column.min(line.len());
+                loop {
+                    while at > 0 && line[at - 1].is_whitespace() {
+                        at -= 1;
+                    }
+                    // Nothing but whitespace behind the cursor on this line:
+                    // the previous word lives on an earlier one.
+                    if at == 0 {
+                        if row == 0 {
+                            break;
+                        }
+                        row -= 1;
+                        line = chars(row);
+                        at = line.len();
+                        continue;
+                    }
+                    while at > 0 && !line[at - 1].is_whitespace() {
+                        at -= 1;
+                    }
+                    break;
+                }
+                self.row = row;
+                self.column = at;
+            }
+            _ => {}
+        }
+    }
+
     /// The selected range, as (start, end) in (row, column), start first.
     pub fn selection(&self) -> Option<((usize, usize), (usize, usize))> {
         let anchor = self.anchor?;
@@ -121,6 +177,41 @@ impl CopyMode {
         } else {
             (cursor, anchor)
         })
+    }
+}
+
+#[cfg(test)]
+mod word_motion_tests {
+    use super::*;
+
+    fn text(row: usize) -> String {
+        ["cargo build --release", "  done ok", ""][row.min(2)].to_string()
+    }
+
+    #[test]
+    fn w_hops_word_starts_and_wraps_to_the_next_line() {
+        let mut mode = CopyMode::default();
+        mode.apply_word(Motion::WordRight, 3, text);
+        assert_eq!((mode.row, mode.column), (0, 6));
+        mode.apply_word(Motion::WordRight, 3, text);
+        assert_eq!((mode.row, mode.column), (0, 12));
+        mode.apply_word(Motion::WordRight, 3, text);
+        assert_eq!((mode.row, mode.column), (1, 2), "wraps to the next word");
+    }
+
+    #[test]
+    fn b_walks_back_to_word_starts_across_lines() {
+        let mut mode = CopyMode {
+            row: 1,
+            column: 2,
+            ..Default::default()
+        };
+        mode.apply_word(Motion::WordLeft, 3, text);
+        assert_eq!((mode.row, mode.column), (0, 12));
+        mode.apply_word(Motion::WordLeft, 3, text);
+        assert_eq!((mode.row, mode.column), (0, 6));
+        mode.apply_word(Motion::WordLeft, 3, text);
+        assert_eq!((mode.row, mode.column), (0, 0));
     }
 }
 

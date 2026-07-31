@@ -4158,6 +4158,26 @@ impl App {
                 }
                 self.copy_mode = None;
             }
+            motion @ (crate::copy_mode::Motion::WordLeft
+            | crate::copy_mode::Motion::WordRight) => {
+                let rows = self.screen_shape().0;
+                let lines: Vec<String> = self
+                    .state
+                    .as_ref()
+                    .and_then(|live| self.engine.read_styled_screen(live.session_id).ok())
+                    .map(|snapshot| {
+                        snapshot
+                            .lines
+                            .iter()
+                            .map(|line| line.cells.iter().map(|cell| cell.ch).collect())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                mode.apply_word(motion, rows, |row| {
+                    lines.get(row).cloned().unwrap_or_default()
+                });
+                self.copy_mode = Some(mode);
+            }
             motion => {
                 let (rows, widths) = self.screen_shape();
                 mode.apply(motion, rows, |row| widths.get(row).copied().unwrap_or(0));
