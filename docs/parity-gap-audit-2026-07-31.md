@@ -10,18 +10,18 @@
 
 ## A 级 — 会误动作或丢数据（先修）
 
-- [ ] A1 关窗零确认：点 X 直接杀全部 session（window.rs CloseRequested
+- [x] A1 关窗确认（多 tab 或前台程序运行时先在面板行确认；确认后关窗销毁全部 session）：点 X 直接杀全部 session（window.rs CloseRequested
       直接 destroy+exit；顶栏关闭钮同）。0.57.4 有 pane/tab/window/quit
       四种确认 overlay + "非 shell 进程运行中"检测（mod.rs:766）。
-- [ ] A2 侧栏右键=误粘贴：tab 右键菜单（0.57.4 tab_context_menu.rs 九项：
+- [x] A2 侧栏右键=tab 菜单（新建/右分/重命名/左移/右移/关闭），chrome 右键全部吞掉不再误粘贴：tab 右键菜单（0.57.4 tab_context_menu.rs 九项：
       新建/复制 tab/左右分屏/左右移动/关闭）缺失后，右键穿透到
       "无选区=粘贴"手势，剪贴板内容被打进终端；且鼠标从此无法关 tab。
-- [ ] A3 状态栏 8 个点击目标全部失效且保留 teal 可点击视觉：cwd(复制)、
+- [x] A3 状态栏点击接线（cwd 复制/project 目录跳转/capture 两 chip 区域截图含隐藏窗口变体/theme 选择器/mcp 审计导出/proxy+profile 开设置页；空位吞点击）——proxy 点击为开设置页而非旧版就地切换，profile 同，属近似实现且保留 teal 可点击视觉：cwd(复制)、
       project(dir-jump/右键打印)、capture:exclude(隐藏窗口框选截图)、
       capture:include(可见截图)、proxy(切换注入+右键设置)、mcp(导出审计
       JSON)、theme(循环/右键选择器)、profile(循环+spawn)。点击还会穿透
       到终端拉选区。状态栏/侧栏空白区不吞点击。
-- [ ] A4 选区体系缺失：选中不自动复制(Clipboard+Primary)、无双击选词/
+- [x] A4 选区体系（松手即复制/双击选词/三击选行/Shift+点击扩选/中键粘贴/块选回归 Alt）——Primary selection 概念仍未引入（Windows 无此概念，Linux 侧待做）：选中不自动复制(Clipboard+Primary)、无双击选词/
       三击选行、无 Shift+点击扩选、无中键粘贴 Primary；块选从 Alt 改绑
       Shift 与"Shift 抢回鼠标上报"语义冲突。
 
