@@ -365,6 +365,8 @@ pub struct App {
     sidebar_scroll: usize,
     /// Its width in points, once somebody has dragged it.
     sidebar_points: Option<f32>,
+    /// True while a drag is holding the strip's right edge.
+    dragging_sidebar_width: bool,
     /// Projects the reader has folded away. Window state rather than disk
     /// state: it survives repaints and resizing without any file being read.
     sidebar_collapsed: std::collections::HashSet<String>,
@@ -553,6 +555,7 @@ impl App {
                 .unwrap_or(true),
             sidebar_scroll: 0,
             sidebar_points: None,
+            dragging_sidebar_width: false,
             sidebar_collapsed: Default::default(),
             last_sidebar_click: None,
             last_topbar_click: None,
@@ -5491,6 +5494,10 @@ impl App {
                 search.pattern.pop();
                 research = true;
             }
+            crate::search::Key::Clear => {
+                search.pattern.clear();
+                research = true;
+            }
             crate::search::Key::Type(text) => {
                 search.pattern.push_str(&text);
                 research = true;
@@ -5960,7 +5967,28 @@ impl App {
                 index,
             },
         );
-        let title = format!("{rendered} — Unterm");
+        // The 0.57.4 shape: position when there are several tabs, the
+        // project, and which instance this window is -- what tells two
+        // Unterm windows apart in Alt-Tab.
+        let tabs = self.tabs.tab_ids().len();
+        let position = if tabs > 1 {
+            format!("[{index}/{tabs}] ")
+        } else {
+            String::new()
+        };
+        let project = self
+            .current_directory()
+            .map(|dir| crate::sidebar::project_name(&dir.display().to_string()))
+            .filter(|name| !name.is_empty())
+            .map(|name| format!("{name} — "))
+            .unwrap_or_default();
+        let instance = unterm_services::server_info::read().id;
+        let instance = if instance.is_empty() {
+            String::new()
+        } else {
+            format!(" ({instance})")
+        };
+        let title = format!("{position}{project}{rendered} — Unterm{instance}");
         if self.window_title.as_deref() == Some(title.as_str()) {
             return;
         }
@@ -6837,6 +6865,18 @@ impl ApplicationHandler for App {
                     self.scroll_to_pointer();
                     return;
                 }
+                if self.dragging_sidebar_width {
+                    // The strip follows the pointer; `sidebar::width` clamps
+                    // it between readable and greedy.
+                    let pt = self.chrome_pt();
+                    self.sidebar_points = Some((self.pointer.0 / pt.max(0.001)).max(1.0));
+                    self.resize_panes();
+                    self.drawn_revision = None;
+                    if let Some(live) = self.state.as_ref() {
+                        live.window.request_redraw();
+                    }
+                    return;
+                }
                 // An open menu follows the pointer before anything else looks
                 // at it: the row under the mouse is the row Enter runs, and
                 // nothing behind a menu should react to being pointed at.
@@ -7027,6 +7067,22 @@ impl ApplicationHandler for App {
                     }
                 }
                 if state == ElementState::Pressed && self.click_top_bar() {
+                    return;
+                }
+                if self.sidebar_open && state == ElementState::Pressed {
+                    if let Some((left, _top, width, _height, _row)) = self.sidebar_dock() {
+                        let pt = self.chrome_pt();
+                        let edge = left + width;
+                        if (self.pointer.0 - edge).abs()
+                            <= crate::ui_tokens::LEFT_TAB_BAR_GRIP * pt / 2.0
+                        {
+                            self.dragging_sidebar_width = true;
+                            return;
+                        }
+                    }
+                }
+                if state == ElementState::Released && self.dragging_sidebar_width {
+                    self.dragging_sidebar_width = false;
                     return;
                 }
                 if state == ElementState::Pressed && self.pointer_on_scrollbar() {

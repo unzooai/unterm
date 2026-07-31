@@ -79,6 +79,8 @@ pub enum Key {
     Type(String),
     /// Shorten the pattern, and search again.
     Backspace,
+    /// Drop the whole pattern, and search again from nothing.
+    Clear,
     /// Move through the results.
     Step(isize),
     /// Close the search.
@@ -96,11 +98,18 @@ pub fn key_for(named: Option<&str>, character: Option<&str>, ctrl: bool, shift: 
     match named {
         Some("Escape") => return Key::Close,
         Some("Enter") => return Key::Step(if shift { -1 } else { 1 }),
+        // The arrows walk the matches too, as they did before: down is
+        // onward through the list, up is back.
+        Some("ArrowDown") => return Key::Step(1),
+        Some("ArrowUp") => return Key::Step(-1),
         Some("Backspace") => return Key::Backspace,
+        Some("Space") if !ctrl => return Key::Type(" ".to_string()),
         _ => {}
     }
     match character {
-        // Ctrl+something is a command, not text to search for.
+        // Ctrl+U clears the line wholesale, the way readline does.
+        Some(text) if ctrl && text.eq_ignore_ascii_case("u") => Key::Clear,
+        // Ctrl+something else is a command, not text to search for.
         Some(text) if !ctrl => Key::Type(text.to_string()),
         _ => Key::NotOurs,
     }
@@ -237,6 +246,12 @@ mod tests {
     #[test]
     fn a_key_the_search_has_no_use_for_reaches_the_shell() {
         assert_eq!(key_for(Some("F5"), None, false, false), Key::NotOurs);
-        assert_eq!(key_for(Some("ArrowUp"), None, false, false), Key::NotOurs);
+    }
+
+    #[test]
+    fn arrows_walk_the_matches_and_ctrl_u_clears_the_line() {
+        assert_eq!(key_for(Some("ArrowDown"), None, false, false), Key::Step(1));
+        assert_eq!(key_for(Some("ArrowUp"), None, false, false), Key::Step(-1));
+        assert_eq!(key_for(None, Some("u"), true, false), Key::Clear);
     }
 }
