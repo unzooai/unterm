@@ -863,7 +863,7 @@ $Suites = @(
         Name = "app copy mode"
         Package = "unterm-app"
         Filter = "copy_mode::tests::"
-        ExpectedCount = 13
+        ExpectedCount = 14
         RequiredTests = @(
             "copy_mode::tests::the_cursor_stops_at_the_edges",
             "copy_mode::tests::moving_to_a_shorter_line_pulls_the_column_in",
