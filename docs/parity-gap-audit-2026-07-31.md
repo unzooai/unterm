@@ -50,7 +50,7 @@
 
 ## C 级 — 明显缩水/退化
 
-- [~] C16 copy mode：w/b 词移动已实现（跨行、带测试）；V 行选/Ctrl-v 块选、
+- [~] C16 copy mode：w/b 词移动、V 行选、Ctrl-v 块选已实现（带测试）；
       f/F/t/T/;/, 无、退出不回滚到底；quick select 类别已补齐至旧版 14 类口径（词形检测）；大写=粘贴、字母表可配仍缺。
 - [~] C17 顶栏：双击空白最大化/还原已修，关闭钮已带确认；Cockpit ⚡/✋ 芯片、Snap Layouts、滚轮切 tab、▾ 右键等价仍缺。
 - [x] C18 pane 焦点：点非活动 pane 聚焦（点击吞掉不误选）、滚轮按指针路由到 pane；focus-follows-mouse 作为可选项暂不引入。

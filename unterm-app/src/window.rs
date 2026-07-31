@@ -4215,7 +4215,8 @@ impl App {
             WinitKey::Character(text) => Some(text.to_string()),
             _ => None,
         };
-        let Some(motion) = crate::copy_mode::motion_for(named.as_deref(), character.as_deref())
+        let Some(motion) =
+            crate::copy_mode::motion_for(named.as_deref(), character.as_deref(), self.ctrl_held)
         else {
             // Nothing reaches the shell: a stray keystroke running a command
             // in the pane behind is the worst thing a mode can do.
@@ -4302,11 +4303,23 @@ impl App {
                 .iter()
                 .map(|cell| cell.ch)
                 .collect();
-            let from = if row == start_row { start_col } else { 0 };
-            let to = if row == end_row {
-                (end_col + 1).min(text.chars().count())
-            } else {
-                text.chars().count()
+            // The shape decides the columns: whole rows for `V`, the same
+            // column band on every row for `Ctrl+v`, and the vim sweep
+            // otherwise.
+            let (from, to) = match mode.kind {
+                crate::copy_mode::SelectKind::Line => (0, text.chars().count()),
+                crate::copy_mode::SelectKind::Block => (
+                    start_col.min(end_col),
+                    (start_col.max(end_col) + 1).min(text.chars().count()),
+                ),
+                crate::copy_mode::SelectKind::Cell => (
+                    if row == start_row { start_col } else { 0 },
+                    if row == end_row {
+                        (end_col + 1).min(text.chars().count())
+                    } else {
+                        text.chars().count()
+                    },
+                ),
             };
             if from < to {
                 out.extend(text.chars().skip(from).take(to - from));

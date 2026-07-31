@@ -11,6 +11,18 @@
 
 use unterm_engine::StyledScreenLine;
 
+/// How a selection grows from its anchor.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SelectKind {
+    /// Character by character, vim's `v`.
+    #[default]
+    Cell,
+    /// Whole rows, vim's `V`.
+    Line,
+    /// A rectangle, vim's `Ctrl+v`.
+    Block,
+}
+
 /// Where copy mode's cursor is and what it has selected.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CopyMode {
@@ -18,6 +30,8 @@ pub struct CopyMode {
     pub column: usize,
     /// Where the selection started, if one is being made.
     pub anchor: Option<(usize, usize)>,
+    /// The shape the selection takes.
+    pub kind: SelectKind,
 }
 
 /// What a key does in copy mode.
@@ -35,13 +49,23 @@ pub enum Motion {
     WordRight,
     /// Start or stop extending a selection.
     ToggleSelection,
+    /// As ToggleSelection, but whole rows: vim's `V`.
+    ToggleLineSelection,
+    /// As ToggleSelection, but a rectangle: vim's `Ctrl+v`.
+    ToggleBlockSelection,
     /// Copy what is selected and leave.
     Yank,
     Leave,
 }
 
 /// Vim's keys, plus the arrows for people who do not use them.
-pub fn motion_for(named: Option<&str>, character: Option<&str>) -> Option<Motion> {
+pub fn motion_for(named: Option<&str>, character: Option<&str>, ctrl: bool) -> Option<Motion> {
+    if ctrl {
+        return match character {
+            Some(text) if text.eq_ignore_ascii_case("v") => Some(Motion::ToggleBlockSelection),
+            _ => None,
+        };
+    }
     match named {
         Some("Escape") => return Some(Motion::Leave),
         Some("ArrowLeft") => return Some(Motion::Left),
@@ -65,6 +89,7 @@ pub fn motion_for(named: Option<&str>, character: Option<&str>) -> Option<Motion
         "b" => Some(Motion::WordLeft),
         "w" => Some(Motion::WordRight),
         "v" | " " => Some(Motion::ToggleSelection),
+        "V" => Some(Motion::ToggleLineSelection),
         "y" => Some(Motion::Yank),
         "q" => Some(Motion::Leave),
         _ => None,
@@ -102,12 +127,9 @@ impl CopyMode {
                 self.column = self.column.min(width(last_row));
             }
             Motion::WordLeft | Motion::WordRight => {}
-            Motion::ToggleSelection => {
-                self.anchor = match self.anchor {
-                    Some(_) => None,
-                    None => Some((self.row, self.column)),
-                };
-            }
+            Motion::ToggleSelection => self.toggle(SelectKind::Cell),
+            Motion::ToggleLineSelection => self.toggle(SelectKind::Line),
+            Motion::ToggleBlockSelection => self.toggle(SelectKind::Block),
             Motion::Yank | Motion::Leave => {}
         }
     }
@@ -165,6 +187,19 @@ impl CopyMode {
                 self.column = at;
             }
             _ => {}
+        }
+    }
+
+    /// One toggle per shape: the same shape again ends the selection, a
+    /// different one re-anchors it in the new shape from the same spot.
+    fn toggle(&mut self, kind: SelectKind) {
+        match self.anchor {
+            Some(_) if self.kind == kind => self.anchor = None,
+            Some(_) => self.kind = kind,
+            None => {
+                self.anchor = Some((self.row, self.column));
+                self.kind = kind;
+            }
         }
     }
 
@@ -433,16 +468,16 @@ mod tests {
 
     #[test]
     fn vim_keys_and_arrows_both_move() {
-        assert_eq!(motion_for(None, Some("h")), Some(Motion::Left));
-        assert_eq!(motion_for(Some("ArrowLeft"), None), Some(Motion::Left));
-        assert_eq!(motion_for(None, Some("j")), Some(Motion::Down));
-        assert_eq!(motion_for(Some("ArrowDown"), None), Some(Motion::Down));
+        assert_eq!(motion_for(None, Some("h"), false), Some(Motion::Left));
+        assert_eq!(motion_for(Some("ArrowLeft"), None, false), Some(Motion::Left));
+        assert_eq!(motion_for(None, Some("j"), false), Some(Motion::Down));
+        assert_eq!(motion_for(Some("ArrowDown"), None, false), Some(Motion::Down));
     }
 
     #[test]
     fn a_key_copy_mode_has_no_use_for_is_ignored_rather_than_guessed() {
-        assert_eq!(motion_for(None, Some("z")), None);
-        assert_eq!(motion_for(Some("F5"), None), None);
+        assert_eq!(motion_for(None, Some("z"), false), None);
+        assert_eq!(motion_for(Some("F5"), None, false), None);
     }
 
     #[test]
@@ -472,9 +507,25 @@ mod tests {
             row: 0,
             column: 15,
             anchor: None,
+            kind: SelectKind::Cell,
         };
         mode.apply(Motion::Down, 3, |row| if row == 1 { 4 } else { 20 });
         assert_eq!(mode.column, 3, "the shorter line has no column 15");
+    }
+
+    #[test]
+    fn v_selects_lines_ctrl_v_selects_a_block_and_repeats_end_it() {
+        let mut mode = CopyMode::default();
+        mode.apply(Motion::ToggleLineSelection, 10, width_of);
+        assert_eq!(mode.kind, SelectKind::Line);
+        assert!(mode.anchor.is_some());
+        // A different shape re-anchors in place rather than ending.
+        mode.apply(Motion::ToggleBlockSelection, 10, width_of);
+        assert_eq!(mode.kind, SelectKind::Block);
+        assert!(mode.anchor.is_some());
+        // The same shape again ends the selection.
+        mode.apply(Motion::ToggleBlockSelection, 10, width_of);
+        assert!(mode.anchor.is_none());
     }
 
     #[test]
@@ -483,6 +534,7 @@ mod tests {
             row: 3,
             column: 5,
             anchor: None,
+            kind: SelectKind::Cell,
         };
         mode.apply(Motion::ToggleSelection, 10, width_of);
         mode.apply(Motion::Up, 10, width_of);
