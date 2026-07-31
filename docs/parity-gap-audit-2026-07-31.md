@@ -1,0 +1,84 @@
+# 交互级 parity 缺口审计（2026-07-31）
+
+对 `v0.57.4` 产品代码做交互与行为级考古，逐项与 0.60 工作区核对的结果。
+此审计**修正**了 `new-kernel-feature-parity.md` 台账的乐观口径：159 项 FR
+的颗粒度太粗，未覆盖点击接线、配置兑现、overlay 细节——本清单才是内核
+替换"完整与否"的真实标尺。发现日：模块级数据层迁移完好，**缺口集中在
+交互接线和配置兑现**。
+
+状态标记：每项修复后把行首 `[ ]` 改 `[x]` 并在台账补证据。
+
+## A 级 — 会误动作或丢数据（先修）
+
+- [ ] A1 关窗零确认：点 X 直接杀全部 session（window.rs CloseRequested
+      直接 destroy+exit；顶栏关闭钮同）。0.57.4 有 pane/tab/window/quit
+      四种确认 overlay + "非 shell 进程运行中"检测（mod.rs:766）。
+- [ ] A2 侧栏右键=误粘贴：tab 右键菜单（0.57.4 tab_context_menu.rs 九项：
+      新建/复制 tab/左右分屏/左右移动/关闭）缺失后，右键穿透到
+      "无选区=粘贴"手势，剪贴板内容被打进终端；且鼠标从此无法关 tab。
+- [ ] A3 状态栏 8 个点击目标全部失效且保留 teal 可点击视觉：cwd(复制)、
+      project(dir-jump/右键打印)、capture:exclude(隐藏窗口框选截图)、
+      capture:include(可见截图)、proxy(切换注入+右键设置)、mcp(导出审计
+      JSON)、theme(循环/右键选择器)、profile(循环+spawn)。点击还会穿透
+      到终端拉选区。状态栏/侧栏空白区不吞点击。
+- [ ] A4 选区体系缺失：选中不自动复制(Clipboard+Primary)、无双击选词/
+      三击选行、无 Shift+点击扩选、无中键粘贴 Primary；块选从 Alt 改绑
+      Shift 与"Shift 抢回鼠标上报"语义冲突。
+
+## B 级 — 整块功能消失
+
+- [ ] B5 桌面通知链路断：引擎 OSC 表不解析 9/777（osc_params.rs:15-25）、
+      app 无 toast 依赖、cockpit::on_bell/on_notification 零调用者。
+- [ ] B6 alt-screen 滚轮不转方向键：less/man/vim 内滚轮无效
+      （0.57.4: 滚轮×3 转 Up/Down）。
+- [ ] B7 search 无匹配高亮（0.57.4 全匹配两色着色+可点击跳转）、无
+      Ctrl-R 大小写/正则切换、无 ↑↓/翻页/readline 编辑、同步全量搜索。
+- [ ] B8 拖拽选择无边缘自动滚动：选不了超一屏文本。
+- [ ] B9 侧栏五连缺：滚轮滚动、可见滚动条、右缘宽度拖拽、拖拽重排 tab、
+      行 hover 高亮（sidebar_scroll/sidebar_points 是只初始化的死字段）。
+- [ ] B10 链接发现性坍塌：点击即开→Ctrl+点击；hover 无 Hand 光标无高亮
+      （仅按住 Ctrl 时画下划线）；hyperlink_rules 不可配。
+- [ ] B11 拖放文件零支持（0.57.4: DroppedFile→quote→paste）。
+- [ ] B12 会话恢复缺失：无 last_session.json（窗口几何+每 tab cwd）。
+- [ ] B13 配置系统三重失效：config_schema::check() 全仓零调用（打错字
+      静默）；14 个死键（enable_scroll_bar、window.decorations、
+      window_close_confirmation、background_opacity 双死名、tab_bar.* 九键、
+      title_button.* 三键、tab_bar_lift/inactive_dim）；[keys]/[env] 假开放
+      段零读取，自定义键位迁移只写 log 不提示用户。
+- [ ] B14 更新提示不工作：update_check start_background_poller 零调用。
+- [ ] B15 五个 overlay 无替代：Insights 面板(Ctrl+Shift+I)、debug
+      overlay+Lua REPL、proxy_settings、theme_selector、tab 上下文菜单。
+
+## C 级 — 明显缩水/退化
+
+- [ ] C16 copy mode 键表缩到约 1/4：w/b 是空实现、V 行选/Ctrl-v 块选无、
+      f/F/t/T/;/, 无、退出不回滚到底；quick select 正则 14→4、无大写=粘贴、
+      字母表硬编码。
+- [ ] C17 顶栏：双击空白最大化/还原、Cockpit ⚡/✋ 收件箱芯片、Win11
+      Snap Layouts 上报、滚轮切 tab、▾ 右键等价——全缺；关闭钮无确认。
+- [ ] C18 pane 焦点：点非活动 pane 不聚焦、focus-follows-mouse、滚轮按
+      指针路由到 pane——全缺（鼠标事件全走 focused session）。
+- [ ] C19 杂项：窗口标题退化为 `{title} — Unterm`（丢 [Z]/[i/N]/项目/实例
+      名，多窗口 Alt-Tab 无法区分）；audible bell、text_blink_rate 缺失；
+      visual bell 硬编码；charselect 丢 NerdFonts/Unicode 名表（13 组→4 组）；
+      launcher 丢 domains/workspace/键位浏览；capture 丢隐藏窗口模式；
+      proxy chip 语义被静默替换成系统代理只读；inactive_pane 丢 hue；
+      "+"右键开 shell 选择器缺失；macOS 右键等价(Ctrl+左键)缺失；
+      default_cwd 缺失。
+
+## 0.60 优于 0.57.4 的项（保持，勿回退）
+
+stats 文本点击开 shell 选择器；图标 tooltip；无边框八向拉伸；IME 实现
+更完整（按显示宽度算列、候选框跟随 caret）；quick select 与链接 scheme
+白名单加固；侧栏报错红叉；copy mode 按键不漏 shell；`shell` 配置支持
+带参数组；[mcp]/[cockpit] 配置全套兑现。
+
+## 已修复（2026-07-31 当日）
+
+- [x] 终端行高：弃用 'M' bearing 近似，改用 FreeType 真实行度量
+      （此前所有字体被压 15-20%，全窗显拥挤）。
+- [x] 主题全窗一致：选定主题后 chrome 不再被迁移的 legacy
+      colors.tab_bar 钉死；失焦 0.7 alpha；六主题扫描验证。
+- [x] chrome 12pt、状态栏/顶栏 facts 回等宽、.exe 保留、状态栏去 ▾、
+      teal 值着色、侧栏小写标题/单指示符/呼吸/footer 位置、∨ 菜单
+      恢复 0.57.4 全清单、exe 图标+版本信息、ScaleFactorChanged 处理。

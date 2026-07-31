@@ -616,6 +616,22 @@ against the v0.57.4 source (extracted spec, file-and-line) and realigned:
   directory jump reuse the palette shell rather than their dedicated 0.57.4
   cards; top-bar hover/height geometry is near but not pixel-identical.
 
+## Correction (2026-07-31): the FR ledger overstated parity
+
+An interaction-level archaeology of the v0.57.4 product code
+(`docs/parity-gap-audit-2026-07-31.md`) found the 159-requirement grid too
+coarse: module-level data layers migrated cleanly, but click wiring, config
+honouring and overlay depth did not. Four defect classes cause wrong actions
+or data loss (no close confirmation; sidebar right-click falls through to
+paste; every status-bar click target dead yet still painted clickable; the
+selection system — auto-copy, word/line select, primary selection — absent),
+eleven whole features are missing (desktop notifications, alt-screen wheel
+arrows, search highlighting, drag auto-scroll, sidebar scrolling/reorder/
+resize, link discoverability, drag-and-drop, session restore, config schema
+enforcement, update polling, five overlays), and several surfaces shipped at
+a quarter of their old depth. That audit, not this ledger's "verified"
+column, is the standard for calling the kernel replacement complete.
+
 ## Confirmed open work
 
 1. Publish or otherwise run the parity branch on native Linux/macOS CI, then
