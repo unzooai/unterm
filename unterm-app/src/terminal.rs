@@ -213,22 +213,23 @@ impl TerminalFont {
         pixel_size: u32,
         shape: Shape,
     ) -> Self {
-        // Measure from a character every monospace face has, rather than
-        // trusting a nominal size: hinting and rounding mean the advance for
-        // `M` is what the grid actually has to be.
-        let (advance, height, baseline) = match face.rasterize('M') {
-            Ok(glyph) => {
-                let advance = if glyph.advance_x > 0 {
-                    glyph.advance_x as f32
-                } else {
-                    face.pixel_size() as f32 * 0.6
-                };
-                let ascent = glyph.bearing_y.max(1) as f32;
-                (advance, ascent * 1.4, ascent * 1.15)
+        // The advance still comes from a real glyph — hinting and rounding
+        // mean `M`'s advance is what the grid actually has to be — but the
+        // row's height and baseline are the face's own line metrics. The
+        // previous front end drew with the font's metrics, and inventing a
+        // height from the capital's bearing drew every face 15-20% tighter
+        // than its designer intended: the whole window read as cramped.
+        let advance = match face.rasterize('M') {
+            Ok(glyph) if glyph.advance_x > 0 => glyph.advance_x as f32,
+            _ => face.pixel_size() as f32 * 0.6,
+        };
+        let (height, baseline) = match face.line_metrics() {
+            Some((ascender, _descender, line_height)) if ascender > 0.0 => {
+                (line_height, ascender)
             }
-            Err(_) => {
+            _ => {
                 let size = face.pixel_size() as f32;
-                (size * 0.6, size * 1.2, size)
+                (size * 1.2, size)
             }
         };
 

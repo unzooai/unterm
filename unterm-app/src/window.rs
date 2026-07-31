@@ -1160,13 +1160,28 @@ impl App {
 
     /// The frame's tones, from the terminal's own colours.
     fn chrome(&self) -> crate::chrome::Chrome {
-        self.chrome_overrides.apply(
-            crate::chrome::chrome(self.colors.background, self.colors.foreground),
-            self.focused,
-        )
+        let chrome = crate::chrome::chrome(self.colors.background, self.colors.foreground);
+        // A chosen theme owns the whole window, exactly as 0.57.4 behaved:
+        // the legacy `colors.tab_bar` overrides migrated from a Lua config
+        // were written against the old default look, and pinning the bars to
+        // those static colours is what left a dark chrome around a light
+        // terminal after a theme switch.
+        if self.theme_id.is_some() {
+            return chrome;
+        }
+        self.chrome_overrides.apply(chrome, self.focused)
     }
 
     fn chrome_foreground(&self) -> [f32; 4] {
+        // With a theme active the bars use its foreground, dimmed to 0.7
+        // alpha when the window is not in front — 0.57.4's exact treatment.
+        if self.theme_id.is_some() {
+            let mut foreground = self.colors.foreground;
+            if !self.focused {
+                foreground[3] *= 0.7;
+            }
+            return foreground;
+        }
         (if self.focused {
             self.chrome_overrides.active_foreground
         } else {

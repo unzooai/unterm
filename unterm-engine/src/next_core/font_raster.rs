@@ -187,6 +187,34 @@ impl FontFace {
         Ok(())
     }
 
+    /// The face's own line metrics at the current pixel size: ascender,
+    /// descender (negative), and the line height the designer chose — all in
+    /// pixels. A terminal that invents its own line height from a capital's
+    /// bearing draws every font tighter than the font asked to be drawn.
+    pub fn line_metrics(&self) -> Option<(f32, f32, f32)> {
+        // SAFETY: `self.face` is live; `size` is set by FT_Set_Pixel_Sizes,
+        // which `open` always calls before this can be reached.
+        unsafe {
+            let size = (*self.face).size;
+            if size.is_null() {
+                return None;
+            }
+            let metrics = (*size).metrics;
+            // The size metrics are 26.6 fixed point; `font_units` hands back
+            // the raw storage, and the shift is the same one the glyph
+            // advance above uses.
+            let height = (metrics.height.font_units() >> 6) as f32;
+            if height <= 0.0 {
+                return None;
+            }
+            Some((
+                (metrics.ascender.font_units() >> 6) as f32,
+                (metrics.descender.font_units() >> 6) as f32,
+                height,
+            ))
+        }
+    }
+
     /// What this face claims: family, style, and whether it is monospace.
     ///
     /// Returns `None` when the face reports no family name, which means the
