@@ -567,5 +567,7 @@
   "tab.move_right": "右移标签页",
   "tab.close": "关闭标签页",
   "close.confirm_running": "关闭窗口 - 仍有任务在运行",
-  "close.confirm_running.hint": "Enter 关闭 - Esc 保留"
+  "close.confirm_running.hint": "Enter 关闭 - Esc 保留",
+  "tab.close_pane": "关闭当前窗格",
+  "capture.drag_hint": "拖拽框选截图区域 - Esc 取消"
 }

@@ -150,6 +150,33 @@ struct PaneNotice {
     notifications_seen: u64,
 }
 
+/// The chevron's open dropdown: its rows, and where it sits.
+#[derive(Clone, Debug)]
+struct QuickMenu {
+    entries: Vec<crate::palette::Entry>,
+    hover: Option<usize>,
+    left: f32,
+    top: f32,
+    width: f32,
+    row_height: f32,
+}
+
+impl QuickMenu {
+    fn height(&self) -> f32 {
+        self.entries.len() as f32 * self.row_height
+    }
+
+    fn row_at(&self, x: f32, y: f32) -> Option<usize> {
+        if x < self.left || x >= self.left + self.width {
+            return None;
+        }
+        if y < self.top || y >= self.top + self.height() {
+            return None;
+        }
+        Some(((y - self.top) / self.row_height) as usize)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum RegionSelection {
     Armed,
@@ -332,6 +359,9 @@ pub struct App {
     dragging_scrollbar: bool,
     /// The open command palette or launcher, if there is one.
     palette: Option<crate::palette::Palette>,
+    /// The chevron's dropdown, anchored under its button — a menu, not a
+    /// search box, which is what the palette would make of the same rows.
+    quick_menu: Option<QuickMenu>,
     /// Interactive desktop-region capture, armed or being dragged.
     region_selection: Option<RegionSelection>,
     /// A clean frame is presented before capturing so the selection outline
@@ -395,6 +425,9 @@ pub struct App {
     select_anchor: Option<unterm_engine::next_core::selection::SelectionPoint>,
     /// Whether the close confirmation has been answered.
     close_confirmed: bool,
+    /// The window rect before a work-area maximise, so the second press
+    /// puts it back exactly where it was.
+    unmaximized_rect: Option<(winit::dpi::PhysicalPosition<i32>, winit::dpi::PhysicalSize<u32>)>,
     /// Names the reader has given tabs, keyed by stable tab id. A named tab
     /// keeps its name through program changes; an empty rename hands the tab
     /// back to automatic titling.
@@ -546,6 +579,7 @@ impl App {
             bell_at: None,
             dragging_scrollbar: false,
             palette: None,
+            quick_menu: None,
             region_selection: None,
             pending_region_capture: None,
             copy_mode: None,
@@ -596,6 +630,7 @@ impl App {
             terminal_click: None,
             select_anchor: None,
             close_confirmed: false,
+            unmaximized_rect: None,
             tab_titles: Default::default(),
             pane_notices: Default::default(),
             tree: None,
@@ -924,6 +959,7 @@ impl App {
         self.append_status_bar(window_width, &mut quads);
         self.append_region_selection(&mut quads);
         self.append_tooltip(window_width, &mut quads);
+        self.append_quick_menu(&mut quads);
         quads.raise_since(overlays);
 
         append_confirmation_banner(
@@ -1763,6 +1799,11 @@ impl App {
 
     fn sidebar_footer_action_at(&self, x: f32, y: f32) -> Option<usize> {
         let (left, top, width, height, row_height) = self.sidebar_dock()?;
+        // Out of the strip entirely: answer before walking the session list.
+        // This ran on every click anywhere, and the row list is not free.
+        if x < left || x >= left + width || y < top || y >= top + height {
+            return None;
+        }
         // The same arithmetic the paint uses: the action row follows the last
         // visible row and stops at the bottom, so the hit test and the pixels
         // can never disagree about where the buttons are.
@@ -2617,10 +2658,7 @@ impl App {
             // shell identity was an entry point to the shell selector; making
             // it a drag handle in the new chrome removed the visible picker.
             crate::topbar::Item::Stats => self.open_shell_selector(),
-            crate::topbar::Item::Menu => {
-                let entries = self.quick_entries();
-                self.open_palette(entries);
-            }
+            crate::topbar::Item::Menu => self.open_quick_menu(),
             crate::topbar::Item::Action(action) => {
                 if let Some(live) = self.state.as_ref() {
                     let session_id = live.session_id;
@@ -2633,9 +2671,7 @@ impl App {
                 }
             }
             crate::topbar::Item::Maximise => {
-                if let Some(live) = self.state.as_ref() {
-                    live.window.set_maximized(!live.window.is_maximized());
-                }
+                self.toggle_maximize();
             }
             crate::topbar::Item::Close => self.request_close(),
         }
@@ -4582,6 +4618,34 @@ impl App {
         })
     }
 
+    /// Fill the desktop work area instead of asking the OS to maximise: a
+    /// borderless window the OS maximises hangs eight pixels off every edge,
+    /// which is the black band that read as a deformed bar.
+    fn toggle_maximize(&mut self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        if let Some((position, size)) = self.unmaximized_rect.take() {
+            live.window.set_outer_position(position);
+            let _ = live.window.request_inner_size(size);
+            return;
+        }
+        let Some((left, top, width, height)) = unterm_services::work_area() else {
+            live.window.set_maximized(!live.window.is_maximized());
+            return;
+        };
+        let position = live
+            .window
+            .outer_position()
+            .unwrap_or(winit::dpi::PhysicalPosition::new(0, 0));
+        self.unmaximized_rect = Some((position, live.window.inner_size()));
+        live.window
+            .set_outer_position(winit::dpi::PhysicalPosition::new(left, top));
+        let _ = live
+            .window
+            .request_inner_size(winit::dpi::PhysicalSize::new(width, height));
+    }
+
     fn perform_close(&mut self) {
         self.save_last_session();
         if let Some(live) = self.state.as_ref() {
@@ -4706,7 +4770,10 @@ impl App {
             Some(crate::statusbar::SegmentKind::Project) => {
                 self.run_key_action(crate::keys::Action::DirJump, session_id);
             }
-            Some(crate::statusbar::SegmentKind::CaptureInclude) => self.begin_region_selection(),
+            Some(crate::statusbar::SegmentKind::CaptureInclude) => {
+                self.begin_region_selection();
+                self.show_notice(unterm_services::i18n::t("capture.drag_hint"));
+            }
             Some(crate::statusbar::SegmentKind::CaptureExclude) => self.capture_screen_hidden(),
             Some(crate::statusbar::SegmentKind::Theme) => {
                 self.run_key_action(crate::keys::Action::ThemePicker, session_id);
@@ -4742,8 +4809,7 @@ impl App {
         if self.pointer.1 < self.top_bar_height() {
             // The chevron answers either button with its menu, as before.
             if self.hovered_top_bar_item() == Some(crate::topbar::Item::Menu) {
-                let entries = self.quick_entries();
-                self.open_palette(entries);
+                self.open_quick_menu();
             }
             return true;
         }
@@ -4797,6 +4863,7 @@ impl App {
             },
             action(t("tab.move_left"), crate::keys::Action::MoveTab(-1)),
             action(t("tab.move_right"), crate::keys::Action::MoveTab(1)),
+            action(t("tab.close_pane"), crate::keys::Action::ClosePane),
             action(t("tab.close"), crate::keys::Action::CloseTab),
         ]));
         self.drawn_revision = None;
@@ -5031,6 +5098,129 @@ impl App {
             entries.push(row(entry.clone()));
         }
         self.open_palette(entries);
+    }
+
+    /// Drop the quick menu under its button, right edge pinned on screen.
+    fn open_quick_menu(&mut self) {
+        if self.quick_menu.take().is_some() {
+            // The second press on the chevron closes what the first opened.
+            self.drawn_revision = None;
+            return;
+        }
+        let entries = self.quick_entries();
+        let pt = self.chrome_pt();
+        let width = {
+            let mut widest: f32 = 0.0;
+            for entry in &entries {
+                let mut wide = self.chrome_width(&entry.label);
+                if !entry.hint.is_empty() {
+                    wide += self.chrome_width(&entry.hint) + 18.0 * pt;
+                }
+                widest = widest.max(wide);
+            }
+            widest + (12.0 + 14.0) * pt
+        };
+        let window_width = self.state.as_ref().map(|live| live.width as f32).unwrap_or(0.0);
+        let anchor = self
+            .top_bar(window_width)
+            .iter()
+            .find(|piece| piece.item == crate::topbar::Item::Menu)
+            .map(|piece| piece.left)
+            .unwrap_or(window_width - width);
+        let left = anchor.min((window_width - width - 4.0 * pt).max(0.0));
+        self.quick_menu = Some(QuickMenu {
+            entries,
+            hover: None,
+            left,
+            top: self.top_bar_height() + 4.0 * pt,
+            width,
+            row_height: self.chrome_row_height(),
+        });
+        self.drawn_revision = None;
+    }
+
+    /// A press while the dropdown is open: run the row under it, and close
+    /// either way — a menu left open after a click elsewhere is debris.
+    fn click_quick_menu(&mut self) -> bool {
+        let Some(menu) = self.quick_menu.take() else {
+            return false;
+        };
+        self.drawn_revision = None;
+        if let Some(at) = menu.row_at(self.pointer.0, self.pointer.1) {
+            if let Some(entry) = menu.entries.get(at) {
+                self.run_palette_command(entry.command.clone(), "");
+            }
+            return true;
+        }
+        // Outside the card: the press only closes it.
+        true
+    }
+
+    /// The dropdown itself: a bordered card of rows under the chevron.
+    fn append_quick_menu(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        let Some(menu) = self.quick_menu.clone() else {
+            return;
+        };
+        let pt = self.chrome_pt();
+        let chrome = self.chrome();
+        let radius = 6.0 * pt;
+        // Over everything already drawn, the way a menu has to be.
+        let _mark = quads.mark();
+        quads.backgrounds.extend(unterm_render::rounded::panel(
+            menu.left - 1.0,
+            menu.top - 1.0,
+            menu.width + 2.0,
+            menu.height() + 2.0,
+            radius,
+            chrome.outer_edge,
+        ));
+        quads.backgrounds.extend(unterm_render::rounded::panel(
+            menu.left,
+            menu.top,
+            menu.width,
+            menu.height(),
+            radius,
+            chrome.group_bg,
+        ));
+        let text_offset = ((menu.row_height - self.chrome_font.metrics().height) / 2.0
+            + crate::ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt)
+            .max(0.0);
+        let hover = menu.row_at(self.pointer.0, self.pointer.1);
+        for (index, entry) in menu.entries.iter().enumerate() {
+            let row_top = menu.top + index as f32 * menu.row_height;
+            if hover == Some(index) {
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left: menu.left,
+                    top: row_top,
+                    width: menu.width,
+                    height: menu.row_height,
+                    color: chrome.hover_bg,
+                });
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left: menu.left,
+                    top: row_top,
+                    width: 2.0 * pt,
+                    height: menu.row_height,
+                    color: chrome.focus_rail,
+                });
+            }
+            let foreground = self.chrome_foreground();
+            self.append_chrome(
+                &entry.label.clone(),
+                foreground,
+                (menu.left + 12.0 * pt, row_top + text_offset),
+                quads,
+            );
+            if !entry.hint.is_empty() {
+                let wide = self.chrome_width(&entry.hint);
+                self.append_chrome(
+                    &entry.hint.clone(),
+                    chrome.dim_text,
+                    (menu.left + menu.width - wide - 14.0 * pt, row_top + text_offset),
+                    quads,
+                );
+            }
+        }
     }
 
     fn open_palette(&mut self, entries: Vec<crate::palette::Entry>) {
@@ -6961,6 +7151,18 @@ impl ApplicationHandler for App {
                     );
                 }
 
+                if self.quick_menu.is_some() {
+                    if matches!(
+                        event.logical_key,
+                        Key::Named(winit::keyboard::NamedKey::Escape)
+                    ) {
+                        self.quick_menu = None;
+                        self.drawn_revision = None;
+                    }
+                    // Every other key is the menu's to ignore: nothing may
+                    // fall through to the shell under an open menu.
+                    return;
+                }
                 if unterm_mcp::handler::pending_confirmation_view().is_none()
                     && self.handle_suggestion_key(&event)
                 {
@@ -7099,6 +7301,13 @@ impl ApplicationHandler for App {
                 if self.dragging_scrollbar {
                     self.scroll_to_pointer();
                     return;
+                }
+                if self.quick_menu.is_some() {
+                    // The row under the pointer lights up as it moves.
+                    self.drawn_revision = None;
+                    if let Some(live) = self.state.as_ref() {
+                        live.window.request_redraw();
+                    }
                 }
                 if let Some(tab_id) = self.dragging_tab {
                     if let Some(at) = self.sidebar_row_at(self.pointer.0, self.pointer.1) {
@@ -7247,6 +7456,21 @@ impl ApplicationHandler for App {
                     ElementState::Pressed => MouseEventKind::Press,
                     ElementState::Released => MouseEventKind::Release,
                 };
+                // The dropdown takes the press before anything: a click on
+                // a row must not also press what the card is covering.
+                if self.quick_menu.is_some()
+                    && state == ElementState::Pressed
+                    && button == MouseButton::Left
+                    && self.click_quick_menu()
+                {
+                    return;
+                }
+                if self.quick_menu.is_some() && state == ElementState::Pressed {
+                    // Any other button just closes it.
+                    self.quick_menu = None;
+                    self.drawn_revision = None;
+                    return;
+                }
                 // An open menu takes the press before the program does: a
                 // click aimed at a row must not also land in the pane the menu
                 // is covering.

@@ -567,5 +567,7 @@
   "tab.move_right": "Move tab right",
   "tab.close": "Close tab",
   "close.confirm_running": "Close window - a task is still running",
-  "close.confirm_running.hint": "Enter closes - Esc keeps it open"
+  "close.confirm_running.hint": "Enter closes - Esc keeps it open",
+  "tab.close_pane": "Close pane",
+  "capture.drag_hint": "Drag to capture a region - Esc cancels"
 }
