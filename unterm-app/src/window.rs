@@ -361,6 +361,10 @@ pub struct App {
     /// Whether the pane scrollbar is drawn at all — `enable_scroll_bar`,
     /// which the schema promised and nothing read until now.
     scrollbar_enabled: bool,
+    /// Whether the bell makes a sound as well as a flash.
+    audible_bell: bool,
+    /// The config's `default_cwd`, when nothing else names a directory.
+    config_default_cwd: Option<std::path::PathBuf>,
     /// The strip's first visible row, for lists longer than the window.
     sidebar_scroll: usize,
     /// Its width in points, once somebody has dragged it.
@@ -553,6 +557,17 @@ impl App {
                 .ok()
                 .flatten()
                 .unwrap_or(true),
+            audible_bell: config
+                .str_of("audible_bell")
+                .ok()
+                .flatten()
+                .map(|value| !value.eq_ignore_ascii_case("disabled"))
+                .unwrap_or(true),
+            config_default_cwd: config
+                .str_of("default_cwd")
+                .ok()
+                .flatten()
+                .map(std::path::PathBuf::from),
             sidebar_scroll: 0,
             sidebar_points: None,
             dragging_sidebar_width: false,
@@ -732,6 +747,7 @@ impl App {
                         .and_then(|saved| saved.cwds.first())
                         .map(std::path::PathBuf::from)
                 })
+                .or_else(|| self.config_default_cwd.clone())
                 .as_ref()
                 .map(|path| path.display().to_string()),
             command: prepare_shell(self.shell.clone()),
@@ -969,6 +985,11 @@ impl App {
         if bells > self.bells_seen {
             self.bells_seen = bells;
             self.bell_at = Some(std::time::Instant::now());
+            // The bell is audible again, as `audible_bell` always promised;
+            // the flash alone left a background beep silent.
+            if self.audible_bell {
+                unterm_services::system_beep();
+            }
         }
     }
 
@@ -1873,6 +1894,40 @@ impl App {
         // and land against the bottom edge once the list fills the strip.
         let shown = rows.len().saturating_sub(scroll).min(visible);
         let footer_top = (first_row + shown as f32 * row_height).min(footer_reserve);
+
+        // A list longer than the strip says so: a slim track on the right
+        // edge with the visible span as its thumb.
+        if rows.len() > visible {
+            let track_left = left + width
+                - (crate::ui_tokens::CHROME_SCROLLBAR_WIDTH * pt)
+                    .max(crate::ui_tokens::CHROME_SCROLLBAR_MIN_WIDTH);
+            let track_height = footer_reserve - first_row;
+            let span = visible as f32 / rows.len() as f32;
+            let thumb_height = (track_height * span)
+                .max(crate::ui_tokens::CHROME_SCROLLBAR_MIN_THUMB_HEIGHT * pt);
+            let travel = track_height - thumb_height;
+            let progress = scroll as f32 / (rows.len() - visible) as f32;
+            let mut track = chrome.dim_text;
+            track[3] *= crate::ui_tokens::CHROME_SCROLLBAR_TRACK_ALPHA;
+            let mut thumb = chrome.dim_text;
+            thumb[3] *= crate::ui_tokens::CHROME_SCROLLBAR_THUMB_ALPHA;
+            quads.backgrounds.push(unterm_render::quads::Quad {
+                left: track_left,
+                top: first_row,
+                width: (crate::ui_tokens::CHROME_SCROLLBAR_WIDTH * pt)
+                    .max(crate::ui_tokens::CHROME_SCROLLBAR_MIN_WIDTH),
+                height: track_height,
+                color: track,
+            });
+            quads.backgrounds.push(unterm_render::quads::Quad {
+                left: track_left,
+                top: first_row + travel * progress,
+                width: (crate::ui_tokens::CHROME_SCROLLBAR_WIDTH * pt)
+                    .max(crate::ui_tokens::CHROME_SCROLLBAR_MIN_WIDTH),
+                height: thumb_height,
+                color: thumb,
+            });
+        }
 
         // Preserve the working-agent breathing cue from the previous front
         // end, but let the phase drive repaints instead of a timer: the paint
@@ -4572,7 +4627,11 @@ impl App {
                     && self.pointer.1 >= top
                     && self.pointer.1 < top + height;
                 if inside {
-                    if let Some(at) = self.sidebar_row_at(self.pointer.0, self.pointer.1) {
+                    // The "+" answers a right press with the shell list, as
+                    // 0.57.4's did; a right press on a tab row opens its menu.
+                    if self.sidebar_footer_action_at(self.pointer.0, self.pointer.1) == Some(0) {
+                        self.open_shell_selector();
+                    } else if let Some(at) = self.sidebar_row_at(self.pointer.0, self.pointer.1) {
                         if let Some(crate::sidebar::Row::Tab { index, .. }) =
                             self.sidebar_rows().get(at).cloned()
                         {

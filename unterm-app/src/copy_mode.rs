@@ -367,8 +367,44 @@ fn is_interesting(word: &str) -> bool {
         && word
             .split('.')
             .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()));
+    // The rest of 0.57.4's catalogue, word-shaped: colours, UUIDs, hex
+    // addresses, container digests, IPFS hashes, IPv6, and long numbers.
+    let hex_run = |text: &str| !text.is_empty() && text.chars().all(|ch| ch.is_ascii_hexdigit());
+    let looks_like_color = word.len() == 7 && word.starts_with('#') && hex_run(&word[1..]);
+    let looks_like_uuid = {
+        let parts: Vec<&str> = word.split('-').collect();
+        parts.len() == 5
+            && [8, 4, 4, 4, 12]
+                .iter()
+                .zip(&parts)
+                .all(|(len, part)| part.len() == *len && hex_run(part))
+    };
+    let looks_like_address = word.len() >= 6
+        && (word.starts_with("0x") || word.starts_with("0X"))
+        && hex_run(&word[2..]);
+    let looks_like_digest = word
+        .strip_prefix("sha256:")
+        .map(|rest| rest.len() == 64 && hex_run(rest))
+        .unwrap_or(false);
+    let looks_like_ipfs = word.len() == 46 && word.starts_with("Qm");
+    let looks_like_ipv6 = word.matches(':').count() >= 2
+        && word.contains(':')
+        && word
+            .chars()
+            .all(|ch| ch.is_ascii_hexdigit() || ch == ':' || ch == '%');
+    let looks_like_number = word.chars().all(|ch| ch.is_ascii_digit());
 
-    looks_like_url || looks_like_path || looks_like_hash || looks_like_ip
+    looks_like_url
+        || looks_like_path
+        || looks_like_hash
+        || looks_like_ip
+        || looks_like_color
+        || looks_like_uuid
+        || looks_like_address
+        || looks_like_digest
+        || looks_like_ipfs
+        || looks_like_ipv6
+        || looks_like_number
 }
 
 #[cfg(test)]

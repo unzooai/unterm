@@ -34,7 +34,7 @@
 - [~] B7 search：匹配着色、↑↓ 步进、Ctrl-U 清行、空格输入已修；Ctrl-R 大小写/正则切换仍缺（0.57.4 全匹配两色着色+可点击跳转）、无
       Ctrl-R 大小写/正则切换、无 ↑↓/翻页/readline 编辑、同步全量搜索。
 - [x] B8 拖拽到上下边缘自动滚屏，选区可跨屏。
-- [~] B9 侧栏：滚轮滚动、行 hover 高亮、右缘宽度拖拽已修；可见滚动条/拖拽重排仍缺：滚轮滚动、可见滚动条、右缘宽度拖拽、拖拽重排 tab、
+- [~] B9 侧栏：滚轮、hover、宽度拖拽、可见滚动条（溢出时轨道+滑块）已修；拖拽重排仍缺：滚轮滚动、可见滚动条、右缘宽度拖拽、拖拽重排 tab、
       行 hover 高亮（sidebar_scroll/sidebar_points 是只初始化的死字段）。
 - [x] B10 链接：hover 恒显下划线、普通单击（未拖动、无修饰键）即打开，Ctrl+点击保留；hyperlink_rules 可配仍缺：点击即开→Ctrl+点击；hover 无 Hand 光标无高亮
       （仅按住 Ctrl 时画下划线）；hyperlink_rules 不可配。
@@ -51,16 +51,15 @@
 ## C 级 — 明显缩水/退化
 
 - [~] C16 copy mode：w/b 词移动已实现（跨行、带测试）；V 行选/Ctrl-v 块选、
-      f/F/t/T/;/, 无、退出不回滚到底；quick select 正则 14→4、无大写=粘贴、
-      字母表硬编码。
+      f/F/t/T/;/, 无、退出不回滚到底；quick select 类别已补齐至旧版 14 类口径（词形检测）；大写=粘贴、字母表可配仍缺。
 - [~] C17 顶栏：双击空白最大化/还原已修，关闭钮已带确认；Cockpit ⚡/✋ 芯片、Snap Layouts、滚轮切 tab、▾ 右键等价仍缺。
 - [x] C18 pane 焦点：点非活动 pane 聚焦（点击吞掉不误选）、滚轮按指针路由到 pane；focus-follows-mouse 作为可选项暂不引入。
-- [ ] C19 杂项：窗口标题已恢复 `[i/N] 项目 — 标题 — Unterm (实例)`；audible bell、text_blink_rate 缺失；
+- [ ] C19 杂项：窗口标题已恢复 `[i/N] 项目 — 标题 — Unterm (实例)`；audible bell 已恢复（可用 audible_bell=Disabled 关闭）；text_blink_rate 缺失；
       visual bell 硬编码；charselect 丢 NerdFonts/Unicode 名表（13 组→4 组）；
       launcher 丢 domains/workspace/键位浏览；
       proxy chip 语义被静默替换成系统代理只读；inactive_pane 丢 hue；
-      "+"右键开 shell 选择器缺失；macOS 右键等价(Ctrl+左键)缺失；
-      default_cwd 缺失。
+      "+"右键开 shell 选择器已恢复；macOS 右键等价(Ctrl+左键)缺失；
+      default_cwd 已兑现。
 
 ## 0.60 优于 0.57.4 的项（保持，勿回退）
 

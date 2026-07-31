@@ -15,6 +15,15 @@ pub mod peer_mcp;
 pub mod recording;
 pub mod scrollback_options;
 pub mod server_info;
+
+/// The platform's alert sound, for the terminal bell.
+pub fn system_beep() {
+    #[cfg(windows)]
+    // SAFETY: no arguments beyond the sound selector; fire and forget.
+    unsafe {
+        winapi::um::winuser::MessageBeep(0xFFFF_FFFF);
+    }
+}
 pub mod settings;
 pub mod theme_state;
 pub mod window_capture;
