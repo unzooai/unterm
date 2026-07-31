@@ -371,6 +371,9 @@ pub struct App {
     /// The last press on a strip row, so only a true same-row double-click
     /// opens the rename line rather than any two fast clicks anywhere.
     last_sidebar_click: Option<crate::sidebar::RowClick>,
+    /// The last press on the top bar's empty stretch, so a double-click
+    /// there toggles maximise the way every title bar does.
+    last_topbar_click: Option<crate::sidebar::RowClick>,
     /// The last press in the terminal, so a double-click can select the word
     /// and a triple-click the line, as they always have.
     terminal_click: Option<crate::sidebar::RowClick>,
@@ -552,6 +555,7 @@ impl App {
             sidebar_points: None,
             sidebar_collapsed: Default::default(),
             last_sidebar_click: None,
+            last_topbar_click: None,
             terminal_click: None,
             select_anchor: None,
             close_confirmed: false,
@@ -2472,8 +2476,20 @@ impl App {
         // is how a piece comes to be drawn in one place and grabbed in
         // another.
         if self.pointer_is_on_a_drag_handle() {
+            // The second press on the same spot toggles maximise, the way
+            // every title bar has always answered a double-click.
+            let click = match self.last_topbar_click.take() {
+                Some(previous) => previous.again(0, self.pointer.0, self.pointer.1),
+                None => crate::sidebar::RowClick::first(0, self.pointer.0, self.pointer.1),
+            };
+            let toggles = click.streak() >= 2;
+            self.last_topbar_click = Some(click);
             if let Some(live) = self.state.as_ref() {
-                let _ = live.window.drag_window();
+                if toggles {
+                    live.window.set_maximized(!live.window.is_maximized());
+                } else {
+                    let _ = live.window.drag_window();
+                }
             }
             return true;
         }
@@ -6240,6 +6256,22 @@ impl App {
         self.resize_panes();
     }
 
+    /// The pane under the pointer, when the tab is split.
+    fn pane_under_pointer(&self) -> Option<usize> {
+        let metrics = self.font.metrics();
+        self.placements()
+            .into_iter()
+            .find(|placement| {
+                let width = placement.cols as f32 * metrics.width;
+                let height = placement.rows as f32 * metrics.height;
+                self.pointer.0 >= placement.origin.0
+                    && self.pointer.0 < placement.origin.0 + width
+                    && self.pointer.1 >= placement.origin.1
+                    && self.pointer.1 < placement.origin.1 + height
+            })
+            .map(|placement| placement.session_id)
+    }
+
     fn placements(&self) -> Vec<crate::panes::PanePlacement> {
         let (Some(tab_id), Some(_live)) = (self.tab_id, self.state.as_ref()) else {
             return Vec::new();
@@ -6979,6 +7011,21 @@ impl ApplicationHandler for App {
                         return;
                     }
                 }
+                // A press in a pane that is not in front brings it in
+                // front, and does nothing else: focusing should never also
+                // select or paste, which is why the click stops here.
+                if state == ElementState::Pressed {
+                    if let Some(pane) = self.pane_under_pointer() {
+                        if pane != self.focused_session() {
+                            self.tabs.set_active_pane(pane);
+                            self.drawn_revision = None;
+                            if let Some(live) = self.state.as_ref() {
+                                live.window.request_redraw();
+                            }
+                            return;
+                        }
+                    }
+                }
                 match state {
                     ElementState::Pressed => {
                         use unterm_engine::next_core::selection::SelectionShape;
@@ -7119,7 +7166,11 @@ impl ApplicationHandler for App {
                     }
                 }
                 if let Some(live) = self.state.as_ref() {
-                    let session_id = live.session_id;
+                    // The wheel belongs to the pane under the pointer, not
+                    // whichever pane happens to hold the keyboard.
+                    let session_id = self
+                        .pane_under_pointer()
+                        .unwrap_or(live.session_id);
                     // On the alternate screen there is nothing to scroll back
                     // into: less, man and vim without mouse reporting expect
                     // the wheel as arrow keys, three per notch, exactly as the

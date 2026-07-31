@@ -53,10 +53,8 @@
 - [ ] C16 copy mode 键表缩到约 1/4：w/b 是空实现、V 行选/Ctrl-v 块选无、
       f/F/t/T/;/, 无、退出不回滚到底；quick select 正则 14→4、无大写=粘贴、
       字母表硬编码。
-- [ ] C17 顶栏：双击空白最大化/还原、Cockpit ⚡/✋ 收件箱芯片、Win11
-      Snap Layouts 上报、滚轮切 tab、▾ 右键等价——全缺；关闭钮无确认。
-- [ ] C18 pane 焦点：点非活动 pane 不聚焦、focus-follows-mouse、滚轮按
-      指针路由到 pane——全缺（鼠标事件全走 focused session）。
+- [~] C17 顶栏：双击空白最大化/还原已修，关闭钮已带确认；Cockpit ⚡/✋ 芯片、Snap Layouts、滚轮切 tab、▾ 右键等价仍缺。
+- [x] C18 pane 焦点：点非活动 pane 聚焦（点击吞掉不误选）、滚轮按指针路由到 pane；focus-follows-mouse 作为可选项暂不引入。
 - [ ] C19 杂项：窗口标题退化为 `{title} — Unterm`（丢 [Z]/[i/N]/项目/实例
       名，多窗口 Alt-Tab 无法区分）；audible bell、text_blink_rate 缺失；
       visual bell 硬编码；charselect 丢 NerdFonts/Unicode 名表（13 组→4 组）；
