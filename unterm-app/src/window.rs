@@ -957,6 +957,7 @@ impl App {
         self.append_sidebar(&mut quads);
         self.append_tree(&mut quads);
         self.append_status_bar(window_width, &mut quads);
+        self.append_pane_close_buttons(&mut quads);
         self.append_region_selection(&mut quads);
         self.append_tooltip(window_width, &mut quads);
         self.append_quick_menu(&mut quads);
@@ -6767,6 +6768,74 @@ impl App {
     }
 
     /// The pane under the pointer, when the tab is split.
+    /// Where each pane's close button sits, when the tab is split.
+    ///
+    /// One per pane, top right, and only with two panes or more: a lone
+    /// pane's close is the tab's close, and a button that would do that is
+    /// a second close button. Ported from 0.57.4, which drew the same x.
+    fn pane_close_buttons(&self) -> Vec<(usize, f32, f32, f32)> {
+        let placements = self.placements();
+        if placements.len() < 2 {
+            return Vec::new();
+        }
+        let metrics = self.font.metrics();
+        let pt = self.chrome_pt();
+        let side = (12.0 * pt).round();
+        let inset = (5.0 * pt).round();
+        placements
+            .into_iter()
+            .map(|placement| {
+                let width = placement.cols as f32 * metrics.width;
+                (
+                    placement.session_id,
+                    placement.origin.0 + width - side - inset,
+                    placement.origin.1 + inset,
+                    side,
+                )
+            })
+            .collect()
+    }
+
+    /// The pane close button under the pointer, if it is on one.
+    fn pane_close_button_at(&self, x: f32, y: f32) -> Option<usize> {
+        self.pane_close_buttons()
+            .into_iter()
+            .find(|(_, left, top, side)| {
+                x >= *left && x < left + side && y >= *top && y < top + side
+            })
+            .map(|(session_id, ..)| session_id)
+    }
+
+    /// Draw the split-pane close buttons over the panes.
+    fn append_pane_close_buttons(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        let buttons = self.pane_close_buttons();
+        if buttons.is_empty() {
+            return;
+        }
+        let chrome = self.chrome();
+        let hovered = self.pane_close_button_at(self.pointer.0, self.pointer.1);
+        for (session_id, left, top, side) in buttons {
+            let hover = hovered == Some(session_id);
+            if hover {
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left: left - 2.0,
+                    top: top - 2.0,
+                    width: side + 4.0,
+                    height: side + 4.0,
+                    color: chrome.hover_bg,
+                });
+            }
+            let color = if hover {
+                self.chrome_foreground()
+            } else {
+                chrome.dim_text
+            };
+            let wide = self.chrome_width("\u{00D7}");
+            let x = left + (side - wide) / 2.0;
+            self.append_chrome("\u{00D7}", color, (x, top - 2.0), quads);
+        }
+    }
+
     fn pane_under_pointer(&self) -> Option<usize> {
         let metrics = self.font.metrics();
         self.placements()
@@ -7573,6 +7642,15 @@ impl ApplicationHandler for App {
                 }
                 if state == ElementState::Pressed && self.click_top_bar() {
                     return;
+                }
+                if state == ElementState::Pressed && button == MouseButton::Left {
+                    if let Some(session_id) =
+                        self.pane_close_button_at(self.pointer.0, self.pointer.1)
+                    {
+                        self.close_pane(session_id);
+                        self.drawn_revision = None;
+                        return;
+                    }
                 }
                 if self.sidebar_open && state == ElementState::Pressed {
                     if let Some((left, _top, width, _height, _row)) = self.sidebar_dock() {
