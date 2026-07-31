@@ -19,7 +19,7 @@ The other 2026 terminals each pick a different side: Warp embeds AI inside a clo
 Practical implications:
 
 - Every Unterm window starts a local **MCP server** (line-delimited JSON-RPC over TCP) and a local **HTTP settings server** (Web Settings page) on auto-allocated ports. Both are auth-token gated, both are 127.0.0.1-only, no cloud round trip.
-- **Settings live in the browser**, not the terminal. Cell-grid TUIs can't deliver modern form UX (no proper text inputs, no live preview, no color picker). The in-terminal `▼` overlay is intentionally minimal — six quick actions and a link to the Web Settings page.
+- **Settings live in the browser**, not the terminal. Cell-grid TUIs can't deliver modern form UX (no proper text inputs, no live preview, no color picker). The in-terminal `▼` menu holds quick actions and links out to the Web Settings page — configuration itself happens in the browser.
 - **9 languages out of the box**: en / 简体中文 / 繁體中文 / 日本語 / 한국어 / Deutsch / Français / Italiano / हिन्दी. Auto-detects from system locale, can be overridden in Web Settings or via `unterm-cli lang set <code>`.
 - **Multi-instance discovery**: every running Unterm process owns one NATO-named instance (alpha, bravo, charlie…) and writes its ports + auth token to `~/.unterm/instances/<name>.json`. Agents that drive several windows at once enumerate that directory.
 - **Cross-platform parity is a correctness property**: if a feature works on Windows but bails on macOS or Linux, that's a bug, not "not supported yet."
@@ -152,14 +152,14 @@ This README is the short version. The site is the long version.
 - **Region screenshots** from the status bar (left-click excludes the Unterm window, right-click includes it). PNG lands on disk under `~/.unterm/screenshots/`, on the system image clipboard, and the path on the text clipboard.
 - **Scrolling (long) screenshots**, both directions: `capture.scrollback` re-renders a pane's *entire* history into one tall PNG headlessly (exact fonts/theme, streaming-encoded, works while occluded); `capture.window_scroll` long-shots *another app's* window by synthesizing wheel events and stitching frames via row-hash matching with sticky-header/footer detection (macOS). Both also in the `▼` menu and `unterm-cli screenshot --scrollback / --scroll-app`.
 - **Session recording → markdown** with OSC 133 block segmentation and built-in redaction (GitHub tokens / `KEY=value` / 40+ char hex/base64 patterns are masked). Recordings are stored in the project directory under `<cwd>/.unterm/sessions/<date>/<tab>-<time>.md`, or in `~/.unterm/sessions/_orphan/` when no writable project context.
-- **Right-click is a direct gesture, not a menu**: with a selection it copies and clears; without selection it pastes.
-- **Slim quick-action overlay** on the tab bar's `▼` button:
-  - Change Working Directory (cd current pane)
-  - Open Folder in New Tab
-  - Split Right (left/right pane split)
-  - Toggle Session Recording
-  - Export Current Session
-  - Settings (Web)
+- **Right-click in the terminal is a direct gesture**: with a selection it copies and clears; without selection it pastes. On the tab strip, right-click opens the tab context menu (new tab, split, rename, move, close) instead — chrome right-clicks never fall through to paste.
+- **Quick menu** on the tab bar's `▼` button, with live key chords from the binding table:
+  - New Tab / Split Right
+  - Directory Jump (cd current pane or open in new tab) / File Tree
+  - Git Panel / Toggle Left Tab Strip
+  - Find / Command Palette
+  - Toggle Session Recording / Export Current Session / Scrollback Long Screenshot
+  - Settings (Web), plus the version/website row
 - **macOS-native window decorations** (traffic-light buttons + native title bar); Windows uses Windows Terminal-style integrated title buttons; Linux uses client-side decorations.
 
 ---

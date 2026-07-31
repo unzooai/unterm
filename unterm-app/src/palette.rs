@@ -52,6 +52,10 @@ pub enum Command {
     OpenTabRename { index: usize },
     /// Let the user drag a rectangle to capture from the desktop.
     SelectCaptureRegion,
+    /// A row that is information rather than a verb. The Insights card is a
+    /// list to read, not a list to run, and pressing a line of it should do
+    /// nothing rather than whatever a guess would be.
+    Nothing,
 }
 
 /// What picking a folder is for.

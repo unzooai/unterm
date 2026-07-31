@@ -27,7 +27,7 @@
 
 ## B 级 — 整块功能消失
 
-- [~] B5 通知链路：OSC 9/777 引擎解析+状态栏🔔提示+后台 tab 未读+cockpit 挂钩已通(真机验证);系统级 toast 仍缺：引擎 OSC 表不解析 9/777（osc_params.rs:15-25）、
+- [x] B5 通知链路完整：OSC 9/777 解析、状态栏🔔、后台未读、cockpit 挂钩、失焦时系统级 toast（Shell_NotifyIcon 气泡，零新依赖，真机弹出验证）。：引擎 OSC 表不解析 9/777（osc_params.rs:15-25）、
       app 无 toast 依赖、cockpit::on_bell/on_notification 零调用者。
 - [x] B6 alt-screen 滚轮转方向键（×3/notch，识别 application cursor keys）：less/man/vim 内滚轮无效
       （0.57.4: 滚轮×3 转 Up/Down）。
@@ -45,12 +45,11 @@
       title_button.* 三键、tab_bar_lift/inactive_dim）；[keys]/[env] 假开放
       段零读取，自定义键位迁移只写 log 不提示用户。
 - [x] B14 更新轮询已在启动时拉起：update_check start_background_poller 零调用。
-- [ ] B15 五个 overlay 无替代：Insights 面板(Ctrl+Shift+I)、debug
-      overlay+Lua REPL、proxy_settings、theme_selector、tab 上下文菜单。
+- [~] B15 overlay：tab 上下文菜单✓、theme_selector✓(ThemePicker)、Insights 面板✓(Ctrl+Shift+I 只读卡片)；debug overlay+Lua REPL 不回归（Lua 已移除，属设计决策）、proxy_settings 走 Web。
 
 ## C 级 — 明显缩水/退化
 
-- [~] C16 copy mode：w/b 词移动、V 行选、Ctrl-v 块选已实现（带测试）；
+- [x] C16 copy mode：w/b、V、Ctrl-v、f/F/t/T/;/, 全部实现（带测试）；quick select 14 类+大写=粘贴已修；仅余字母表可配。原：
       f/F/t/T/;/, 无、退出不回滚到底；quick select 类别已补齐至旧版 14 类口径（词形检测）；大写=粘贴、字母表可配仍缺。
 - [~] C17 顶栏：双击最大化、关闭确认、Cockpit ⚡/✋ 芯片（点击开收件箱）、滚轮切 tab 已修；Snap Layouts、▾ 右键等价仍缺。
 - [x] C18 pane 焦点：点非活动 pane 聚焦（点击吞掉不误选）、滚轮按指针路由到 pane；focus-follows-mouse 作为可选项暂不引入。

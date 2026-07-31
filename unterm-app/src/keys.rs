@@ -53,6 +53,8 @@ pub enum Action {
     Launcher,
     CopyMode,
     QuickSelect,
+    /// A read-only card of what the AI layer is seeing and doing.
+    Insights,
     CockpitInbox,
     GitPanel,
     Composer,
@@ -110,6 +112,7 @@ impl Action {
             Action::Launcher => "Launcher",
             Action::CopyMode => "CopyMode",
             Action::QuickSelect => "QuickSelect",
+            Action::Insights => "Insights",
             Action::CockpitInbox => "CockpitInbox",
             Action::GitPanel => "GitPanel",
             Action::Composer => "Composer",
@@ -178,6 +181,7 @@ impl Action {
             Action::Launcher => "New Tab With...",
             Action::CopyMode => "Copy Mode",
             Action::QuickSelect => "Quick Select",
+            Action::Insights => "Insights",
             Action::CockpitInbox => "Agent Inbox",
             Action::GitPanel => "Git Status",
             Action::Composer => "Prompt Queue",
@@ -626,6 +630,12 @@ pub const BINDINGS: &[Binding] = &[
         mods: CTRL_SHIFT,
         trigger: Trigger::Char('a'),
         action: Action::CockpitInbox,
+    },
+    // The Insights overlay, on the letter 0.57.4 used for it.
+    Binding {
+        mods: CTRL_SHIFT,
+        trigger: Trigger::Char('i'),
+        action: Action::Insights,
     },
     Binding {
         mods: CTRL_SHIFT,

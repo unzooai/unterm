@@ -140,7 +140,9 @@ pub fn layout(
 
     // The window buttons, from the right edge inwards, in the order the
     // platform puts them.
-    let button = (28.0 * pt).round();
+    // The Windows caption width, 46px at 96dpi: a close button narrower
+    // than the system's misses the corner muscle memory aims at.
+    let button = (34.5 * pt).round();
     let mut right = width;
     let mut buttons = Vec::new();
     for item in [Item::Close, Item::Maximise, Item::Minimise] {
@@ -156,8 +158,9 @@ pub fn layout(
     }
 
     // Then the actions, right to left, so the menu sits closest to the buttons.
-    let gap = (4.0 * pt).round();
-    let pad = (7.0 * pt).round();
+    // 0.57.4's action rhythm: 0.24 cells between chips, 0.44 inside them.
+    let gap = (3.0 * pt).round();
+    let pad = (6.0 * pt).round();
     let mut actions = Vec::new();
 
     let mut take =
@@ -224,7 +227,9 @@ pub fn layout(
     // separated it from the word by another 0.42 cell. Measuring the actual
     // UI face keeps that relationship intact for Segoe, SF Pro and Inter.
     let brand_cell = measure("M");
-    let wordmark = measure(WORDMARK) + brand_cell * (0.95 + 0.42);
+    // Logo, the gap to the wordmark, and 0.7 cells of air after it --
+    // the brand block's own right margin, as 0.57.4 spaced it.
+    let wordmark = measure(WORDMARK) + brand_cell * (0.95 + 0.42 + 0.7);
     if left + wordmark < right {
         placed.push(Placed {
             item: Item::Wordmark,

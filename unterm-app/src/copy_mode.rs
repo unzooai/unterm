@@ -32,6 +32,11 @@ pub struct CopyMode {
     pub anchor: Option<(usize, usize)>,
     /// The shape the selection takes.
     pub kind: SelectKind,
+    /// An `f`/`t` waiting for its target: the next key is a character to jump
+    /// to, not a motion. (forward, till).
+    pub pending_find: Option<(bool, bool)>,
+    /// What `;` and `,` repeat: the last find's (target, forward, till).
+    pub last_find: Option<(char, bool, bool)>,
 }
 
 /// What a key does in copy mode.
@@ -53,6 +58,12 @@ pub enum Motion {
     ToggleLineSelection,
     /// As ToggleSelection, but a rectangle: vim's `Ctrl+v`.
     ToggleBlockSelection,
+    /// vim's `f`/`F`/`t`/`T`: arm a jump to the next typed character. `till`
+    /// stops one short of it, the way `t` does.
+    Find { forward: bool, till: bool },
+    /// vim's `;` and `,`: the last find again, in the same or the opposite
+    /// direction.
+    RepeatFind(bool),
     /// Copy what is selected and leave.
     Yank,
     Leave,
@@ -88,6 +99,24 @@ pub fn motion_for(named: Option<&str>, character: Option<&str>, ctrl: bool) -> O
         "G" => Some(Motion::Bottom),
         "b" => Some(Motion::WordLeft),
         "w" => Some(Motion::WordRight),
+        "f" => Some(Motion::Find {
+            forward: true,
+            till: false,
+        }),
+        "F" => Some(Motion::Find {
+            forward: false,
+            till: false,
+        }),
+        "t" => Some(Motion::Find {
+            forward: true,
+            till: true,
+        }),
+        "T" => Some(Motion::Find {
+            forward: false,
+            till: true,
+        }),
+        ";" => Some(Motion::RepeatFind(true)),
+        "," => Some(Motion::RepeatFind(false)),
         "v" | " " => Some(Motion::ToggleSelection),
         "V" => Some(Motion::ToggleLineSelection),
         "y" => Some(Motion::Yank),
@@ -126,7 +155,12 @@ impl CopyMode {
                 self.row = last_row;
                 self.column = self.column.min(width(last_row));
             }
-            Motion::WordLeft | Motion::WordRight => {}
+            // Handled by the window, which has the screen's text; the plain
+            // width this function is given is not enough to find a character.
+            Motion::WordLeft
+            | Motion::WordRight
+            | Motion::Find { .. }
+            | Motion::RepeatFind(_) => {}
             Motion::ToggleSelection => self.toggle(SelectKind::Cell),
             Motion::ToggleLineSelection => self.toggle(SelectKind::Line),
             Motion::ToggleBlockSelection => self.toggle(SelectKind::Block),
@@ -190,6 +224,34 @@ impl CopyMode {
         }
     }
 
+    /// `f`/`F`/`t`/`T`, once the target is known: jump within the current
+    /// line, or stay put when the line has no such character ahead.
+    ///
+    /// Remembered for `;` and `,` even on a miss, the way vim does: the
+    /// character you asked for may be on the line the cursor moves to next.
+    pub fn apply_find(&mut self, target: char, forward: bool, till: bool, line: &str) {
+        self.last_find = Some((target, forward, till));
+        let chars: Vec<char> = line.chars().collect();
+        let found = if forward {
+            (self.column + 1..chars.len()).find(|&at| chars[at] == target)
+        } else {
+            (0..self.column.min(chars.len())).rev().find(|&at| chars[at] == target)
+        };
+        let Some(at) = found else {
+            return;
+        };
+        self.column = if till {
+            // One short of the target, from whichever side the cursor came.
+            if forward {
+                at.saturating_sub(1)
+            } else {
+                at + 1
+            }
+        } else {
+            at
+        };
+    }
+
     /// One toggle per shape: the same shape again ends the selection, a
     /// different one re-anchors it in the new shape from the same spot.
     fn toggle(&mut self, kind: SelectKind) {
@@ -232,6 +294,49 @@ mod word_motion_tests {
         assert_eq!((mode.row, mode.column), (0, 12));
         mode.apply_word(Motion::WordRight, 3, text);
         assert_eq!((mode.row, mode.column), (1, 2), "wraps to the next word");
+    }
+
+    #[test]
+    fn f_jumps_forward_to_the_character_and_t_stops_short() {
+        let line = "cargo build --release";
+        let mut mode = CopyMode::default();
+        mode.apply_find('l', true, false, line);
+        assert_eq!(mode.column, 9, "the first `l` ahead of the cursor");
+        assert_eq!(mode.last_find, Some(('l', true, false)));
+
+        let mut till = CopyMode::default();
+        till.apply_find('l', true, true, line);
+        assert_eq!(till.column, 8, "`t` stops one short of the target");
+    }
+
+    #[test]
+    fn a_character_the_line_does_not_have_moves_nothing() {
+        let mut mode = CopyMode {
+            column: 3,
+            ..Default::default()
+        };
+        mode.apply_find('z', true, false, "cargo build");
+        assert_eq!(mode.column, 3);
+        assert_eq!(
+            mode.last_find,
+            Some(('z', true, false)),
+            "remembered anyway, so `;` can try again on another line"
+        );
+    }
+
+    #[test]
+    fn semicolon_repeats_the_find_from_where_it_landed() {
+        let line = "cargo build --release";
+        let mut mode = CopyMode::default();
+        mode.apply_find('l', true, false, line);
+        assert_eq!(mode.column, 9);
+        // `;` is the same find again: the window replays last_find.
+        let (target, forward, till) = mode.last_find.expect("a find to repeat");
+        mode.apply_find(target, forward, till, line);
+        assert_eq!(mode.column, 16, "the next `l` along");
+        // `,` is the same find, mirrored.
+        mode.apply_find(target, !forward, till, line);
+        assert_eq!(mode.column, 9, "back to the previous `l`");
     }
 
     #[test]
@@ -506,8 +611,7 @@ mod tests {
         let mut mode = CopyMode {
             row: 0,
             column: 15,
-            anchor: None,
-            kind: SelectKind::Cell,
+            ..Default::default()
         };
         mode.apply(Motion::Down, 3, |row| if row == 1 { 4 } else { 20 });
         assert_eq!(mode.column, 3, "the shorter line has no column 15");
@@ -533,8 +637,7 @@ mod tests {
         let mut mode = CopyMode {
             row: 3,
             column: 5,
-            anchor: None,
-            kind: SelectKind::Cell,
+            ..Default::default()
         };
         mode.apply(Motion::ToggleSelection, 10, width_of);
         mode.apply(Motion::Up, 10, width_of);

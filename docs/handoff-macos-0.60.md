@@ -14,6 +14,19 @@ macOS 机器上继续工作的唯一入口：按顺序执行，逐项打勾，�
 - Windows 已验证：MSI 安装（`dist/Unterm-0.60.0-x64.msi`）、内置 selftest
   14/14、I/O・分屏・多 Tab・主题切换・截屏、0.57.4 外观逐面对齐、exe 图标与
   版本信息、启动 761ms vs 0.57.4 1349ms。
+- 2026-07-31 当日新增（详见 `docs/parity-gap-audit-2026-07-31.md` 与台账
+  "Remediation (same day)" 一节）：
+  - 外观对齐补完：真实行高度量、主题全窗一致、chrome 12pt/等宽 facts、
+    侧栏小写标题+单指示符+呼吸、∨ 菜单恢复 0.57.4 全清单、exe 图标与
+    版本信息、ScaleFactorChanged 处理。
+  - 交互级缺口修复：A 级 4/4 清零（关窗确认、tab 右键菜单、状态栏点击
+    接线、选区体系）；B 级大部清零（alt-screen 滚轮、拖拽自动滚屏、侧栏
+    五项、链接单击打开、拖放粘贴路径、会话恢复、更新轮询；通知/search/
+    配置兑现为部分完成）；C 级过半（copy mode 词移动与 V/Ctrl-v、顶栏
+    双击最大化与滚轮切 tab、pane 点击聚焦与滚轮按指针路由）。
+  - CI 三平台（Linux/macOS/Windows）首次全绿；门禁计数体系已校准
+    （`fc79c8ad`、`9b869c22`），门禁保持强制而非跳过。
+  - master 已合并至 `540a84df`。
 
 ## macOS 侧任务（按序）
 
@@ -27,6 +40,10 @@ macOS 机器上继续工作的唯一入口：按顺序执行，逐项打勾，�
    - 对照 0.57.4 DMG（GitHub Releases `Unterm-macos-v0.57.4.dmg`）做
      与 Windows 同口径的外观对比（顶栏/侧栏/状态栏/∨菜单/命令面板），
      Windows 侧的对齐结论见台账 "Chrome alignment" 一节。
+   - 把 `docs/parity-gap-audit-2026-07-31.md` 中标 `[x]` 的交互项在 macOS
+     上逐项过一遍（关窗确认、tab 右键菜单、状态栏点击、选区体系含中键
+     粘贴、alt-screen 滚轮、链接单击、拖放、会话恢复、侧栏五项等）——
+     这些修复的验收都在 Windows 真机做的，mac 行为需独立确认。
 3. **macOS 专属 FR（台账中 runtime pending 的 mac 项）**
    - FR-CAP-006：`capture.window_scroll` 滚动拼接另一个 App 的窗口。
    - FR-PROF-003：Keychain 后端 set-secret round-trip（写入→解析→删除）。

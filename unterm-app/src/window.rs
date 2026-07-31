@@ -2398,7 +2398,7 @@ impl App {
             // An action under the pointer gets a rounded surface, inset from
             // the bar's edges so it reads as a button rather than as a column.
             if is_hovered && !matches!(piece.item, crate::topbar::Item::Wordmark) {
-                let inset = 4.0 * pt;
+                let inset = 3.0 * pt;
                 quads.backgrounds.extend(unterm_render::rounded::panel(
                     piece.left,
                     inset,
@@ -2415,7 +2415,7 @@ impl App {
             if piece.item == crate::topbar::Item::Action(crate::keys::Action::TreeSidebar)
                 && self.tree.is_some()
             {
-                let inset = 4.0 * pt;
+                let inset = 3.0 * pt;
                 quads.backgrounds.extend(unterm_render::rounded::panel(
                     piece.left,
                     inset,
@@ -2912,6 +2912,7 @@ impl App {
                 self.drawn_revision = None;
             }
             Action::QuickSelect => self.open_quick_select(),
+            Action::Insights => self.open_insights(),
             Action::CockpitInbox => {
                 self.inbox_open = !self.inbox_open;
                 self.inbox_selected = 0;
@@ -3537,6 +3538,11 @@ impl App {
         }
         for (pane, text) in announcements {
             unterm_services::cockpit::status::on_notification(pane, None, &text);
+            // The window says so where the eye is; when the eye is elsewhere,
+            // the system's own notification carries it.
+            if !self.focused {
+                let _ = unterm_services::toast::notify("Unterm", &text);
+            }
             self.show_notice(format!("\u{1F514} {text}"));
         }
 
@@ -4215,10 +4221,20 @@ impl App {
             WinitKey::Named(winit::keyboard::NamedKey::Escape) => {}
             WinitKey::Character(text) => {
                 typed.push_str(text);
-                if let Some(hit) = found.iter().find(|item| item.label == typed) {
+                // Labels are lowercase, but typing one with shift held is a
+                // different request -- 0.57.4's "and type it into the pane".
+                // Matching has to fold the case, or the shifted spelling
+                // could never hit anything.
+                let wants_paste = typed.chars().any(|ch| ch.is_uppercase());
+                let lowered = typed.to_lowercase();
+                if let Some(hit) = found.iter().find(|item| item.label == lowered) {
                     let text = hit.text.clone();
                     self.copy_text(&text);
-                } else if found.iter().any(|item| item.label.starts_with(&typed)) {
+                    if wants_paste {
+                        let pane = self.focused_session();
+                        let _ = self.engine.paste_input(pane, &text);
+                    }
+                } else if found.iter().any(|item| item.label.starts_with(&lowered)) {
                     // A prefix of a longer label: wait for the rest.
                     self.quick_select = Some((found, typed));
                 }
@@ -4246,6 +4262,31 @@ impl App {
             WinitKey::Character(text) => Some(text.to_string()),
             _ => None,
         };
+
+        // An armed `f`/`t` owns the next character: it is the target to jump
+        // to, not a motion -- without this, `ft` could never find a literal
+        // `t`. Escape disarms; anything that is not a character is neither a
+        // target nor a reason to give up waiting for one.
+        if let Some((forward, till)) = mode.pending_find {
+            if named.as_deref() == Some("Escape") {
+                mode.pending_find = None;
+            } else if let Some(target) = character.as_deref().and_then(|text| {
+                let mut chars = text.chars();
+                let first = chars.next()?;
+                chars.next().is_none().then_some(first)
+            }) {
+                mode.pending_find = None;
+                let line = self.line_text(mode.row);
+                mode.apply_find(target, forward, till, &line);
+            }
+            self.copy_mode = Some(mode);
+            self.drawn_revision = None;
+            if let Some(live) = self.state.as_ref() {
+                live.window.request_redraw();
+            }
+            return true;
+        }
+
         let Some(motion) =
             crate::copy_mode::motion_for(named.as_deref(), character.as_deref(), self.ctrl_held)
         else {
@@ -4262,6 +4303,21 @@ impl App {
                     self.copy_text(&text);
                 }
                 self.copy_mode = None;
+            }
+            crate::copy_mode::Motion::Find { forward, till } => {
+                mode.pending_find = Some((forward, till));
+                self.copy_mode = Some(mode);
+            }
+            crate::copy_mode::Motion::RepeatFind(same_direction) => {
+                if let Some((target, forward, till)) = mode.last_find {
+                    let direction = if same_direction { forward } else { !forward };
+                    let line = self.line_text(mode.row);
+                    mode.apply_find(target, direction, till, &line);
+                    // `,` mirrors this one jump, not the remembered find:
+                    // `;` afterwards must still go the way the `f` did.
+                    mode.last_find = Some((target, forward, till));
+                }
+                self.copy_mode = Some(mode);
             }
             motion @ (crate::copy_mode::Motion::WordLeft
             | crate::copy_mode::Motion::WordRight) => {
@@ -4294,6 +4350,21 @@ impl App {
             live.window.request_redraw();
         }
         true
+    }
+
+    /// One row of the screen as plain text, for the motions that need to see
+    /// characters rather than widths.
+    fn line_text(&self, row: usize) -> String {
+        self.state
+            .as_ref()
+            .and_then(|live| self.engine.read_styled_screen(live.session_id).ok())
+            .and_then(|snapshot| {
+                snapshot
+                    .lines
+                    .get(row)
+                    .map(|line| line.cells.iter().map(|cell| cell.ch).collect())
+            })
+            .unwrap_or_default()
     }
 
     /// How many rows the screen has, and how wide each one's text is.
@@ -4906,6 +4977,48 @@ impl App {
         ]
     }
 
+    /// The Insights card: what the AI layer is seeing, as rows to read.
+    ///
+    /// A read-only palette rather than a bespoke overlay: Esc, arrows and
+    /// clicking-to-dismiss already work there, and rows whose command is
+    /// `Nothing` cannot run anything by accident.
+    fn open_insights(&mut self) {
+        use unterm_services::i18n::t_args;
+        let row = |label: String| crate::palette::Entry {
+            label,
+            hint: String::new(),
+            command: crate::palette::Command::Nothing,
+        };
+        let status = self.status();
+        let snapshot = unterm_mcp::handler::insights_mcp_snapshot(8);
+        let mut entries = vec![
+            row(t_args("insights.shell", &[("shell", &status.shell)])),
+            row(t_args("insights.cwd", &[("cwd", &status.directory)])),
+            row(t_args(
+                "insights.inputs",
+                &[("count", &snapshot.input_count.to_string())],
+            )),
+            row(t_args(
+                "insights.agents",
+                &[("count", &snapshot.agents_seen.to_string())],
+            )),
+            row(t_args(
+                "insights.suggestions",
+                &[("count", &snapshot.pending_suggestions.to_string())],
+            )),
+            row(t_args(
+                "insights.confirmations",
+                &[("count", &snapshot.pending_confirmations.to_string())],
+            )),
+        ];
+        // The tail of the audit log, one row each: "what just happened" is
+        // the question an Insights card is opened to answer.
+        for entry in &snapshot.recent_audit {
+            entries.push(row(entry.clone()));
+        }
+        self.open_palette(entries);
+    }
+
     fn open_palette(&mut self, entries: Vec<crate::palette::Entry>) {
         self.palette = Some(crate::palette::Palette::new(entries));
         self.drawn_revision = None;
@@ -5249,6 +5362,8 @@ impl App {
             }
             crate::palette::Command::OpenTabRename { index } => self.open_tab_rename(index),
             crate::palette::Command::SelectCaptureRegion => self.begin_region_selection(),
+            // Information rows: reading them was the point.
+            crate::palette::Command::Nothing => {}
             crate::palette::Command::Browse { path, then } => {
                 // Stays open on the new directory rather than closing: picking
                 // a folder three deep should be three keystrokes, not three

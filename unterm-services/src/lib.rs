@@ -26,6 +26,7 @@ pub fn system_beep() {
 }
 pub mod settings;
 pub mod theme_state;
+pub mod toast;
 pub mod window_capture;
 
 /// What this build calls itself, stamped into recordings and reported to

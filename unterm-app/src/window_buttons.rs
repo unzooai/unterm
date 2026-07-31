@@ -26,7 +26,10 @@ pub enum Button {
 /// How big the icon is drawn inside its button, as a fraction of the button's
 /// height. The previous front end drew a 10pt glyph in a title bar; this keeps
 /// the same proportion whatever the cell size.
-const ICON: f32 = 0.42;
+// 0.57.4 drew caption glyphs at 7.5pt inside a ~22pt-tall bar: about a
+// third of the height, not the 0.42 that made every glyph read oversized
+// next to the system's own buttons.
+const ICON: f32 = 0.34;
 
 /// Windows' own close-button red. Not derived from the theme: it means "this
 /// closes the window" and it means it in every theme.

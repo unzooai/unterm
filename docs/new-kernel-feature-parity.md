@@ -632,6 +632,48 @@ enforcement, update polling, five overlays), and several surfaces shipped at
 a quarter of their old depth. That audit, not this ledger's "verified"
 column, is the standard for calling the kernel replacement complete.
 
+## Remediation (same day)
+
+The gaps that correction named were then closed in bulk on this branch
+(`88a33bc8`..`65d51d2f`), with the audit checklist updated row by row as each
+landed:
+
+- **A level: 4 of 4 closed.** Close confirmation with foreground-process
+  detection (and a `window_close_confirmation = "NeverPrompt"` opt-out); the
+  sidebar/tab right-click context menu, with every chrome right-click
+  swallowed so nothing falls through to paste; every painted status-bar click
+  target wired (cwd copy, project jump, both capture variants, theme, MCP
+  audit export, proxy/profile opening the settings page); and the selection
+  system — copy on release, double-click word, triple-click line, Shift+click
+  extension, middle-click paste, block selection back on Alt. Primary
+  selection remains a Linux-side item.
+- **B level: mostly closed.** Done: alt-screen wheel-to-arrow (x3 per notch,
+  application-cursor aware), drag auto-scroll past the pane edge with
+  cross-screen selection, all five sidebar behaviours (wheel scrolling,
+  row hover, width drag, visible scrollbar, press-drag tab reorder),
+  plain-click link opening with an always-on hover underline (Ctrl+click
+  retained), drag-and-drop file paths pasted under the quoting rules,
+  session restore (`last_session.json` geometry, maximise state and per-tab
+  cwds — machine-verified restoring 2250x1200 exactly), and startup update
+  polling. Partially closed: notifications (OSC 9/777 parsing, status-bar
+  bell, background-tab unread and Cockpit hooks are live; a system toast is
+  not), search (match colouring, arrow stepping, Ctrl-U and space input work;
+  Ctrl-R case/regex toggles remain), and configuration honouring (schema
+  check on load plus `enable_scroll_bar`, `window_close_confirmation`,
+  `audible_bell` and `default_cwd` now read; the remaining dead keys and the
+  `[keys]`/`[env]` sections still are not). B15's five overlays stay open.
+- **C level: over half closed.** Copy mode gained w/b word motions, V line
+  selection and Ctrl-v block selection with tests, and quick select returned
+  to the old 14-category shape; the top bar answers double-click maximise,
+  close confirmation, the Cockpit chips and wheel tab switching; clicking an
+  inactive pane focuses it without selecting and the wheel routes to the pane
+  under the pointer. C19's oddments are partially restored (window title
+  format, audible bell, `+` right-click shell selector, `default_cwd`).
+- **CI is green on Linux, macOS and Windows for the first time**, and the
+  size/test gate counts were recalibrated to what actually exists
+  (`fc79c8ad`, `9b869c22`) so the gates stay enforced rather than skipped.
+- The branch has been merged into `master` through `540a84df`.
+
 ## Confirmed open work
 
 1. Publish or otherwise run the parity branch on native Linux/macOS CI, then
