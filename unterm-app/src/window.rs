@@ -352,6 +352,9 @@ pub struct App {
     inbox_selected: usize,
     /// Whether the strip of tabs down the left is showing.
     sidebar_open: bool,
+    /// Whether the pane scrollbar is drawn at all — `enable_scroll_bar`,
+    /// which the schema promised and nothing read until now.
+    scrollbar_enabled: bool,
     /// The strip's first visible row, for lists longer than the window.
     sidebar_scroll: usize,
     /// Its width in points, once somebody has dragged it.
@@ -533,6 +536,11 @@ impl App {
             inbox_open: false,
             inbox_selected: 0,
             sidebar_open: true,
+            scrollbar_enabled: config
+                .bool_of("enable_scroll_bar")
+                .ok()
+                .flatten()
+                .unwrap_or(true),
             sidebar_scroll: 0,
             sidebar_points: None,
             sidebar_collapsed: Default::default(),
@@ -936,6 +944,9 @@ impl App {
     /// Whether the pointer is over the scrollbar's track.
     /// Whether the pointer is on the status bar's quick-action button.
     fn pointer_on_scrollbar(&self) -> bool {
+        if !self.scrollbar_enabled {
+            return false;
+        }
         let Some(live) = self.state.as_ref() else {
             return false;
         };
@@ -2505,6 +2516,9 @@ impl App {
     }
 
     fn append_scrollbar(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        if !self.scrollbar_enabled {
+            return;
+        }
         let Some(live) = self.state.as_ref() else {
             return;
         };
@@ -2576,15 +2590,13 @@ impl App {
         });
     }
 
-    /// Underline the link the pointer is over, while Ctrl says a click opens.
+    /// Underline the link the pointer is over, so a link is discoverable by
+    /// pointing at it -- as it always was.
     ///
     /// Only while the modifier is down: a line that appears under everything
     /// the pointer passes is noise, and one that appears when clicking would
     /// do something is a hint.
     fn append_hovered_link(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
-        if !self.ctrl_held {
-            return;
-        }
         let Some(link) = self.link_under_pointer() else {
             return;
         };
@@ -6304,6 +6316,22 @@ impl ApplicationHandler for App {
                 }
             }
 
+            WindowEvent::DroppedFile(path) => {
+                // A file dropped on the terminal types its path, quoted when
+                // the shell would need it to be -- ready to be an argument.
+                let text = path.display().to_string();
+                let plain = text
+                    .chars()
+                    .all(|ch| ch.is_alphanumeric() || "_-./:\\~".contains(ch));
+                let quoted = if plain { text } else { format!("\"{text}\"") };
+                let pane = self.focused_session();
+                let _ = self.engine.paste_input(pane, &quoted);
+                self.drawn_revision = None;
+                if let Some(live) = self.state.as_ref() {
+                    live.window.request_redraw();
+                }
+            }
+
             WindowEvent::CloseRequested => {
                 // A running program earns one confirmation before its window
                 // is taken away; 0.57.4 asked, and a stray click on the cross
@@ -6604,6 +6632,17 @@ impl ApplicationHandler for App {
                     return;
                 }
                 if self.drag.is_some() {
+                    // Dragging past the edge scrolls the view along, so a
+                    // selection is not capped at one screen of text.
+                    if let Some(live) = self.state.as_ref() {
+                        let session_id = live.session_id;
+                        let bottom = live.height as f32 - self.status_bar_height();
+                        if self.pointer.1 < self.terminal_top() {
+                            let _ = self.engine.scroll_viewport_by(session_id, 1);
+                        } else if self.pointer.1 > bottom {
+                            let _ = self.engine.scroll_viewport_by(session_id, -1);
+                        }
+                    }
                     let point = self.cell_under_pointer();
                     if let Some(drag) = self.drag.as_mut() {
                         drag.extend(point);
@@ -6831,13 +6870,26 @@ impl ApplicationHandler for App {
                         self.drawn_revision = None;
                     }
                     ElementState::Released => {
+                        // A press that never moved is a click, and a click on
+                        // a link opens it -- the way it worked before Ctrl
+                        // became a requirement.
+                        let was_click = self
+                            .drag
+                            .map(|drag| drag.selection().is_none())
+                            .unwrap_or(false);
                         self.update_selection();
                         self.drag = None;
-                        // Selecting is copying, exactly as it was before:
-                        // release the button and the text is already on the
-                        // clipboard.
                         if self.selected.is_some() {
+                            // Selecting is copying, exactly as it was before:
+                            // release the button and the text is already on
+                            // the clipboard.
                             self.copy_selection();
+                        } else if was_click && !self.shift_held && !self.ctrl_held {
+                            if let Some(link) = self.link_under_pointer() {
+                                if let Err(err) = crate::links::open(&link.uri) {
+                                    log::warn!("could not open {}: {err}", link.uri);
+                                }
+                            }
                         }
                     }
                 }

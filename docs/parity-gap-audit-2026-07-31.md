@@ -33,15 +33,14 @@
       （0.57.4: 滚轮×3 转 Up/Down）。
 - [ ] B7 search 无匹配高亮（0.57.4 全匹配两色着色+可点击跳转）、无
       Ctrl-R 大小写/正则切换、无 ↑↓/翻页/readline 编辑、同步全量搜索。
-- [ ] B8 拖拽选择无边缘自动滚动：选不了超一屏文本。
+- [x] B8 拖拽到上下边缘自动滚屏，选区可跨屏。
 - [~] B9 侧栏：滚轮滚动已修；滚动条/宽度拖拽/拖拽重排/行 hover 仍缺：滚轮滚动、可见滚动条、右缘宽度拖拽、拖拽重排 tab、
       行 hover 高亮（sidebar_scroll/sidebar_points 是只初始化的死字段）。
-- [ ] B10 链接发现性坍塌：点击即开→Ctrl+点击；hover 无 Hand 光标无高亮
+- [x] B10 链接：hover 恒显下划线、普通单击（未拖动、无修饰键）即打开，Ctrl+点击保留；hyperlink_rules 可配仍缺：点击即开→Ctrl+点击；hover 无 Hand 光标无高亮
       （仅按住 Ctrl 时画下划线）；hyperlink_rules 不可配。
-- [ ] B11 拖放文件零支持（0.57.4: DroppedFile→quote→paste）。
+- [x] B11 拖放文件：路径经引号规则粘贴进焦点 pane。
 - [ ] B12 会话恢复缺失：无 last_session.json（窗口几何+每 tab cwd）。
-- [ ] B13 配置系统三重失效：config_schema::check() 全仓零调用（打错字
-      静默）；14 个死键（enable_scroll_bar、window.decorations、
+- [~] B13 配置：schema check 已接入 load（未知键启动即告警）；enable_scroll_bar 已兑现；其余死键（window.decorations、
       window_close_confirmation、background_opacity 双死名、tab_bar.* 九键、
       title_button.* 三键、tab_bar_lift/inactive_dim）；[keys]/[env] 假开放
       段零读取，自定义键位迁移只写 log 不提示用户。

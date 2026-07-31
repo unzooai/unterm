@@ -260,7 +260,13 @@ pub fn load(path: Option<PathBuf>) -> (Config, Vec<ConfigError>) {
         return (Config::default(), Vec::new());
     };
     match unterm_engine::next_core::config::parse(&source) {
-        Ok(config) => (config, Vec::new()),
+        // A key the schema does not know is a setting doing nothing — the
+        // exact silent failure the schema was written to catch, and until
+        // now nothing ever asked it.
+        Ok(config) => {
+            let warnings = unterm_engine::next_core::config_schema::check(&config);
+            (config, warnings)
+        }
         Err(errors) => (Config::default(), errors),
     }
 }
