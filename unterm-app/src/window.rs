@@ -365,6 +365,9 @@ pub struct App {
     audible_bell: bool,
     /// The config's `default_cwd`, when nothing else names a directory.
     config_default_cwd: Option<std::path::PathBuf>,
+    /// `window_close_confirmation = "NeverPrompt"` turns the close
+    /// confirmation off, exactly as it always had.
+    close_prompts: bool,
     /// The strip's first visible row, for lists longer than the window.
     sidebar_scroll: usize,
     /// Its width in points, once somebody has dragged it.
@@ -570,6 +573,12 @@ impl App {
                 .ok()
                 .flatten()
                 .map(std::path::PathBuf::from),
+            close_prompts: config
+                .str_of("window_close_confirmation")
+                .ok()
+                .flatten()
+                .map(|value| !value.eq_ignore_ascii_case("neverprompt"))
+                .unwrap_or(true),
             sidebar_scroll: 0,
             sidebar_points: None,
             dragging_sidebar_width: false,
@@ -2277,6 +2286,18 @@ impl App {
         let pt = self.chrome_pt();
         let logical = window_width / self.scale.max(0.1);
         let stats = self.stats_line(window_width);
+        // The tally: how many agents the Cockpit sees, and how many wait.
+        let cockpit = {
+            let statuses = unterm_services::cockpit::status::snapshot();
+            let waiting = crate::cockpit::attention_count(&statuses);
+            if statuses.is_empty() {
+                String::new()
+            } else if waiting > 0 {
+                format!("{} ✋{waiting}", statuses.len())
+            } else {
+                format!("{}", statuses.len())
+            }
+        };
         let open = self.tree.is_some();
         // The measuring closure needs the fonts and the atlas, and so does the
         // caller afterwards -- so they are taken apart for the call and put
@@ -2290,7 +2311,7 @@ impl App {
                 crate::terminal::chrome_text_width(text, ui, atlas)
             }
         };
-        crate::topbar::layout(window_width, logical, pt, &stats, open, &mut measure)
+        crate::topbar::layout(window_width, logical, pt, &stats, &cockpit, open, &mut measure)
     }
 
     /// Draw the bar along the top: the wordmark, the facts, the actions and the
@@ -2579,6 +2600,10 @@ impl App {
         match item {
             // Both of these are handles, and were taken above.
             crate::topbar::Item::Wordmark => {}
+            crate::topbar::Item::Cockpit => {
+                self.inbox_open = !self.inbox_open;
+                self.inbox_selected = 0;
+            }
             // The pane facts begin with the running shell. In 0.57.4 that
             // shell identity was an entry point to the shell selector; making
             // it a drag handle in the new chrome removed the visible picker.
@@ -4456,6 +4481,9 @@ impl App {
     /// Whether closing now would take something down with it: several tabs,
     /// or any pane whose foreground program is not just its own idle shell.
     fn close_needs_confirmation(&self) -> bool {
+        if !self.close_prompts {
+            return false;
+        }
         let sessions =
             unterm_engine::SessionEngine::list_sessions(&self.engine).unwrap_or_default();
         if sessions.len() > 1 {
@@ -7321,6 +7349,16 @@ impl ApplicationHandler for App {
                         tree.scroll_by(-lines, visible.max(1));
                     }
                     self.drawn_revision = None;
+                    return;
+                }
+                // The wheel over the top bar walks the tabs, the way the old
+                // bar always answered it.
+                if self.pointer.1 < self.top_bar_height() {
+                    self.cycle_tab(if lines > 0 { -1 } else { 1 });
+                    self.drawn_revision = None;
+                    if let Some(live) = self.state.as_ref() {
+                        live.window.request_redraw();
+                    }
                     return;
                 }
                 // The tab strip scrolls under its own wheel, like the tree: a

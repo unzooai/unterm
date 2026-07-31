@@ -40,8 +40,8 @@
       （仅按住 Ctrl 时画下划线）；hyperlink_rules 不可配。
 - [x] B11 拖放文件：路径经引号规则粘贴进焦点 pane。
 - [x] B12 会话恢复：关窗写 last_session.json（物理尺寸/最大化/每 tab cwd），裸启动恢复几何+首 tab cwd+其余 tab；已真机验证 2250x1200 精确复原。
-- [~] B13 配置：schema check 已接入 load（未知键启动即告警）；enable_scroll_bar 已兑现；其余死键（window.decorations、
-      window_close_confirmation、background_opacity 双死名、tab_bar.* 九键、
+- [~] B13 配置：schema check 已接入 load；enable_scroll_bar、window_close_confirmation(=NeverPrompt 可关确认)、audible_bell、default_cwd 已兑现；其余死键（window.decorations、
+      background_opacity 双死名、tab_bar.* 九键、
       title_button.* 三键、tab_bar_lift/inactive_dim）；[keys]/[env] 假开放
       段零读取，自定义键位迁移只写 log 不提示用户。
 - [x] B14 更新轮询已在启动时拉起：update_check start_background_poller 零调用。
@@ -52,7 +52,7 @@
 
 - [~] C16 copy mode：w/b 词移动、V 行选、Ctrl-v 块选已实现（带测试）；
       f/F/t/T/;/, 无、退出不回滚到底；quick select 类别已补齐至旧版 14 类口径（词形检测）；大写=粘贴、字母表可配仍缺。
-- [~] C17 顶栏：双击空白最大化/还原已修，关闭钮已带确认；Cockpit ⚡/✋ 芯片、Snap Layouts、滚轮切 tab、▾ 右键等价仍缺。
+- [~] C17 顶栏：双击最大化、关闭确认、Cockpit ⚡/✋ 芯片（点击开收件箱）、滚轮切 tab 已修；Snap Layouts、▾ 右键等价仍缺。
 - [x] C18 pane 焦点：点非活动 pane 聚焦（点击吞掉不误选）、滚轮按指针路由到 pane；focus-follows-mouse 作为可选项暂不引入。
 - [ ] C19 杂项：窗口标题已恢复 `[i/N] 项目 — 标题 — Unterm (实例)`；audible bell 已恢复（可用 audible_bell=Disabled 关闭）；text_blink_rate 缺失；
       visual bell 硬编码；charselect 丢 NerdFonts/Unicode 名表（13 组→4 组）；
