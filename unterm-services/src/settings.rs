@@ -362,9 +362,13 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn the_legacy_windows_default_is_powershell_not_cmd() {
+        // What this defends is "a PowerShell, not cmd". Which PowerShell wins
+        // depends on the machine: a runner with PowerShell 7 first is still
+        // giving the right answer.
         let shell = preferred_platform_shell().expect("Windows has a preferred shell");
+        let name = shell[0].to_ascii_lowercase();
         assert!(
-            shell[0].to_ascii_lowercase().ends_with("powershell.exe"),
+            name.ends_with("powershell.exe") || name.ends_with("pwsh.exe"),
             "{shell:?}"
         );
         assert_eq!(shell.get(1).map(String::as_str), Some("-NoLogo"));
