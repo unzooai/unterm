@@ -145,6 +145,9 @@ struct PaneNotice {
     revision: u64,
     unread: bool,
     error: bool,
+    /// How many `OSC 9`/`777` notifications this pane had raised the last
+    /// time anyone looked, so each new one is announced exactly once.
+    notifications_seen: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -3360,6 +3363,7 @@ impl App {
         };
         let active_pane = self.focused_session();
         let pane_ids: Vec<u64> = sessions.iter().map(|session| session.id as u64).collect();
+        let mut announcements: Vec<(u64, String)> = Vec::new();
         for session in &sessions {
             // Schedule process/manifest detection for every pane. This is
             // non-blocking; the worker-backed cache is consumed by poll below.
@@ -3393,10 +3397,29 @@ impl App {
             if session.id == active_pane {
                 notice.unread = false;
             }
+            // A program that asked for the user's eye gets it: the pane
+            // marks itself unread, the Cockpit learns, and the bar says so.
+            if snapshot.notifications != notice.notifications_seen {
+                let fresh = snapshot.notifications > notice.notifications_seen;
+                notice.notifications_seen = snapshot.notifications;
+                if fresh {
+                    if session.id != active_pane {
+                        notice.unread = true;
+                    }
+                    if let Some(text) = snapshot.last_notification.clone() {
+                        announcements.push((session.id as u64, text));
+                    }
+                }
+            }
             notice.revision = snapshot.revision;
             unterm_services::cockpit::status::on_screen_tail(session.id as u64, &tail);
             unterm_services::cockpit::status::on_title_change(session.id as u64, &session.title);
         }
+        for (pane, text) in announcements {
+            unterm_services::cockpit::status::on_notification(pane, None, &text);
+            self.show_notice(format!("\u{1F514} {text}"));
+        }
+
         unterm_services::cockpit::status::poll(&pane_ids, |pane_id| {
             crate::statsbar::known_facts(pane_id as usize).agent_id
         });

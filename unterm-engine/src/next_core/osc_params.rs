@@ -10,6 +10,8 @@ pub(super) enum OscCommand {
     Clipboard(String),
     /// `OSC 133;A`: the shell has started drawing a new prompt.
     PromptStart,
+    /// `OSC 9` / `OSC 777;notify`: a program asking for the user's eye.
+    Notification(String),
 }
 
 pub(super) fn parse(sequence: &str) -> Option<OscCommand> {
@@ -20,6 +22,8 @@ pub(super) fn parse(sequence: &str) -> Option<OscCommand> {
         "8" => parse_osc8_hyperlink(value).map(OscCommand::Hyperlink),
         "52" => parse_osc52_clipboard(value).map(OscCommand::Clipboard),
         "133" if value.split(';').next() == Some("A") => Some(OscCommand::PromptStart),
+        "9" if !value.is_empty() => Some(OscCommand::Notification(value.to_string())),
+        "777" => parse_osc777_notification(value).map(OscCommand::Notification),
         _ => None,
     }
 }
@@ -33,6 +37,23 @@ fn parse_osc52_clipboard(value: &str) -> Option<String> {
         .decode(payload)
         .ok()?;
     String::from_utf8(decoded).ok()
+}
+
+/// `OSC 777 ; notify ; <title> ; <body>` — the urxvt form tmux and
+/// systemd-run emit. Anything other than `notify` is some other extension.
+fn parse_osc777_notification(value: &str) -> Option<String> {
+    let mut parts = value.splitn(3, ';');
+    if parts.next() != Some("notify") {
+        return None;
+    }
+    let title = parts.next().unwrap_or("").trim();
+    let body = parts.next().unwrap_or("").trim();
+    match (title.is_empty(), body.is_empty()) {
+        (true, true) => None,
+        (false, true) => Some(title.to_string()),
+        (true, false) => Some(body.to_string()),
+        (false, false) => Some(format!("{title}: {body}")),
+    }
 }
 
 fn parse_osc8_hyperlink(value: &str) -> Option<Option<String>> {

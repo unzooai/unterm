@@ -177,6 +177,10 @@ struct NextCoreScreen {
     cursor_visible: bool,
     /// How many times a program has rung the bell.
     bells: u64,
+    /// Notifications a program raised (`OSC 9`/`777`), as a running count and
+    /// the newest text — a front end compares the count between frames.
+    notifications: u64,
+    last_notification: Option<String>,
     /// Text a program asked to put on the system clipboard.
     clipboard_request: Option<String>,
     cursor_blinking: bool,
@@ -276,6 +280,8 @@ impl NextCoreScreen {
             scrollback_limit,
             cursor_visible: true,
             bells: 0,
+            notifications: 0,
+            last_notification: None,
             clipboard_request: None,
             cursor_blinking: true,
             cursor_shape: "Default".to_string(),
@@ -1434,6 +1440,10 @@ impl NextCoreScreen {
                 }
             }
             Some(osc_params::OscCommand::PromptStart) => {}
+            Some(osc_params::OscCommand::Notification(text)) => {
+                self.notifications = self.notifications.wrapping_add(1);
+                self.last_notification = Some(text);
+            }
             None => {}
         }
     }

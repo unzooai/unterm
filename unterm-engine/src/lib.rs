@@ -252,6 +252,10 @@ pub struct StyledScreenSnapshot {
     /// last frame, so two bells between frames are not one, and a reader that
     /// forgets to clear anything cannot show the same bell twice.
     pub bells: u64,
+    /// Notifications a program raised (`OSC 9`/`777`): a running count, and
+    /// the newest text so a front end can show it.
+    pub notifications: u64,
+    pub last_notification: Option<String>,
     /// What the program in this pane wants from the mouse.
     ///
     /// A front end has to ask before deciding what a click means: with
@@ -791,6 +795,10 @@ pub struct ScreenSnapshot {
     /// last frame, so two bells between frames are not one, and a reader that
     /// forgets to clear anything cannot show the same bell twice.
     pub bells: u64,
+    /// Notifications a program raised (`OSC 9`/`777`): a running count, and
+    /// the newest text so a front end can show it.
+    pub notifications: u64,
+    pub last_notification: Option<String>,
     /// What the program in this pane wants from the mouse.
     ///
     /// A front end has to ask before deciding what a click means: with
@@ -1595,6 +1603,8 @@ mod tests {
             Ok(StyledScreenSnapshot {
                 mouse: Default::default(),
                 bells: 0,
+                notifications: 0,
+                last_notification: None,
                 focus_reporting: false,
                 clipboard_request: None,
                 lines: vec![StyledScreenLine {

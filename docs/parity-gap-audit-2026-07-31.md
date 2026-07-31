@@ -27,7 +27,7 @@
 
 ## B 级 — 整块功能消失
 
-- [ ] B5 桌面通知链路断：引擎 OSC 表不解析 9/777（osc_params.rs:15-25）、
+- [~] B5 通知链路：OSC 9/777 引擎解析+状态栏🔔提示+后台 tab 未读+cockpit 挂钩已通(真机验证);系统级 toast 仍缺：引擎 OSC 表不解析 9/777（osc_params.rs:15-25）、
       app 无 toast 依赖、cockpit::on_bell/on_notification 零调用者。
 - [x] B6 alt-screen 滚轮转方向键（×3/notch，识别 application cursor keys）：less/man/vim 内滚轮无效
       （0.57.4: 滚轮×3 转 Up/Down）。

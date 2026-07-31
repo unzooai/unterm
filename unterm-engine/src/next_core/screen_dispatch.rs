@@ -342,6 +342,8 @@ fn meta(screen: &super::NextCoreScreen) -> ScreenSnapshotMeta {
         dirty_rows: screen.dirty_rows(),
         mouse: screen.mouse_modes(),
         bells: screen.bells,
+        notifications: screen.notifications,
+        last_notification: screen.last_notification.clone(),
         focus_reporting: screen.focus_event_reporting,
         clipboard_request: screen.clipboard_request.clone(),
     }

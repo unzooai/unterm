@@ -876,6 +876,8 @@ mod tests {
             dirty_rows: None,
             mouse: Default::default(),
             bells: 0,
+            notifications: 0,
+            last_notification: None,
             focus_reporting: false,
             clipboard_request: None,
         }
@@ -1411,6 +1413,8 @@ mod missing_glyph_regression {
             dirty_rows: None,
             mouse: Default::default(),
             bells: 0,
+            notifications: 0,
+            last_notification: None,
             focus_reporting: false,
             clipboard_request: None,
         };
@@ -1482,6 +1486,8 @@ mod cursor_inversion_tests {
             dirty_rows: None,
             mouse: Default::default(),
             bells: 0,
+            notifications: 0,
+            last_notification: None,
             focus_reporting: false,
             clipboard_request: None,
         }
@@ -1824,6 +1830,8 @@ mod focus_cursor_tests {
             dirty_rows: None,
             mouse: Default::default(),
             bells: 0,
+            notifications: 0,
+            last_notification: None,
             focus_reporting: false,
             clipboard_request: None,
         }
