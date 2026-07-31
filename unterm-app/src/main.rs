@@ -31,6 +31,7 @@ mod paneselect;
 mod scroll;
 mod scrollbar;
 mod search;
+mod session_restore;
 mod select;
 mod shape;
 mod sidebar;
@@ -100,6 +101,13 @@ fn main() -> anyhow::Result<()> {
 
     let event_loop = winit::event_loop::EventLoop::new()?;
     let mut app = window::App::new(&config)?;
+    // A plain launch reopens where the last one closed; naming a directory
+    // or a command on the line asks for something specific instead.
+    if args.cwd.is_none() && args.command.is_empty() {
+        if let Some(saved) = session_restore::load() {
+            app.set_restore(saved);
+        }
+    }
     app.set_start_directory(args.cwd);
     app.set_start_command(args.command);
     let run_result = event_loop.run_app(&mut app);

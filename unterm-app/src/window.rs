@@ -342,6 +342,9 @@ pub struct App {
     pane_select: Option<crate::paneselect::Selector>,
     /// Where the first shell should start, if the command line said.
     start_directory: Option<std::path::PathBuf>,
+    /// What the previous window looked like, when a plain launch should
+    /// bring it back.
+    restore: Option<crate::session_restore::LastSession>,
     /// The last clipboard request honoured, so it is not honoured twice.
     clipboard_honoured: Option<String>,
     clipboard_tx: std::sync::mpsc::Sender<ClipboardResult>,
@@ -530,6 +533,7 @@ impl App {
             quick_select: None,
             pane_select: None,
             start_directory: None,
+            restore: None,
             clipboard_honoured: None,
             clipboard_tx,
             clipboard_rx,
@@ -647,14 +651,23 @@ impl App {
                     winit::window::Icon::from_rgba(logo.into_raw(), width, height).ok()
                 })
         };
-        let attributes = Window::default_attributes()
+        let mut attributes = Window::default_attributes()
             .with_title("Unterm")
             .with_window_icon(window_icon)
             // The top bar is the title bar. A grey native one above a dark
             // one is the three-stacked-strips look the design called out.
             .with_decorations(false)
             .with_inner_size(winit::dpi::LogicalSize::new(initial_width, initial_height));
+        if let Some(saved) = &self.restore {
+            attributes = attributes.with_inner_size(winit::dpi::PhysicalSize::new(
+                saved.width,
+                saved.height,
+            ));
+        }
         let window = Arc::new(event_loop.create_window(attributes)?);
+        if self.restore.as_ref().map(|saved| saved.maximized) == Some(true) {
+            window.set_maximized(true);
+        }
         // The window knows the display's scale; the font was opened before it
         // existed, at 1.0. On a scaled panel every glyph until now was drawn
         // at a fraction of its size.
@@ -702,6 +715,13 @@ impl App {
             rows,
             command_dir: self
                 .start_directory
+                .clone()
+                .or_else(|| {
+                    self.restore
+                        .as_ref()
+                        .and_then(|saved| saved.cwds.first())
+                        .map(std::path::PathBuf::from)
+                })
                 .as_ref()
                 .map(|path| path.display().to_string()),
             command: prepare_shell(self.shell.clone()),
@@ -838,6 +858,7 @@ impl App {
         self.append_hovered_link(&mut quads);
         self.append_ghost_text(&mut quads);
         self.append_preedit(&mut quads);
+        self.append_search_matches(&mut quads);
         self.append_search_bar(window_width, &mut quads);
         self.append_copy_mode(&mut quads);
         self.append_quick_select(&mut quads);
@@ -3305,6 +3326,12 @@ impl App {
         self.start_directory = directory;
     }
 
+    /// Reopen where the last window closed: its size, and a tab per saved
+    /// directory.
+    pub fn set_restore(&mut self, saved: crate::session_restore::LastSession) {
+        self.restore = Some(saved);
+    }
+
     /// Override the configured shell for the first pane when `unterm start`
     /// supplied an explicit program after `--`.
     pub fn set_start_command(&mut self, argv: Vec<String>) {
@@ -4276,23 +4303,77 @@ impl App {
     }
 
     /// Whether closing now would take something down with it: several tabs,
-    /// or any pane with a program in front of its shell.
+    /// or any pane whose foreground program is not just its own idle shell.
     fn close_needs_confirmation(&self) -> bool {
         let sessions =
             unterm_engine::SessionEngine::list_sessions(&self.engine).unwrap_or_default();
         if sessions.len() > 1 {
             return true;
         }
-        sessions
-            .iter()
-            .any(|session| !crate::statsbar::known_facts(session.id).title.is_empty())
+        sessions.iter().any(|session| {
+            let facts = crate::statsbar::known_facts(session.id);
+            if !facts.agent.is_empty() {
+                return true;
+            }
+            let foreground = facts.title.trim_start_matches('\u{25B6}').trim();
+            // The stats line names Windows shells on purpose; a shell being
+            // itself is not a reason to ask before closing.
+            !foreground.is_empty()
+                && !crate::sidebar::same_program(foreground, &session.shell.process_name)
+        })
     }
 
     fn perform_close(&mut self) {
+        self.save_last_session();
         if let Some(live) = self.state.as_ref() {
             live.window.set_visible(false);
         }
         self.closing = true;
+    }
+
+    /// The rest of the tabs the last window had, one per saved directory.
+    fn restore_extra_tabs(&mut self) {
+        let extra: Vec<String> = self
+            .restore
+            .as_ref()
+            .map(|saved| saved.cwds.iter().skip(1).cloned().collect())
+            .unwrap_or_default();
+        if extra.is_empty() {
+            return;
+        }
+        for cwd in extra {
+            self.new_tab_in(&cwd);
+        }
+        self.select_tab(1);
+    }
+
+    /// Write down what this window looked like, for the next plain launch.
+    fn save_last_session(&mut self) {
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let size = live.window.inner_size();
+        let mut cwds = Vec::new();
+        let sessions =
+            unterm_engine::SessionEngine::list_sessions(&self.engine).unwrap_or_default();
+        for tab in self.tabs.tab_ids() {
+            let Some(pane) = self.tabs.active_pane(tab) else {
+                continue;
+            };
+            if let Some(cwd) = sessions
+                .iter()
+                .find(|session| session.id == pane)
+                .and_then(|session| session.shell.cwd.clone())
+            {
+                cwds.push(cwd);
+            }
+        }
+        crate::session_restore::save(&crate::session_restore::LastSession {
+            width: size.width,
+            height: size.height,
+            maximized: live.window.is_maximized(),
+            cwds,
+        });
     }
 
     /// The `capture:exclude` chip: the screen without this window on it. The
@@ -5697,6 +5778,51 @@ impl App {
     /// The bottom rather than the top: the tab bar is up there, and a bar
     /// that moved the terminal's rows around every time it opened would
     /// reflow the shell mid-search.
+    /// Tint every visible match, the current one brighter — a search that
+    /// highlights nothing leaves the reader hunting for what it found.
+    fn append_search_matches(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
+        let Some(search) = self.search.clone() else {
+            return;
+        };
+        if search.matches.is_empty() {
+            return;
+        }
+        let Some(live) = self.state.as_ref() else {
+            return;
+        };
+        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+            return;
+        };
+        let top_row = snapshot
+            .lines
+            .first()
+            .map(|line| line.row)
+            .unwrap_or(0);
+        let rows = snapshot.rows as i64;
+        let metrics = self.font.metrics();
+        let origin = (self.terminal_left(), self.terminal_top());
+        let accent = self.chrome().focus_rail;
+        for (index, found) in search.matches.iter().enumerate() {
+            if found.row < top_row || found.row >= top_row + rows {
+                continue;
+            }
+            let columns: usize = found
+                .text
+                .chars()
+                .map(crate::terminal::column_width)
+                .sum::<usize>()
+                .max(1);
+            let alpha = if index == search.selected { 0.45 } else { 0.18 };
+            quads.backgrounds.push(unterm_render::quads::Quad {
+                left: origin.0 + found.col as f32 * metrics.width,
+                top: origin.1 + (found.row - top_row) as f32 * metrics.height,
+                width: columns as f32 * metrics.width,
+                height: metrics.height,
+                color: [accent[0], accent[1], accent[2], alpha],
+            });
+        }
+    }
+
     fn append_search_bar(
         &mut self,
         window_width: f32,
@@ -6282,6 +6408,7 @@ impl ApplicationHandler for App {
             Ok(live) => {
                 live.window.request_redraw();
                 self.state = Some(live);
+                self.restore_extra_tabs();
             }
             Err(err) => {
                 log::error!("could not start: {err:#}");
@@ -6343,6 +6470,7 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
+                self.save_last_session();
                 if let Some(live) = self.state.take() {
                     // Destroy every session, not only the front one: a shell
                     // left running with nothing attached is a leak.

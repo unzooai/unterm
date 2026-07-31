@@ -31,7 +31,7 @@
       app 无 toast 依赖、cockpit::on_bell/on_notification 零调用者。
 - [x] B6 alt-screen 滚轮转方向键（×3/notch，识别 application cursor keys）：less/man/vim 内滚轮无效
       （0.57.4: 滚轮×3 转 Up/Down）。
-- [ ] B7 search 无匹配高亮（0.57.4 全匹配两色着色+可点击跳转）、无
+- [~] B7 search：全部可见匹配着色（当前项更亮）已修；Ctrl-R 模式切换/↑↓翻页/readline 编辑仍缺（0.57.4 全匹配两色着色+可点击跳转）、无
       Ctrl-R 大小写/正则切换、无 ↑↓/翻页/readline 编辑、同步全量搜索。
 - [x] B8 拖拽到上下边缘自动滚屏，选区可跨屏。
 - [~] B9 侧栏：滚轮滚动已修；滚动条/宽度拖拽/拖拽重排/行 hover 仍缺：滚轮滚动、可见滚动条、右缘宽度拖拽、拖拽重排 tab、
@@ -39,7 +39,7 @@
 - [x] B10 链接：hover 恒显下划线、普通单击（未拖动、无修饰键）即打开，Ctrl+点击保留；hyperlink_rules 可配仍缺：点击即开→Ctrl+点击；hover 无 Hand 光标无高亮
       （仅按住 Ctrl 时画下划线）；hyperlink_rules 不可配。
 - [x] B11 拖放文件：路径经引号规则粘贴进焦点 pane。
-- [ ] B12 会话恢复缺失：无 last_session.json（窗口几何+每 tab cwd）。
+- [x] B12 会话恢复：关窗写 last_session.json（物理尺寸/最大化/每 tab cwd），裸启动恢复几何+首 tab cwd+其余 tab；已真机验证 2250x1200 精确复原。
 - [~] B13 配置：schema check 已接入 load（未知键启动即告警）；enable_scroll_bar 已兑现；其余死键（window.decorations、
       window_close_confirmation、background_opacity 双死名、tab_bar.* 九键、
       title_button.* 三键、tab_bar_lift/inactive_dim）；[keys]/[env] 假开放
