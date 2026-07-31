@@ -371,6 +371,8 @@ pub struct App {
     sidebar_points: Option<f32>,
     /// True while a drag is holding the strip's right edge.
     dragging_sidebar_width: bool,
+    /// A held tab row mid-reorder: which tab, and where it is being carried.
+    dragging_tab: Option<usize>,
     /// Projects the reader has folded away. Window state rather than disk
     /// state: it survives repaints and resizing without any file being read.
     sidebar_collapsed: std::collections::HashSet<String>,
@@ -571,6 +573,7 @@ impl App {
             sidebar_scroll: 0,
             sidebar_points: None,
             dragging_sidebar_width: false,
+            dragging_tab: None,
             sidebar_collapsed: Default::default(),
             last_sidebar_click: None,
             last_topbar_click: None,
@@ -1810,6 +1813,9 @@ impl App {
                     self.open_tab_rename(index);
                 } else {
                     self.select_tab(index as u8 + 1);
+                    // Keep holding to carry the tab to a new place in the
+                    // strip; letting go before moving is just the click.
+                    self.dragging_tab = self.tabs.tab_ids().get(index).copied();
                 }
             }
             crate::sidebar::Row::Group { key, .. } => {
@@ -6937,6 +6943,30 @@ impl ApplicationHandler for App {
                     self.scroll_to_pointer();
                     return;
                 }
+                if let Some(tab_id) = self.dragging_tab {
+                    if let Some(at) = self.sidebar_row_at(self.pointer.0, self.pointer.1) {
+                        let rows = self.sidebar_rows();
+                        // Which tab position this row corresponds to: count
+                        // the tab rows at or above it.
+                        let target = rows
+                            .iter()
+                            .take(at + 1)
+                            .filter(|row| matches!(row, crate::sidebar::Row::Tab { .. }))
+                            .count()
+                            .saturating_sub(1);
+                        let ids = self.tabs.tab_ids();
+                        if let Some(current) = ids.iter().position(|id| *id == tab_id) {
+                            let delta = target as isize - current as isize;
+                            if delta != 0 && self.tabs.move_tab_relative(tab_id, delta) {
+                                self.drawn_revision = None;
+                                if let Some(live) = self.state.as_ref() {
+                                    live.window.request_redraw();
+                                }
+                            }
+                        }
+                    }
+                    return;
+                }
                 if self.dragging_sidebar_width {
                     // The strip follows the pointer; `sidebar::width` clamps
                     // it between readable and greedy.
@@ -7155,6 +7185,10 @@ impl ApplicationHandler for App {
                 }
                 if state == ElementState::Released && self.dragging_sidebar_width {
                     self.dragging_sidebar_width = false;
+                    return;
+                }
+                if state == ElementState::Released && self.dragging_tab.is_some() {
+                    self.dragging_tab = None;
                     return;
                 }
                 if state == ElementState::Pressed && self.pointer_on_scrollbar() {
