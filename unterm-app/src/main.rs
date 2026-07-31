@@ -6,6 +6,7 @@
 
 mod args;
 mod background;
+mod brand;
 mod charselect;
 mod chrome;
 mod chrome_font;

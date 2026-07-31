@@ -2525,49 +2525,49 @@ impl App {
                 continue;
             }
             let color = match piece.item {
-                // Both pieces of text are secondary: the window's name and the
-                // facts about a pane are context, not the thing being read.
-                crate::topbar::Item::Wordmark | crate::topbar::Item::Stats => chrome.dim_text,
+                // The facts about a pane are context, not the thing being
+                // read. The wordmark carries the brand at the bar's own
+                // full strength, as 0.57.4 set it.
+                crate::topbar::Item::Wordmark => foreground,
+                crate::topbar::Item::Stats => chrome.dim_text,
                 _ if is_hovered => foreground,
                 _ => chrome.dim_text,
             };
             if piece.item == crate::topbar::Item::Wordmark {
-                // v0.57.4's exact optical Command Loop master: a compact U
-                // whose open edge resolves into a terminal prompt. Keep both
-                // original polylines rather than approximating the diagonals
-                // with an axis-aligned hook.
-                let mark_left = piece.left;
+                // v0.57.4's Command Loop mark, through a rasterizer the way
+                // the old build drew it. As bare quads the same coordinates
+                // came out as staircases -- and a head taller than the word,
+                // because the box was the chrome's loose line rather than the
+                // em the word is actually set in.
                 let cell_width = self.chrome_width("M");
-                let mark_width = cell_width * 0.95;
-                let mark_height = self.chrome_font.metrics().height * 0.95;
+                let em = crate::ui_tokens::UI_FONT_SIZE as f32 * pt;
+                let mark_width = (em * 0.72).round().max(8.0);
+                let mark_height = (em * 1.0).round().max(8.0);
                 let mark_top = ((height - mark_height) / 2.0).max(0.0);
-                let point =
-                    |x: f32, y: f32| (mark_left + x * mark_width, mark_top + y * mark_height);
-                let loop_stroke = [
-                    point(1.0 / 5.0, 1.0 / 10.0),
-                    point(1.0 / 5.0, 3.0 / 5.0),
-                    point(1.0 / 4.0, 7.0 / 10.0),
-                    point(2.0 / 5.0, 4.0 / 5.0),
-                    point(11.0 / 20.0, 4.0 / 5.0),
-                    point(7.0 / 10.0, 7.0 / 10.0),
-                    point(3.0 / 4.0, 3.0 / 5.0),
-                ];
-                let prompt_stroke = [
-                    point(27.0 / 40.0, 17.0 / 40.0),
-                    point(4.0 / 5.0, 11.0 / 20.0),
-                    point(27.0 / 40.0, 27.0 / 40.0),
-                ];
-                let stroke = (0.9 * pt).max(2.0);
-                quads.backgrounds.extend(unterm_render::strokes::polyline(
-                    &loop_stroke,
-                    stroke,
-                    chrome.focus_rail,
-                ));
-                quads.backgrounds.extend(unterm_render::strokes::polyline(
-                    &prompt_stroke,
-                    stroke,
-                    chrome.focus_rail,
-                ));
+                let stroke = (1.15 * pt).max(2.0);
+                let key = unterm_render::atlas::GlyphKey {
+                    stack: crate::chrome_font::STACK,
+                    face: usize::MAX,
+                    glyph_index: u32::MAX,
+                    pixel_size: mark_height as u32,
+                };
+                if self.atlas.get(key).is_none() {
+                    let glyph = crate::brand::rasterize(
+                        mark_width as usize,
+                        mark_height as usize,
+                        stroke,
+                    );
+                    self.atlas.insert(key, &glyph);
+                }
+                if let Some(slot) = self.atlas.get(key) {
+                    quads.glyphs.push(unterm_render::quads::glyph_quad(
+                        slot,
+                        piece.left,
+                        mark_top + mark_height,
+                        chrome.focus_rail,
+                        &self.atlas,
+                    ));
+                }
                 self.append_chrome(
                     &text,
                     color,
@@ -7393,11 +7393,21 @@ impl ApplicationHandler for App {
                     self.scroll_to_pointer();
                     return;
                 }
-                if self.quick_menu.is_some() {
-                    // The row under the pointer lights up as it moves.
-                    self.drawn_revision = None;
-                    if let Some(live) = self.state.as_ref() {
-                        live.window.request_redraw();
+                if let Some(menu) = self.quick_menu.as_mut() {
+                    // The row under the pointer lights up -- but only a
+                    // change of row is worth a frame. Repainting on every
+                    // motion event turned a busy pane plus an open menu
+                    // into a redraw storm.
+                    let over = {
+                        let (x, y) = self.pointer;
+                        menu.row_at(x, y)
+                    };
+                    if menu.hover != over {
+                        menu.hover = over;
+                        self.drawn_revision = None;
+                        if let Some(live) = self.state.as_ref() {
+                            live.window.request_redraw();
+                        }
                     }
                 }
                 if let Some(tab_id) = self.dragging_tab {
