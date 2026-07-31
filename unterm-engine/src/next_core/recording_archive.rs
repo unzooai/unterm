@@ -167,6 +167,9 @@ mod tests {
 
     #[test]
     fn project_slug_sanitizes_project_basename() {
+        // A backslash only separates on Windows; elsewhere that string is
+        // one long basename and the assertion would assert the wrong thing.
+        #[cfg(windows)]
         assert_eq!(project_slug(Some("C:\\work\\my app")), "my-app");
         assert_eq!(project_slug(Some("/tmp/app.alpha")), "app.alpha");
         assert_eq!(project_slug(None), "_orphan");

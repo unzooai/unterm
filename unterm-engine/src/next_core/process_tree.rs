@@ -170,6 +170,12 @@ mod tests {
 
     #[test]
     fn summary_prefers_known_agent_descendant() {
+        // The fixture is a Windows process tree -- powershell.exe hosting
+        // node.exe -- and its path arithmetic is Windows path arithmetic.
+        if cfg!(not(windows)) {
+            return;
+        }
+
         let helper =
             process_info_for_test(30, 20, "node.exe", vec!["node".to_string()], 30, Vec::new());
         let codex = process_info_for_test(
