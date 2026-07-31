@@ -141,7 +141,7 @@ $Suites = @(
         Name = "config migration"
         Package = "unterm-engine"
         Filter = "next_core::config_migrate::tests::"
-        ExpectedCount = 21
+        ExpectedCount = 28
         RequiredTests = @(
             "next_core::config_migrate::tests::converts_the_ordinary_assignments",
             "next_core::config_migrate::tests::a_nested_table_becomes_a_section",
@@ -177,7 +177,7 @@ $Suites = @(
         Name = "tab titles"
         Package = "unterm-engine"
         Filter = "next_core::tab_title::tests::"
-        ExpectedCount = 15
+        ExpectedCount = 16
         RequiredTests = @(
             "next_core::tab_title::tests::an_empty_title_falls_back_to_the_running_program",
             "next_core::tab_title::tests::a_placeholder_title_is_treated_as_no_title",
@@ -293,15 +293,23 @@ $Suites = @(
         Name = "app shell"
         Package = "unterm-app"
         Filter = "window::tests::"
-        ExpectedCount = 7
+        ExpectedCount = 11
         RequiredTests = @(
-            "window::tests::the_configured_shell_is_used",
-            "window::tests::a_config_naming_no_shell_leaves_the_choice_to_the_engine",
-            "window::tests::a_shell_can_carry_its_arguments",
-            "window::tests::cycling_forward_from_the_last_tab_wraps_to_the_first",
-            "window::tests::cycling_back_from_the_first_tab_wraps_to_the_last",
-            "window::tests::a_tab_that_is_no_longer_there_cycles_from_the_start",
-            "window::tests::cycling_with_no_tabs_answers_rather_than_dividing_by_zero"
+            @(
+                "window::tests::the_configured_shell_is_used",
+                "window::tests::a_shell_can_carry_its_arguments",
+                "window::tests::cycling_forward_from_the_last_tab_wraps_to_the_first",
+                "window::tests::cycling_back_from_the_first_tab_wraps_to_the_last",
+                "window::tests::a_tab_that_is_no_longer_there_cycles_from_the_start",
+                "window::tests::cycling_with_no_tabs_answers_rather_than_dividing_by_zero"
+            # A config naming no shell resolves differently by design: Windows
+            # keeps its legacy PowerShell default, everywhere else the engine
+            # chooses -- each platform carries its own cfg-gated test.
+            ) + $(if ($env:OS -eq "Windows_NT") {
+                @("window::tests::a_config_naming_no_shell_keeps_the_legacy_powershell_default")
+            } else {
+                @("window::tests::a_config_naming_no_shell_leaves_the_choice_to_the_engine")
+            })
         )
     },
     @{
@@ -310,7 +318,7 @@ $Suites = @(
         Name = "app search"
         Package = "unterm-app"
         Filter = "search::tests::"
-        ExpectedCount = 13
+        ExpectedCount = 14
         RequiredTests = @(
             "search::tests::stepping_past_the_last_match_wraps_to_the_first",
             "search::tests::stepping_with_no_matches_answers_rather_than_dividing_by_zero",
@@ -424,7 +432,7 @@ $Suites = @(
         Name = "left tab strip"
         Package = "unterm-app"
         Filter = "sidebar::tests::"
-        ExpectedCount = 19
+        ExpectedCount = 20
         RequiredTests = @(
             "sidebar::tests::a_single_project_gets_no_group_headers",
             "sidebar::tests::same_named_projects_are_told_apart_by_the_shortest_parent",
@@ -1546,7 +1554,7 @@ $Suites = @(
         Name = "tab strip naming"
         Package = "unterm-app"
         Filter = "sidebar::naming_tests::"
-        ExpectedCount = 3
+        ExpectedCount = 5
         RequiredTests = @(
             "sidebar::naming_tests::a_program_is_recognised_however_it_is_spelled",
             "sidebar::naming_tests::two_programs_stay_two",
@@ -1577,7 +1585,7 @@ $Suites = @(
         Name = "idle cost"
         Package = "unterm-app"
         Filter = "window::idle_cost_tests::"
-        ExpectedCount = 2
+        ExpectedCount = 3
         RequiredTests = @(
             "window::idle_cost_tests::the_resting_interval_is_slower_than_a_frame_and_faster_than_a_second",
             "window::idle_cost_tests::housekeeping_is_slower_than_the_tick"
