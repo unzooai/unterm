@@ -6876,6 +6876,26 @@ impl ApplicationHandler for App {
                     self.drawn_revision = None;
                     return;
                 }
+                // The tab strip scrolls under its own wheel, like the tree: a
+                // strip that scrolls the pane beside it is a strip you cannot
+                // reach the bottom of.
+                if self.sidebar_open && self.tree.is_none() {
+                    if let Some((left, top, width, height, _row_height)) = self.sidebar_dock() {
+                        let inside = self.pointer.0 >= left
+                            && self.pointer.0 < left + width
+                            && self.pointer.1 >= top
+                            && self.pointer.1 < top + height;
+                        if inside {
+                            self.sidebar_scroll =
+                                self.sidebar_scroll.saturating_add_signed(-(lines as isize));
+                            self.drawn_revision = None;
+                            if let Some(live) = self.state.as_ref() {
+                                live.window.request_redraw();
+                            }
+                            return;
+                        }
+                    }
+                }
                 // A program that asked for the mouse gets the wheel too --
                 // that is how less and htop scroll themselves. One report per
                 // notch, because that is what a wheel is.
@@ -6896,9 +6916,27 @@ impl ApplicationHandler for App {
                     }
                 }
                 if let Some(live) = self.state.as_ref() {
+                    let session_id = live.session_id;
+                    // On the alternate screen there is nothing to scroll back
+                    // into: less, man and vim without mouse reporting expect
+                    // the wheel as arrow keys, three per notch, exactly as the
+                    // previous front end sent them.
+                    let modes = self.engine.pane_modes(session_id).unwrap_or_default();
+                    if modes.alt_screen_active {
+                        let arrow = if lines > 0 {
+                            if modes.application_cursor_keys { "\x1bOA" } else { "\x1b[A" }
+                        } else if modes.application_cursor_keys {
+                            "\x1bOB"
+                        } else {
+                            "\x1b[B"
+                        };
+                        let presses = arrow.repeat((lines.unsigned_abs().min(16)) * 3);
+                        let _ = self.engine.write_input(session_id, &presses);
+                        return;
+                    }
                     // Positive is toward older output, and the wheel rolls
                     // away from you to go back in time.
-                    let _ = self.engine.scroll_viewport_by(live.session_id, -lines);
+                    let _ = self.engine.scroll_viewport_by(session_id, -lines);
                 }
             }
 

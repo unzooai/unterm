@@ -93,6 +93,11 @@ fn main() -> anyhow::Result<()> {
     let settings_port = unterm_settings::start_web_settings_server(token);
     log::info!("settings UI listening on 127.0.0.1:{settings_port}");
 
+    // The update check, which existed but was never started: without this
+    // call the Updates page always said "never checked" and nobody was told
+    // a release had shipped.
+    unterm_settings::update_check::start_background_poller();
+
     let event_loop = winit::event_loop::EventLoop::new()?;
     let mut app = window::App::new(&config)?;
     app.set_start_directory(args.cwd);

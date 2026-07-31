@@ -29,12 +29,12 @@
 
 - [ ] B5 桌面通知链路断：引擎 OSC 表不解析 9/777（osc_params.rs:15-25）、
       app 无 toast 依赖、cockpit::on_bell/on_notification 零调用者。
-- [ ] B6 alt-screen 滚轮不转方向键：less/man/vim 内滚轮无效
+- [x] B6 alt-screen 滚轮转方向键（×3/notch，识别 application cursor keys）：less/man/vim 内滚轮无效
       （0.57.4: 滚轮×3 转 Up/Down）。
 - [ ] B7 search 无匹配高亮（0.57.4 全匹配两色着色+可点击跳转）、无
       Ctrl-R 大小写/正则切换、无 ↑↓/翻页/readline 编辑、同步全量搜索。
 - [ ] B8 拖拽选择无边缘自动滚动：选不了超一屏文本。
-- [ ] B9 侧栏五连缺：滚轮滚动、可见滚动条、右缘宽度拖拽、拖拽重排 tab、
+- [~] B9 侧栏：滚轮滚动已修；滚动条/宽度拖拽/拖拽重排/行 hover 仍缺：滚轮滚动、可见滚动条、右缘宽度拖拽、拖拽重排 tab、
       行 hover 高亮（sidebar_scroll/sidebar_points 是只初始化的死字段）。
 - [ ] B10 链接发现性坍塌：点击即开→Ctrl+点击；hover 无 Hand 光标无高亮
       （仅按住 Ctrl 时画下划线）；hyperlink_rules 不可配。
@@ -45,7 +45,7 @@
       window_close_confirmation、background_opacity 双死名、tab_bar.* 九键、
       title_button.* 三键、tab_bar_lift/inactive_dim）；[keys]/[env] 假开放
       段零读取，自定义键位迁移只写 log 不提示用户。
-- [ ] B14 更新提示不工作：update_check start_background_poller 零调用。
+- [x] B14 更新轮询已在启动时拉起：update_check start_background_poller 零调用。
 - [ ] B15 五个 overlay 无替代：Insights 面板(Ctrl+Shift+I)、debug
       overlay+Lua REPL、proxy_settings、theme_selector、tab 上下文菜单。
 
