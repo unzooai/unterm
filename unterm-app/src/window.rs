@@ -113,7 +113,6 @@ fn request_graphics(
 /// that has already been answered.
 const COCKPIT_TAIL_ROWS: usize = 8;
 
-use anyhow::Context;
 use std::sync::Arc;
 use unterm_engine::next_core::{config, key_encoding, NextCoreEngine};
 use unterm_engine::{
@@ -277,15 +276,6 @@ mod quick_menu_tests {
 struct GitDock {
     cwd: std::path::PathBuf,
     panel: crate::git::Panel,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum RegionSelection {
-    Armed,
-    Dragging {
-        start: (f32, f32),
-        current: (f32, f32),
-    },
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -480,11 +470,6 @@ pub struct App {
     /// The chevron's dropdown, anchored under its button — a menu, not a
     /// search box, which is what the palette would make of the same rows.
     quick_menu: Option<QuickMenu>,
-    /// Interactive desktop-region capture, armed or being dragged.
-    region_selection: Option<RegionSelection>,
-    /// A clean frame is presented before capturing so the selection outline
-    /// itself is not baked into the PNG.
-    pending_region_capture: Option<unterm_services::window_capture::Region>,
     /// The keyboard selection, if copy mode is on.
     copy_mode: Option<crate::copy_mode::CopyMode>,
     /// Quick select's labels, and what has been typed towards one.
@@ -544,6 +529,9 @@ pub struct App {
     /// The last press in the terminal, so a double-click can select the word
     /// and a triple-click the line, as they always have.
     terminal_click: Option<crate::sidebar::RowClick>,
+    /// The last press on a tree row: a single click browses the tree, and
+    /// only a same-row double-click reaches the shell, as 0.57.4 had it.
+    last_tree_click: Option<crate::sidebar::RowClick>,
     /// Where the last selection started, so Shift+click extends it instead
     /// of starting over.
     select_anchor: Option<unterm_engine::next_core::selection::SelectionPoint>,
@@ -715,8 +703,6 @@ impl App {
             palette: None,
             charselect_group: Default::default(),
             quick_menu: None,
-            region_selection: None,
-            pending_region_capture: None,
             copy_mode: None,
             quick_select: None,
             pane_select: None,
@@ -765,6 +751,7 @@ impl App {
             last_sidebar_click: None,
             last_topbar_click: None,
             terminal_click: None,
+            last_tree_click: None,
             select_anchor: None,
             close_confirmed: false,
             unmaximized_rect: None,
@@ -1130,7 +1117,6 @@ impl App {
         // supposed to cover, which is an invisible question.
         self.append_confirmation_banner(window_width, &mut quads);
         self.append_pane_close_buttons(&mut quads);
-        self.append_region_selection(&mut quads);
         self.append_tooltip(window_width, &mut quads);
         self.append_quick_menu(&mut quads);
         quads.raise_since(overlays);
@@ -1811,25 +1797,38 @@ impl App {
                         self.pointer.0 < left + columns as f32 * self.font.metrics().width
                     })
             });
+        let plain_dir = self
+            .tree
+            .as_ref()
+            .and_then(|tree| tree.rows.get(row))
+            .is_some_and(|row| row.is_dir && !row.is_parent && !row.is_drive);
+        let click = match self.last_tree_click.take() {
+            Some(previous) => previous.again(row, self.pointer.0, self.pointer.1),
+            None => crate::sidebar::RowClick::first(row, self.pointer.0, self.pointer.1),
+        };
+        let doubled = click.streak() >= 2;
+        self.last_tree_click = Some(click);
+        // A single click on a directory browses -- the arrow and the name
+        // both toggle it open, as 0.57.4's tree did. Only a double-click
+        // reaches the shell with a cd; parent and drive rows re-root the
+        // view on one click because they are navigation, not commands.
         let picked = self
             .tree
             .as_mut()
-            .and_then(|tree| tree.press(row, disclosure));
+            .and_then(|tree| tree.press(row, disclosure || (plain_dir && !doubled)));
         match picked {
             Some(crate::tree::Picked::Directory(path)) => {
                 if let Some(tree) = self.tree.as_mut() {
                     tree.request_root(path.clone());
                 }
-                self.change_directory(&path.display().to_string());
+                if doubled {
+                    self.change_directory(&path.display().to_string());
+                }
             }
             Some(crate::tree::Picked::File(path)) => {
                 if let Some(live) = self.state.as_ref() {
                     let text = path.display().to_string();
-                    let quoted = if text.contains(' ') {
-                        format!("\"{text}\" ")
-                    } else {
-                        format!("{text} ")
-                    };
+                    let quoted = format!("{} ", shell_quoted_path(&text));
                     let _ = self.engine.write_input(live.session_id, &quoted);
                 }
             }
@@ -3333,7 +3332,12 @@ impl App {
             }
             Action::GitPanel => self.toggle_git_panel(),
             Action::DirJump => {
-                self.open_system_directory_picker(crate::palette::BrowseThen::ChangeDirectory);
+                // The in-app jump palette is the feature, as 0.57.4 had it;
+                // the OS picker stays one of its rows (and Ctrl+O). Wired
+                // straight to the picker, the palette was orphaned -- and on
+                // anything but Windows, the action was only a failure toast.
+                let entries = self.dir_jump_entries("");
+                self.open_browser(entries, unterm_services::i18n::t("dirjump.placeholder"));
             }
             Action::LeftTabBar => {
                 self.sidebar_open = !self.sidebar_open;
@@ -3517,61 +3521,6 @@ impl App {
         }
     }
 
-    fn append_region_selection(&self, quads: &mut unterm_render::quads::FrameQuads) {
-        let Some(RegionSelection::Dragging { start, current }) = self.region_selection else {
-            return;
-        };
-        let Some(live) = self.state.as_ref() else {
-            return;
-        };
-        let left = start.0.min(current.0).clamp(0.0, live.width as f32);
-        let right = start.0.max(current.0).clamp(0.0, live.width as f32);
-        let top = start.1.min(current.1).clamp(0.0, live.height as f32);
-        let bottom = start.1.max(current.1).clamp(0.0, live.height as f32);
-        let dim = [0.0, 0.0, 0.0, 0.38];
-        let mut push = |left: f32, top: f32, width: f32, height: f32, color| {
-            if width > 0.0 && height > 0.0 {
-                quads.backgrounds.push(unterm_render::quads::Quad {
-                    left,
-                    top,
-                    width,
-                    height,
-                    color,
-                });
-            }
-        };
-        push(0.0, 0.0, live.width as f32, top, dim);
-        push(
-            0.0,
-            bottom,
-            live.width as f32,
-            live.height as f32 - bottom,
-            dim,
-        );
-        push(0.0, top, left, bottom - top, dim);
-        push(right, top, live.width as f32 - right, bottom - top, dim);
-
-        let border = self.chrome().focus_rail;
-        let thickness = (2.0 * crate::chrome_font::point(self.font_scale())).max(1.0);
-        push(left, top, right - left, thickness, border);
-        push(
-            left,
-            (bottom - thickness).max(top),
-            right - left,
-            thickness,
-            border,
-        );
-        push(left, top, thickness, bottom - top, border);
-        push(
-            (right - thickness).max(left),
-            top,
-            thickness,
-            bottom - top,
-            border,
-        );
-    }
-
-    /// Move the nearest split boundary on the requested axis by five percent.
     fn resize_pane_toward(&mut self, direction: crate::keys::Direction) {
         use crate::keys::Direction;
         use unterm_engine::next_core::layout::SplitAxis;
@@ -5007,7 +4956,7 @@ impl App {
         let Some(live) = self.state.as_ref() else {
             return;
         };
-        let command = format!("cd \"{path}\"\r");
+        let command = format!("cd {}\r", shell_quoted_path(path));
         let _ = self.engine.write_input(live.session_id, &command);
     }
 
@@ -5259,34 +5208,6 @@ impl App {
             maximized: live.window.is_maximized() || self.unmaximized_rect.is_some(),
             cwds,
         });
-    }
-
-    /// The `capture:exclude` chip: the screen without this window on it. The
-    /// window minimises for the grab and comes straight back.
-    fn capture_screen_hidden(&mut self) {
-        let Some(live) = self.state.as_ref() else {
-            return;
-        };
-        let window = live.window.clone();
-        let Some(monitor) = window.current_monitor() else {
-            return;
-        };
-        let origin = monitor.position();
-        let size = monitor.size();
-        window.set_minimized(true);
-        // Long enough for the minimise animation to leave the screen; a
-        // deliberate capture can afford a blink of stillness.
-        std::thread::sleep(std::time::Duration::from_millis(450));
-        self.pending_region_capture = Some(unterm_services::window_capture::Region::between(
-            (origin.x, origin.y),
-            (
-                origin.x.saturating_add(size.width as i32),
-                origin.y.saturating_add(size.height as i32),
-            ),
-        ));
-        self.capture_pending_region();
-        window.set_minimized(false);
-        window.focus_window();
     }
 
     /// The chip under the pointer, when the pointer is in the bottom bar.
@@ -6534,50 +6455,6 @@ impl App {
             result: crate::system_capture::capture_selected_region(hide_window)
                 .map_err(|err| format!("{err:#}")),
         });
-    }
-
-    fn begin_region_selection(&mut self) {
-        self.region_selection = Some(RegionSelection::Armed);
-        self.pending_region_capture = None;
-        self.show_notice(unterm_services::i18n::t("capture.drag_hint"));
-        if let Some(live) = self.state.as_ref() {
-            live.window.set_cursor(winit::window::CursorIcon::Crosshair);
-            live.window.request_redraw();
-        }
-        self.drawn_revision = None;
-    }
-
-    fn cancel_region_selection(&mut self) {
-        self.region_selection = None;
-        self.pending_region_capture = None;
-        if let Some(live) = self.state.as_ref() {
-            live.window.set_cursor(winit::window::CursorIcon::Default);
-            live.window.request_redraw();
-        }
-        self.drawn_revision = None;
-    }
-
-    fn capture_pending_region(&mut self) {
-        let Some(region) = self.pending_region_capture.take() else {
-            return;
-        };
-        let result = unterm_engine::mcp_host()
-            .context("the native capture host is not available")
-            .and_then(|host| {
-                host.capture_region(region.left, region.top, region.width, region.height, false)
-            });
-        let message = match result {
-            Ok(value) => value
-                .get("path")
-                .and_then(|path| path.as_str())
-                .map(|path| format!("region capture saved to {path}"))
-                .unwrap_or_else(|| "region capture saved".to_string()),
-            Err(err) => format!("region capture failed: {err:#}"),
-        };
-        self.show_notice(message);
-        if let Some(live) = self.state.as_ref() {
-            live.window.request_redraw();
-        }
     }
 
     /// Move the active tab along the bar without changing its stable id.
@@ -8370,18 +8247,6 @@ impl ApplicationHandler for App {
 
                 use winit::keyboard::Key;
 
-                if self.region_selection.is_some() {
-                    if matches!(
-                        event.logical_key,
-                        Key::Named(winit::keyboard::NamedKey::Escape)
-                    ) {
-                        self.cancel_region_selection();
-                    }
-                    // Region selection is modal: no key pressed while aiming
-                    // the rectangle may leak into the shell underneath.
-                    return;
-                }
-
                 if std::env::var_os("UNTERM_TRACE_KEYS").is_some() {
                     log::info!(
                         "key: logical={:?} physical={:?} text={:?} ctrl={} shift={} alt={}",
@@ -8403,7 +8268,12 @@ impl ApplicationHandler for App {
                     );
                 }
 
-                if self.quick_menu.is_some() {
+                // While an agent write waits on its banner, the banner owns
+                // the keys -- even over an open quick menu, whose Enter
+                // would otherwise double as silent consent.
+                if self.quick_menu.is_some()
+                    && unterm_mcp::handler::pending_confirmation_count() == 0
+                {
                     match event.logical_key {
                         Key::Named(winit::keyboard::NamedKey::Escape) => {
                             self.quick_menu = None;
@@ -8570,17 +8440,6 @@ impl ApplicationHandler for App {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = (position.x as f32, position.y as f32);
-                if let Some(RegionSelection::Dragging { start, .. }) = self.region_selection {
-                    self.region_selection = Some(RegionSelection::Dragging {
-                        start,
-                        current: self.pointer,
-                    });
-                    self.drawn_revision = None;
-                    if let Some(live) = self.state.as_ref() {
-                        live.window.request_redraw();
-                    }
-                    return;
-                }
                 if self.dragging_scrollbar {
                     self.scroll_to_pointer();
                     return;
@@ -8710,61 +8569,6 @@ impl ApplicationHandler for App {
                 let secondary = button == MouseButton::Right
                     || (button == MouseButton::Left && crate::mouse::ctrl_left_is_secondary(held));
 
-                if self.region_selection.is_some() {
-                    if secondary && state == ElementState::Pressed {
-                        self.cancel_region_selection();
-                        if button == MouseButton::Left {
-                            self.swallow_left_after_secondary = true;
-                        }
-                        return;
-                    }
-                    if button != MouseButton::Left {
-                        return;
-                    }
-                    match state {
-                        ElementState::Pressed => {
-                            self.region_selection = Some(RegionSelection::Dragging {
-                                start: self.pointer,
-                                current: self.pointer,
-                            });
-                            self.drawn_revision = None;
-                        }
-                        ElementState::Released => {
-                            let selection = self.region_selection.take();
-                            if let Some(live) = self.state.as_ref() {
-                                live.window.set_cursor(winit::window::CursorIcon::Default);
-                            }
-                            if let Some(RegionSelection::Dragging { start, current }) = selection {
-                                let origin = self
-                                    .state
-                                    .as_ref()
-                                    .and_then(|live| live.window.outer_position().ok())
-                                    .unwrap_or(winit::dpi::PhysicalPosition::new(0, 0));
-                                let region = unterm_services::window_capture::Region::between(
-                                    (
-                                        origin.x.saturating_add(start.0.round() as i32),
-                                        origin.y.saturating_add(start.1.round() as i32),
-                                    ),
-                                    (
-                                        origin.x.saturating_add(current.0.round() as i32),
-                                        origin.y.saturating_add(current.1.round() as i32),
-                                    ),
-                                );
-                                if region.is_usable() {
-                                    self.pending_region_capture = Some(region);
-                                } else {
-                                    self.show_notice("region capture cancelled".to_string());
-                                }
-                            }
-                            self.drawn_revision = None;
-                            if let Some(live) = self.state.as_ref() {
-                                live.window.request_redraw();
-                            }
-                        }
-                    }
-                    return;
-                }
-
                 // The program gets the click if it asked for one -- every
                 // button, not only the left, since that is what a program
                 // with a context menu is waiting for.
@@ -8844,9 +8648,16 @@ impl ApplicationHandler for App {
                     return;
                 }
                 // The Git dock is read-only, as in 0.57.4. Its reserved
-                // gutter swallows clicks so they cannot reach the pane beside
-                // it as terminal mouse input or a selection.
-                if self.click_git_panel() {
+                // gutter swallows presses so they cannot reach the pane
+                // beside it as terminal mouse input or a selection -- but
+                // only presses: a release belongs to whatever drag is in
+                // flight, and eating it here left selections and scrollbar
+                // drags wedged to the pointer.
+                if state == ElementState::Pressed
+                    && self.drag.is_none()
+                    && !self.dragging_scrollbar
+                    && self.click_git_panel()
+                {
                     return;
                 }
                 if state == ElementState::Pressed
@@ -9177,7 +8988,6 @@ impl ApplicationHandler for App {
 
             WindowEvent::RedrawRequested => {
                 self.draw();
-                self.capture_pending_region();
             }
 
             _ => {}
@@ -9218,6 +9028,21 @@ impl ApplicationHandler for App {
 /// Apply the current window identity and launch policy immediately before a
 /// pane is spawned. Keeping only the base command in `App` means a profile
 /// change affects future panes without mutating shells that already exist.
+/// A path quoted for the shell the pane runs.
+///
+/// The POSIX single-quote form leaves nothing for the shell to expand --
+/// `$`, backticks and spaces are all literal, and the quote itself is the
+/// one thing escaped. A repo can contain a directory named `$(rm -rf ~)`;
+/// double quotes would hand that to the shell. Windows paths cannot contain
+/// `"`, so the double-quoted form is enough for cmd and PowerShell alike.
+fn shell_quoted_path(path: &str) -> String {
+    if cfg!(windows) {
+        format!("\"{path}\"")
+    } else {
+        format!("'{}'", path.replace('\'', "'\\''"))
+    }
+}
+
 fn prepare_shell(
     mut shell: Option<portable_pty::CommandBuilder>,
 ) -> Option<portable_pty::CommandBuilder> {

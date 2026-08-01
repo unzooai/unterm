@@ -69,12 +69,153 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     Ok(Some(path))
 }
 
-#[cfg(not(windows))]
+/// Ask macOS for a directory through `osascript`'s `choose folder`.
+///
+/// The dialog lives in a short-lived helper process for the same reason the
+/// Windows one lives in PowerShell: the UI thread never waits on a modal it
+/// does not own.  The title and starting directory travel as argv into the
+/// script's `run` handler rather than being spliced into its source, so a
+/// path with a quote in it is a path, not AppleScript.
+#[cfg(target_os = "macos")]
 pub fn pick_directory(
-    _start_at: Option<&std::path::Path>,
-    _title: &str,
+    start_at: Option<&std::path::Path>,
+    title: &str,
 ) -> anyhow::Result<Option<std::path::PathBuf>> {
-    anyhow::bail!("the system folder picker is not available on this platform")
+    // `choose folder` reports a dismissed dialog as error -128, and only that
+    // error becomes the empty answer that means "cancelled".  Anything else
+    // -- a scripting restriction, a vanished start directory -- re-raises,
+    // fails the process, and reaches the caller as the failure it is.
+    const SCRIPT: &str = r#"on run argv
+  try
+    if (count of argv) is 2 then
+      return POSIX path of (choose folder with prompt (item 1 of argv) default location (POSIX file (item 2 of argv)))
+    else
+      return POSIX path of (choose folder with prompt (item 1 of argv))
+    end if
+  on error errText number errNum
+    if errNum is -128 then return ""
+    error errText number errNum
+  end try
+end run"#;
+
+    let mut command = std::process::Command::new("/usr/bin/osascript");
+    command.arg("-e").arg(SCRIPT).arg(title);
+    if let Some(start) = start_at.filter(|path| path.is_dir()) {
+        command.arg(start);
+    }
+
+    let output = command.output()?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "system folder picker returned {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    selected_directory(&output.stdout)
+}
+
+/// Ask a Linux desktop for a directory with whichever dialog tool it has.
+///
+/// There is no one system picker across desktops: GNOME ships zenity, KDE
+/// ships kdialog, and yad turns up where the other two do not.  The
+/// candidates run in that order and the first one that exists answers.  The
+/// title and start directory are argv to the tool, never a shell string.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn pick_directory(
+    start_at: Option<&std::path::Path>,
+    title: &str,
+) -> anyhow::Result<Option<std::path::PathBuf>> {
+    let start = start_at
+        .filter(|path| path.is_dir())
+        .map(|path| path.display().to_string());
+
+    // zenity opens inside `--filename=<dir>/` (the trailing slash means "in
+    // it", not "at it"); kdialog takes the start directory as a positional
+    // argument; yad mirrors zenity's flags.
+    let zenity_start = start.as_ref().map(|dir| format!("--filename={dir}/"));
+    let title_flag = format!("--title={title}");
+
+    let mut zenity_args = vec![
+        "--file-selection".to_string(),
+        "--directory".to_string(),
+        title_flag.clone(),
+    ];
+    if let Some(flag) = &zenity_start {
+        zenity_args.push(flag.clone());
+    }
+    let kdialog_args = vec![
+        "--title".to_string(),
+        title.to_string(),
+        "--getexistingdirectory".to_string(),
+        start.clone().unwrap_or_else(|| ".".to_string()),
+    ];
+    let mut yad_args = vec!["--file".to_string(), "--directory".to_string(), title_flag];
+    if let Some(flag) = &zenity_start {
+        yad_args.push(flag.clone());
+    }
+
+    for (bin, args) in [
+        ("zenity", zenity_args),
+        ("kdialog", kdialog_args),
+        ("yad", yad_args),
+    ] {
+        let output = match std::process::Command::new(bin).args(&args).output() {
+            Ok(output) => output,
+            // Not installed: the next candidate's turn.
+            Err(_) => continue,
+        };
+        match linux_picker_verdict(output.status.code()) {
+            LinuxVerdict::Answered => return selected_directory(&output.stdout),
+            LinuxVerdict::Cancelled => return Ok(None),
+            LinuxVerdict::TryNext => continue,
+        }
+    }
+    anyhow::bail!("no usable folder picker; install one of zenity, kdialog or yad")
+}
+
+/// What one Linux picker's exit code decided.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[derive(Debug, PartialEq, Eq)]
+enum LinuxVerdict {
+    /// The dialog closed with OK; stdout holds the answer.
+    Answered,
+    /// The dialog was dismissed.
+    Cancelled,
+    /// The tool failed before a dialog could mean anything.
+    TryNext,
+}
+
+/// zenity, kdialog and yad all exit 1 for a dismissed dialog, and once a
+/// dialog has been on screen the question is answered: falling through to the
+/// next candidate would pop a second picker at someone who just closed one.
+/// Any other failure is the tool's own, so the next candidate gets its turn.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn linux_picker_verdict(code: Option<i32>) -> LinuxVerdict {
+    match code {
+        Some(0) => LinuxVerdict::Answered,
+        Some(1) => LinuxVerdict::Cancelled,
+        _ => LinuxVerdict::TryNext,
+    }
+}
+
+/// One validated result out of whatever a picker process printed.
+///
+/// Every picker speaks the same protocol on the way out: a path on stdout is
+/// a choice, nothing is a dialog closed without one.  Empty is `None` rather
+/// than an error because cancelling is not a failure, and the path is checked
+/// here so every platform shares one rule for what counts as a directory.
+#[cfg(not(windows))]
+fn selected_directory(stdout: &[u8]) -> anyhow::Result<Option<std::path::PathBuf>> {
+    let selected = String::from_utf8(stdout.to_vec())?.trim().to_string();
+    if selected.is_empty() {
+        return Ok(None);
+    }
+    let path = std::path::PathBuf::from(selected);
+    if !path.is_dir() {
+        anyhow::bail!("selected path is not a directory: {}", path.display());
+    }
+    Ok(Some(path))
 }
 
 /// The rows for picking inside `path`: the parent, then the folders under it.
@@ -260,6 +401,62 @@ mod tests {
             labels(&rows),
             vec!["..".to_string(), "Use this folder".to_string()]
         );
+    }
+
+    /// A picker that printed nothing was cancelled, not broken: the empty
+    /// answer is how both the AppleScript and the dialog tools say "the
+    /// dialog closed without a choice", and it must stay quiet.
+    #[cfg(not(windows))]
+    #[test]
+    fn a_picker_that_printed_nothing_was_cancelled() {
+        assert!(matches!(selected_directory(b""), Ok(None)));
+        assert!(matches!(selected_directory(b"  \n"), Ok(None)));
+    }
+
+    /// The pickers print the path with a trailing newline, and osascript adds
+    /// a trailing slash of its own; neither is part of the folder's name.
+    #[cfg(not(windows))]
+    #[test]
+    fn a_pickers_decorations_are_not_part_of_the_path() {
+        const NAME: &str = "a_pickers_decorations_are_not_part_of_the_path";
+        let root = scratch(NAME);
+        let newline = format!("{}\n", root.display());
+        assert_eq!(
+            selected_directory(newline.as_bytes()).unwrap(),
+            Some(root.clone())
+        );
+        let slash = format!("{}/\n", root.display());
+        assert_eq!(selected_directory(slash.as_bytes()).unwrap(), Some(root));
+    }
+
+    /// A path that is not a directory is a failure, not a choice: the two
+    /// quick actions behind the picker both `cd`, and handing them a file
+    /// would fail later, further from the cause.
+    #[cfg(not(windows))]
+    #[test]
+    fn a_picked_file_is_an_error_not_a_choice() {
+        const NAME: &str = "a_picked_file_is_an_error_not_a_choice";
+        let file = scratch(NAME).join("notes.txt");
+        assert!(selected_directory(file.display().to_string().as_bytes()).is_err());
+    }
+
+    /// Bytes that are not text cannot name a folder anybody chose.
+    #[cfg(not(windows))]
+    #[test]
+    fn a_picker_that_printed_garbage_is_an_error() {
+        assert!(selected_directory(&[0xff, 0xfe]).is_err());
+    }
+
+    /// Exit 1 is the dismissed dialog, and only the dismissed dialog: probing
+    /// the next tool after a cancel would pop a second picker at someone who
+    /// just closed one.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn a_dismissed_dialog_stops_the_probing() {
+        assert_eq!(linux_picker_verdict(Some(0)), LinuxVerdict::Answered);
+        assert_eq!(linux_picker_verdict(Some(1)), LinuxVerdict::Cancelled);
+        assert_eq!(linux_picker_verdict(Some(255)), LinuxVerdict::TryNext);
+        assert_eq!(linux_picker_verdict(None), LinuxVerdict::TryNext);
     }
 
     /// The root of a drive has no parent, and asking for one must not panic.

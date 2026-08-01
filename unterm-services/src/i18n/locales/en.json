@@ -70,7 +70,7 @@
   "composer.title": "Prompt Queue",
   "composer.waiting": "{n} waiting",
   "command.capture_region": "Capture region",
-  "command.capture_region.hint": "drag inside the window",
+  "command.capture_region.hint": "OS screenshot picker, window visible",
   "command.close_tab": "Close tab",
   "command.command_palette": "Command palette",
   "command.copy": "Copy",
@@ -137,7 +137,6 @@
   "menu.find": "Find",
   "menu.git_panel": "Git Panel",
   "menu.left_tabs": "Left Tab Bar",
-  "menu.more": "More actions",
   "menu.new_tab": "New Tab",
   "menu.new_tab_here": "New Tab Here",
   "menu.reveal": "Reveal in File Manager",
@@ -218,8 +217,6 @@
   "status_bar.project": "Project:{name}",
   "status_bar.proxy_off": "Proxy:off",
   "status_bar.proxy_on": "Proxy:on",
-  "status_bar.screenshot_exclude": "Capture desktop",
-  "status_bar.screenshot_include": "Capture region",
   "status_bar.theme": "Theme:{name}",
   "theme.applied": "Applied {name}",
   "theme.apply_failed": "Theme apply failed: {err}",
@@ -594,6 +591,5 @@
   "tab.close": "Close tab",
   "close.confirm_running": "Close window - a task is still running",
   "close.confirm_running.hint": "Enter closes - Esc keeps it open",
-  "tab.close_pane": "Close pane",
-  "capture.drag_hint": "Drag to capture a region - Esc cancels"
+  "tab.close_pane": "Close pane"
 }

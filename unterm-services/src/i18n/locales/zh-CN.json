@@ -70,7 +70,7 @@
   "composer.title": "提示词队列",
   "composer.waiting": "{n} 条等待中",
   "command.capture_region": "区域截图",
-  "command.capture_region.hint": "在窗口内拖拽框选",
+  "command.capture_region.hint": "系统截图框选,窗口保持可见",
   "command.close_tab": "关闭标签页",
   "command.command_palette": "命令面板",
   "command.copy": "复制",
@@ -137,7 +137,6 @@
   "menu.find": "查找",
   "menu.git_panel": "Git 面板",
   "menu.left_tabs": "左侧标签栏",
-  "menu.more": "更多操作",
   "menu.new_tab": "新建标签页",
   "menu.new_tab_here": "在此打开新标签页",
   "menu.reveal": "在访达中显示",
@@ -218,8 +217,6 @@
   "status_bar.project": "项目:{name}",
   "status_bar.proxy_off": "代理:关",
   "status_bar.proxy_on": "代理:开",
-  "status_bar.screenshot_exclude": "桌面截图",
-  "status_bar.screenshot_include": "区域截图",
   "status_bar.theme": "主题:{name}",
   "theme.applied": "已应用 {name}",
   "theme.apply_failed": "主题应用失败:{err}",
@@ -594,6 +591,5 @@
   "tab.close": "关闭标签页",
   "close.confirm_running": "关闭窗口 - 仍有任务在运行",
   "close.confirm_running.hint": "Enter 关闭 - Esc 保留",
-  "tab.close_pane": "关闭当前窗格",
-  "capture.drag_hint": "拖拽框选截图区域 - Esc 取消"
+  "tab.close_pane": "关闭当前窗格"
 }

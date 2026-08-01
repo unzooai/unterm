@@ -330,18 +330,21 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
     }
     // Both capture chips, always as a pair: they are two halves of one
     // decision, and one of them alone reads as a state rather than a choice.
+    // Literal label:value chips as 0.57.4 drew them, teal after the colon --
+    // prose labels lost the value colouring and stopped reading as chips.
     if density.show_capture {
+        let value = "capture:".len();
         push(
-            unterm_services::i18n::t("status_bar.screenshot_exclude"),
+            "capture:exclude".to_string(),
             true,
-            None,
+            Some(value),
             SegmentKind::CaptureExclude,
             &mut segments,
         );
         push(
-            unterm_services::i18n::t("status_bar.screenshot_include"),
+            "capture:include".to_string(),
             true,
-            None,
+            Some(value),
             SegmentKind::CaptureInclude,
             &mut segments,
         );
@@ -467,8 +470,8 @@ mod tests {
         let wanted = vec![
             "pwsh 7".to_string(),
             "project:unterm".to_string(),
-            unterm_services::i18n::t("status_bar.screenshot_exclude"),
-            unterm_services::i18n::t("status_bar.screenshot_include"),
+            "capture:exclude".to_string(),
+            "capture:include".to_string(),
             "proxy:on".to_string(),
             "mcp:0".to_string(),
             "theme:standard".to_string(),
@@ -667,7 +670,7 @@ mod tests {
             .iter()
             .find(|segment| segment.kind == SegmentKind::CaptureExclude)
             .expect("desktop capture chip");
-        assert_eq!(capture.teal_from, None);
+        assert_eq!(capture.teal_from, Some("capture:".len()));
         // The path is the second segment, and reads teal from its first
         // character.
         assert_eq!(shown[1].teal_from, Some(0));
