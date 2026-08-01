@@ -67,6 +67,15 @@ pub fn density(logical_width: f32) -> Density {
 /// title bar says what it is.
 pub const WORDMARK: &str = "Unterm";
 
+/// Whether the platform lays its own window buttons over the chrome.
+///
+/// On macOS the window keeps its native frame with a transparent title bar,
+/// so the traffic lights are real controls at the top-left -- the bar must
+/// not draw its own buttons, and must start its content clear of them.
+pub fn native_traffic_lights() -> bool {
+    cfg!(target_os = "macos")
+}
+
 /// The actions on the right, in the order they are drawn.
 ///
 /// Code points from the bundled symbols face, as the previous front end used
@@ -148,16 +157,18 @@ pub fn layout(
     let button = (34.5 * pt).round();
     let mut right = width;
     let mut buttons = Vec::new();
-    for item in [Item::Close, Item::Maximise, Item::Minimise] {
-        right -= button;
-        buttons.push(Placed {
-            item,
-            left: right,
-            width: button,
-            icon: None,
-            label: String::new(),
-            tooltip: None,
-        });
+    if !native_traffic_lights() {
+        for item in [Item::Close, Item::Maximise, Item::Minimise] {
+            right -= button;
+            buttons.push(Placed {
+                item,
+                left: right,
+                width: button,
+                icon: None,
+                label: String::new(),
+                tooltip: None,
+            });
+        }
     }
 
     // Then the actions, right to left, so the menu sits closest to the buttons.
@@ -226,6 +237,17 @@ pub fn layout(
 
     // The wordmark on the left.
     let mut left = (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
+    if native_traffic_lights() {
+        // Clear the traffic-light cluster: a 7px margin, three 14px buttons
+        // on 20px centres, and air after -- ~72 logical px, converted with
+        // the window's own scale because `pt` is a typographic point.
+        let scale = if logical_width > 0.0 {
+            width / logical_width
+        } else {
+            1.0
+        };
+        left += (72.0 * scale).round();
+    }
     // v0.57.4 sized the Command Loop mark to 0.95 title-font cells and
     // separated it from the word by another 0.42 cell. Measuring the actual
     // UI face keeps that relationship intact for Segoe, SF Pro and Inter.
@@ -319,8 +341,29 @@ mod tests {
         bar.iter().any(|piece| piece.item == item)
     }
 
+    /// On macOS the corner belongs to the native traffic lights: the bar
+    /// draws no buttons of its own, and its content starts clear of them.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_traffic_lights_keep_their_corner() {
+        let bar = bar(1400.0);
+        for item in [Item::Close, Item::Maximise, Item::Minimise] {
+            assert!(!has(&bar, item), "{item:?} should be the system's");
+        }
+        let wordmark = bar
+            .iter()
+            .find(|piece| piece.item == Item::Wordmark)
+            .expect("the wordmark still appears");
+        assert!(
+            wordmark.left >= 72.0,
+            "the wordmark sits under the traffic lights at {}",
+            wordmark.left
+        );
+    }
+
     /// The buttons that close the window are never dropped and never move: a
     /// window with no title bar has no other way to be closed.
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn the_window_buttons_survive_every_width() {
         for width in [80.0, 200.0, 600.0, 1400.0, 3000.0] {
@@ -530,7 +573,9 @@ mod tests {
             &mut measure,
         );
         assert!(!has(&bar, Item::Stats));
-        assert!(has(&bar, Item::Close));
+        // Off macOS the close button holds its corner; on it, the corner is
+        // the traffic lights' and there is nothing of ours to keep.
+        assert_eq!(has(&bar, Item::Close), !native_traffic_lights());
     }
 
     /// The wordmark and empty bar drag the window. Pane facts are a control:

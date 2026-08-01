@@ -778,6 +778,19 @@ impl App {
             // asks for the system's frame back and is finally listened to.
             .with_decorations(self.system_decorations)
             .with_inner_size(winit::dpi::LogicalSize::new(initial_width, initial_height));
+        // On macOS the custom chrome keeps the native frame: an invisible
+        // title bar over our own bar, so the traffic lights, the shadow and
+        // the rounded corners are the system's -- the way 0.57.4 integrated,
+        // and the difference between looking like a Mac app and a transplant.
+        #[cfg(target_os = "macos")]
+        if !self.system_decorations {
+            use winit::platform::macos::WindowAttributesExtMacOS as _;
+            attributes = attributes
+                .with_decorations(true)
+                .with_titlebar_transparent(true)
+                .with_fullsize_content_view(true)
+                .with_title_hidden(true);
+        }
         if let Some(saved) = &self.restore {
             attributes = attributes.with_inner_size(winit::dpi::PhysicalSize::new(
                 saved.width,
@@ -2613,39 +2626,42 @@ impl App {
                 _ => chrome.dim_text,
             };
             if piece.item == crate::topbar::Item::Wordmark {
-                // v0.57.4's Command Loop mark, through a rasterizer the way
-                // the old build drew it. As bare quads the same coordinates
-                // came out as staircases -- and a head taller than the word,
-                // because the box was the chrome's loose line rather than the
-                // em the word is actually set in.
+                // The icon's mark, through a rasterizer: three parts in the
+                // icon's three colours -- the hook in the chrome's own
+                // foreground, the dot and arrowhead in the icon's teals.
+                // One colour was how the logo stopped looking like the logo.
                 let cell_width = self.chrome_width("M");
                 let em = crate::ui_tokens::UI_FONT_SIZE as f32 * pt;
-                let mark_width = (em * 0.72).round().max(8.0);
-                let mark_height = (em * 1.0).round().max(8.0);
+                let mark_height = (em * 0.95).round().max(8.0);
+                let mark_width = (mark_height * crate::brand::ASPECT).round().max(8.0);
                 let mark_top = ((height - mark_height) / 2.0).max(0.0);
-                let stroke = (1.15 * pt).max(2.0);
-                let key = unterm_render::atlas::GlyphKey {
+                let key_for = |part: u32| unterm_render::atlas::GlyphKey {
                     stack: crate::chrome_font::STACK,
                     face: usize::MAX,
-                    glyph_index: u32::MAX,
+                    glyph_index: u32::MAX - part,
                     pixel_size: mark_height as u32,
                 };
-                if self.atlas.get(key).is_none() {
-                    let glyph = crate::brand::rasterize(
-                        mark_width as usize,
-                        mark_height as usize,
-                        stroke,
-                    );
-                    self.atlas.insert(key, &glyph);
+                if self.atlas.get(key_for(0)).is_none() {
+                    let mark =
+                        crate::brand::rasterize(mark_width as usize, mark_height as usize);
+                    self.atlas.insert(key_for(0), &mark.hook);
+                    self.atlas.insert(key_for(1), &mark.dot);
+                    self.atlas.insert(key_for(2), &mark.arrow);
                 }
-                if let Some(slot) = self.atlas.get(key) {
-                    quads.glyphs.push(unterm_render::quads::glyph_quad(
-                        slot,
-                        piece.left,
-                        mark_top + mark_height,
-                        chrome.focus_rail,
-                        &self.atlas,
-                    ));
+                for (part, tint) in [
+                    (0, foreground),
+                    (1, crate::brand::DOT_COLOR),
+                    (2, crate::brand::ARROW_COLOR),
+                ] {
+                    if let Some(slot) = self.atlas.get(key_for(part)) {
+                        quads.glyphs.push(unterm_render::quads::glyph_quad(
+                            slot,
+                            piece.left,
+                            mark_top + mark_height,
+                            tint,
+                            &self.atlas,
+                        ));
+                    }
                 }
                 self.append_chrome(
                     &text,

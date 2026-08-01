@@ -118,3 +118,20 @@ charselect 13 组、quick_select_alphabet、[keys]/[env]、launcher workspace/
 - keys `[keys]` 解析警告顺序：配置存储按键名排序遍历，警告乱序且同 chord
   重复定义时"后写的赢"不成立——按行号排序。
 - 终端测试在 mac 字形 bearing 下的脆断（block cursor 谓词取最近格）。
+
+解锁屏幕后的真窗口目检（用户当场指出两处,已修并截图复核）:
+
+- **窗口框架是 Windows 的**:自绘 − □ ✕ 挂在右上,无红绿灯、无系统圆角
+  阴影——macOS 上 0.57.4 是原生 traffic lights。修法:custom chrome 在
+  macOS 保留系统框架(`titlebar_transparent + fullsize_content_view +
+  title_hidden`),红绿灯为真控件,顶栏不再画自己的按钮、内容左移让位
+  (~72 logical px)。关窗仍走 CloseRequested 确认流。
+- **logo 不对**:顶栏画的是单色细线简化 mark,不是图标真身。修法:
+  brand.rs 改从 `unterm-icon-small.svg` 的真实几何光栅化——白钩
+  (随主题前景)+ 青点 #77D9C1 + 青箭头 #55C6AA 三部件三色,含质心
+  排布测试。
+- selftest 复跑 **14/14 全绿**(capture.window 此前失败是锁屏,非权限;
+  解锁后通过)。状态栏全宽下 chips 全齐(project/capture×2/proxy/mcp/
+  theme/profile),窄窗按宽度收纳,与 0.57.4 同口径。
+- 备忘:直接跑 target/release 裸二进制时 Dock 图标是系统通用图标——
+  打包 .app 后由 icns 提供,非产品缺口。
