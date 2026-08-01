@@ -158,3 +158,37 @@ charselect 13 组、quick_select_alphabet、[keys]/[env]、launcher workspace/
 - **功能矩阵**:159 项 FR 台账 + 本清单 29 项交互审计全部处置;剩余
   非对齐项仅:Snap Layouts(Windows 专属,0.61)、3 项设计决策不回归
   (Lua/debug overlay、proxy_settings 浮层、launcher mux domains)。
+
+## Codex sweep 复核(2026-08-01 晚,b85be2ef → 修正 7c5ec3fe)
+
+另一侧用 Codex 产出的 "Restore new-kernel UI feature parity"(24 文件
++1923/-421)逐项对照 0.57.4 复核的结论:**保留其正确部分,修复 5 个
+BLOCKER**。
+
+保留(核对无误):每 pane 滚动条(同 0.57.4 render/pane.rs 逐行)、pane
+关闭 X(同源忠实移植)、分屏点击聚焦 focus_session、palette 选中夹取/
+翻页(0.57.4 top_row 模型)、搜索改走 history_range 读取路径(真修复:
+旧 snapshot 会对活 PTY 返回空)、DPI scale² 前提纠正、tree 根跟随竞态修复。
+
+修复的 BLOCKER(全部 Windows 隧道视野:把 macOS 上原本能用的换成
+Windows-only stub):
+- DirJump 直连 OS picker(非 Windows 直接报错 toast),in-app 跳转
+  palette 整条链被孤儿化 → 接回 palette 为主、OS picker 为 Ctrl+O 行;
+  directory.rs 补 macOS osascript choose folder + Linux zenity/kdialog/yad
+  (argv 传参无注入面,取消=Ok(None) 语义比 0.57.4 更严)。
+- 交互截图四个入口全指向 Windows-only 实现 → system_capture.rs 补
+  macOS `screencapture -i`(隐藏窗口变体 osascript hide/activate,失败
+  也恢复显示,PNG 进剪贴板)+ Linux 工具探测(grim+slurp/gnome-screenshot/
+  spectacle/scrot/maim)。
+- Git dock 吞掉所有鼠标事件包括 Released → 选区/滚动条拖拽经过会永久
+  粘针 → 只吞 Pressed 且让在途拖拽先行。
+- tree 单击目录名即向 shell 注入 `cd "{path}"`(裸双引号,目录名带
+  `$(...)` 会执行)→ 恢复 0.57.4 语义:单击=展开/收起,双击才 cd,
+  且 POSIX 单引号引用(shell_quoted_path,文件路径插入同修)。
+- quick menu 按键先于确认 banner 处理(Enter 可能变成静默同意)→
+  banner 挂起时 quick menu 让键。
+小项:capture chips 恢复 `capture:exclude/include` 字面 chip + teal 值
+着色(prose 标签丢了 chip 形态);孤儿的窗口内框选机器整体删除
+(0.57.4 本无此物,OS picker 已三平台真实);清理 menu.more 等死键。
+
+复核后:CI 同款 -D warnings 0 error,全量 62 组绿(app 616 项)。
