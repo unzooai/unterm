@@ -2838,31 +2838,42 @@ impl App {
                 _ => chrome.dim_text,
             };
             if piece.item == crate::topbar::Item::Wordmark {
-                // The compact Command Loop optical master used by 0.57.4.
-                // The full three-colour application icon has different ink
-                // bounds and looks lopsided when squeezed beside a wordmark.
+                // The icon's mark, in the icon's three colours -- the hook in
+                // the chrome's foreground, the dot and arrowhead in the teals.
+                // A one-colour stand-in here is what got called out, in as
+                // many words, as the logo being wrong.
                 let cell_width = self.chrome_width("M");
                 let em = crate::ui_tokens::UI_FONT_SIZE as f32 * pt;
                 let mark_height = (em * 0.95).round().max(8.0);
+                let mark_width = (mark_height * crate::brand::ASPECT).round().max(8.0);
                 let mark_top = ((height - mark_height) / 2.0).max(0.0);
-                let key = unterm_render::atlas::GlyphKey {
+                let key_for = |part: u32| unterm_render::atlas::GlyphKey {
                     stack: crate::chrome_font::STACK,
                     face: usize::MAX,
-                    glyph_index: u32::MAX - 10,
+                    glyph_index: u32::MAX - part,
                     pixel_size: mark_height as u32,
                 };
-                if self.atlas.get(key).is_none() {
-                    let mark = crate::brand::rasterize_compact(mark_height as usize);
-                    self.atlas.insert(key, &mark);
+                if self.atlas.get(key_for(0)).is_none() {
+                    let mark =
+                        crate::brand::rasterize(mark_width as usize, mark_height as usize);
+                    self.atlas.insert(key_for(0), &mark.hook);
+                    self.atlas.insert(key_for(1), &mark.dot);
+                    self.atlas.insert(key_for(2), &mark.arrow);
                 }
-                if let Some(slot) = self.atlas.get(key) {
-                    quads.glyphs.push(unterm_render::quads::glyph_quad(
-                        slot,
-                        piece.left,
-                        mark_top + mark_height,
-                        chrome.focus_rail,
-                        &self.atlas,
-                    ));
+                for (part, tint) in [
+                    (0, foreground),
+                    (1, crate::brand::DOT_COLOR),
+                    (2, crate::brand::ARROW_COLOR),
+                ] {
+                    if let Some(slot) = self.atlas.get(key_for(part)) {
+                        quads.glyphs.push(unterm_render::quads::glyph_quad(
+                            slot,
+                            piece.left,
+                            mark_top + mark_height,
+                            tint,
+                            &self.atlas,
+                        ));
+                    }
                 }
                 self.append_chrome(
                     &text,
@@ -3114,7 +3125,8 @@ impl App {
 
     /// The focused pane's cursor cell, in window pixels, if it is on screen.
     fn cursor_cell_origin(&self) -> Option<(f32, f32)> {
-        let live = self.state.as_ref()?;
+        // Only the check that a window exists; the geometry below is the App's.
+        self.state.as_ref()?;
         let session_id = self.focused_session();
         let snapshot = self.engine.read_styled_screen(session_id).ok()?;
         if !snapshot.cursor.visible {
@@ -7505,7 +7517,6 @@ impl App {
             }
         }
         if let Some(search) = self.search.as_ref() {
-            let width = self.terminal_width();
             let height = self.state.as_ref()?.height as f32;
             let top = (height - self.status_bar_height() - metrics.height).max(self.terminal_top());
             let columns = search
