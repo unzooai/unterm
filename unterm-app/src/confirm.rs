@@ -9,35 +9,45 @@
 //! Laid out here rather than in the window so the wording can be tested
 //! without a GPU.
 
-/// What the banner says, one line per row.
+/// What the banner says, as the one status-bar row it takes over --
+/// 0.57.4 painted this question in the status row, and so does this.
 ///
-/// Kept narrow enough to read at a glance. The preview is truncated rather
-/// than wrapped: a banner that grows with the input can cover the screen it is
-/// asking about.
-pub fn lines(agent: &str, method: &str, preview: &str, cols: usize) -> Vec<String> {
-    let width = cols.clamp(24, 100);
-    let fit = |text: String| -> String {
-        if text.chars().count() <= width {
-            text
-        } else {
-            let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
-            out.push('…');
-            out
+/// The preview is truncated rather than wrapped: a banner that grows with the
+/// input can cover the screen it is asking about. The key hints give way last,
+/// because they are the part that answers the question.
+pub fn status_line(agent: &str, method: &str, preview: &str, cols: usize) -> String {
+    let width = cols.clamp(24, 240);
+    const KEYS: &str = "[Enter] allow   [A] always allow   [Esc] refuse";
+    let ask = format!("{agent} wants to run {method}:  {}", preview.trim());
+    let room = width.saturating_sub(KEYS.chars().count() + 3);
+    let ask = if ask.chars().count() > room {
+        let mut cut: String = ask.chars().take(room.saturating_sub(1)).collect();
+        if !cut.is_empty() {
+            cut.push('…');
         }
+        cut
+    } else {
+        ask
     };
-
-    vec![
-        fit(format!("{agent} wants to run {method}")),
-        fit(format!("  {}", preview.trim())),
-        fit("[Y] allow   [A] always allow   [Esc] refuse".to_string()),
-    ]
+    let line = if ask.is_empty() {
+        KEYS.to_string()
+    } else {
+        format!("{ask}   {KEYS}")
+    };
+    if line.chars().count() > width {
+        let mut cut: String = line.chars().take(width.saturating_sub(1)).collect();
+        cut.push('…');
+        cut
+    } else {
+        line
+    }
 }
 
-/// Which decision a key press means, if any.
+/// Which decision a typed character means, if any.
 ///
-/// Deliberately not the same keys as anything the terminal uses: while the
-/// banner is up these three do not reach the shell, and taking a key a program
-/// needs would make the banner a hazard of its own.
+/// Enter and Escape arrive as named keys and are handled beside this; the
+/// letters exist so the 0.57.4 muscle memory and the labelled keys both work.
+/// While the banner is up no key reaches the shell, so none of these can leak.
 pub fn decision_for(text: &str) -> Option<unterm_mcp::handler::ConfirmationDecision> {
     use unterm_mcp::handler::ConfirmationDecision;
     match text {
@@ -53,40 +63,38 @@ mod tests {
 
     #[test]
     fn the_banner_says_who_is_asking_and_for_what() {
-        let lines = lines("claude", "session.input", "rm -rf /", 80);
-        assert!(lines[0].contains("claude"));
-        assert!(lines[0].contains("session.input"));
-        assert!(lines[1].contains("rm -rf /"));
+        let line = status_line("claude", "session.input", "rm -rf /", 200);
+        assert!(line.contains("claude"));
+        assert!(line.contains("session.input"));
+        assert!(line.contains("rm -rf /"));
     }
 
     #[test]
     fn every_option_is_offered() {
-        let lines = lines("claude", "session.input", "ls", 80);
-        let keys = lines.last().expect("a key line");
-        assert!(keys.contains("[Y]"));
-        assert!(keys.contains("[A]"));
-        assert!(keys.contains("[Esc]"));
+        let line = status_line("claude", "session.input", "ls", 200);
+        assert!(line.contains("[Enter]"));
+        assert!(line.contains("[A]"));
+        assert!(line.contains("[Esc]"));
     }
 
     #[test]
     fn a_long_command_is_cut_rather_than_allowed_to_cover_the_screen() {
         let long = "echo ".to_string() + &"x".repeat(500);
-        for line in lines("claude", "session.input", &long, 40) {
-            assert!(
-                line.chars().count() <= 40,
-                "banner line ran past the window: {line}"
-            );
-        }
+        let line = status_line("claude", "session.input", &long, 100);
+        assert!(
+            line.chars().count() <= 100,
+            "banner line ran past the window: {line}"
+        );
+        assert!(line.contains("[Esc]"), "the keys gave way: {line}");
     }
 
     #[test]
     fn a_narrow_window_still_gets_a_readable_banner() {
         // Below the floor the text would be cut to nothing, which is worse
         // than a banner that runs a little wide.
-        for line in lines("claude", "session.input", "ls", 4) {
-            assert!(line.chars().count() <= 24);
-            assert!(!line.is_empty());
-        }
+        let line = status_line("claude", "session.input", "ls", 4);
+        assert!(line.chars().count() <= 24);
+        assert!(!line.is_empty());
     }
 
     #[test]

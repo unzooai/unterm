@@ -135,3 +135,26 @@ charselect 13 组、quick_select_alphabet、[keys]/[env]、launcher workspace/
   theme/profile),窄窗按宽度收纳,与 0.57.4 同口径。
 - 备忘:直接跑 target/release 裸二进制时 Dock 图标是系统通用图标——
   打包 .app 后由 icns 提供,非产品缺口。
+
+## 终验(2026-08-01,对照运行中的 0.57.4 实例逐项实测)
+
+对同机并跑的 alpha(0.57.4)与 bravo(0.60)做的收口验证,含过程中
+新发现并当场修复的 MCP 写确认链路三连缺陷:
+
+- **MCP 写确认(gate_pty_write)**:闸门逻辑与 0.57.4 逐行同款
+  (FirstTimePerAgent/信任表/超时=拒绝,审计齐全),但 GUI 侧三处断链:
+  ① banner 画在终端区左上且被 sidebar 截断——移回 0.57.4 的状态栏行
+  (整行反色、单行提问+键位);② 挂起时无人请求重绘,窗口空闲则问题
+  永不显示——McpHost 新增 request_repaint 钩子,park/resolve 双向唤醒;
+  ③ raise_since 把 chrome 提层后 banner 被状态栏盖住 + 状态栏文字透底
+  ——banner 移入 raised 组、挂起时状态栏内容让行。键位补 Enter=允许
+  (0.57.4 同款;Y/A/Esc 保留)。真机链路验证:park→banner 显示→Enter
+  →写入落地→CLI 得 ok→审计记 mcp.confirm.allow。
+- **性能**:启动(MCP 可用)0.60=22ms vs 0.57.4=7101ms;200k 行吞吐
+  (exec wait `seq 1 200000`)两者同为 0.45s。
+- **selftest**:14/14(capture.window 曾误判为权限问题,实为锁屏)。
+- **外观**:原生红绿灯/圆角/阴影、真 logo 三色 mark、状态栏全 chip
+  口径、窄窗按宽度收纳——均截图核对。
+- **功能矩阵**:159 项 FR 台账 + 本清单 29 项交互审计全部处置;剩余
+  非对齐项仅:Snap Layouts(Windows 专属,0.61)、3 项设计决策不回归
+  (Lua/debug overlay、proxy_settings 浮层、launcher mux domains)。

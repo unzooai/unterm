@@ -149,6 +149,12 @@ impl McpHost for AppMcpHost {
         Ok(())
     }
 
+    fn request_repaint(&self) {
+        if let Some(window) = WINDOW.get() {
+            window.request_redraw();
+        }
+    }
+
     /// A rectangle of the desktop.
     fn capture_region(
         &self,

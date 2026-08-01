@@ -5725,9 +5725,16 @@ impl McpHandler {
             id
         };
 
+        // The question only exists on screen once a frame is painted; an idle
+        // window would otherwise leave the worker parked on an invisible
+        // banner until some event happened to repaint.
+        if let Some(host) = unterm_engine::mcp_host() {
+            host.request_repaint();
+        }
+
         let timeout_ms = cfg.mcp_confirmation_timeout_ms.max(1000);
         let decision = rx.recv_timeout(std::time::Duration::from_millis(timeout_ms));
-        match decision {
+        let outcome = match decision {
             Ok(ConfirmationDecision::Allow) => {
                 self.audit(
                     "mcp.confirm.allow",
@@ -5768,7 +5775,13 @@ impl McpHandler {
                 );
                 Ok(GateOutcome::Block)
             }
+        };
+        // And a frame after it resolves either way, so a banner the keys did
+        // not clear (a timeout, a second queued question) leaves the screen.
+        if let Some(host) = unterm_engine::mcp_host() {
+            host.request_repaint();
         }
+        outcome
     }
 
     fn session_resize(&self, params: &Value) -> Result<Value> {

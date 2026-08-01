@@ -1487,6 +1487,13 @@ pub trait McpHost: Send + Sync {
         anyhow::bail!("this front end has no window to focus")
     }
 
+    /// Ask the front end to paint a frame soon.
+    ///
+    /// For state that changes off the window's own threads -- a parked agent
+    /// write waiting on its banner, say. An idle window repaints on events;
+    /// without this, the question would sit invisible until one happened by.
+    fn request_repaint(&self) {}
+
     /// Photograph a rectangle of the desktop.
     fn capture_region(
         &self,

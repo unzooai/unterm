@@ -1017,19 +1017,15 @@ impl App {
         self.append_sidebar(&mut quads);
         self.append_tree(&mut quads);
         self.append_status_bar(window_width, &mut quads);
+        // Over the status row it replaces, and inside the raised chrome
+        // group: appended after the raise it would sit beneath the bar it is
+        // supposed to cover, which is an invisible question.
+        self.append_confirmation_banner(window_width, &mut quads);
         self.append_pane_close_buttons(&mut quads);
         self.append_region_selection(&mut quads);
         self.append_tooltip(window_width, &mut quads);
         self.append_quick_menu(&mut quads);
         quads.raise_since(overlays);
-
-        append_confirmation_banner(
-            window_width,
-            &mut self.font,
-            &mut self.atlas,
-            self.colors,
-            &mut quads,
-        );
 
         let Some(live) = self.state.as_mut() else {
             return;
@@ -1154,11 +1150,58 @@ impl App {
     /// tells the user nothing and takes a column to say it.
 
     /// The bar along the bottom: where you are, and what agents are doing.
+    /// The parked-agent question, painted over the status row the way 0.57.4
+    /// painted it: the whole bar inverts, and one line asks and names its keys.
+    fn append_confirmation_banner(
+        &mut self,
+        window_width: f32,
+        quads: &mut unterm_render::quads::FrameQuads,
+    ) {
+        let Some(view) = unterm_mcp::handler::pending_confirmation_view() else {
+            return;
+        };
+        let metrics = self.font.metrics();
+        let height = self.state.as_ref().map(|live| live.height).unwrap_or(600) as f32;
+        let bar_height = self.status_bar_height();
+        let top = height - bar_height;
+        let columns = (window_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        // Less the inset the pen starts at, or the last hint runs off the edge.
+        let line = crate::confirm::status_line(
+            &view.agent,
+            &view.method,
+            &view.input_preview,
+            columns.saturating_sub(3),
+        );
+
+        // Inverted, so the row cannot be mistaken for the facts it replaces.
+        let foreground = self.colors.foreground;
+        let background = self.colors.background;
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: 0.0,
+            top,
+            width: window_width,
+            height: bar_height,
+            color: foreground,
+        });
+        let pt = self.chrome_pt();
+        let text_top = top
+            + ((bar_height - metrics.height) / 2.0
+                + crate::ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt)
+                .max(0.0);
+        let pen = (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
+        self.append_mono(&line, background, (pen, text_top), quads);
+    }
+
     fn append_status_bar(
         &mut self,
         window_width: f32,
         quads: &mut unterm_render::quads::FrameQuads,
     ) {
+        // A parked agent write owns this row while it waits: drawing the
+        // facts under the question leaves both showing through the other.
+        if unterm_mcp::handler::pending_confirmation_count() > 0 {
+            return;
+        }
         let metrics = self.font.metrics();
         let height = self.state.as_ref().map(|live| live.height).unwrap_or(600) as f32;
         let bar_height = self.status_bar_height();
@@ -7636,6 +7679,11 @@ impl ApplicationHandler for App {
                         Key::Named(winit::keyboard::NamedKey::Escape) => {
                             Some(unterm_mcp::handler::ConfirmationDecision::Block)
                         }
+                        // Enter allows, as 0.57.4's banner had it; safe to
+                        // take because the banner swallows every key below.
+                        Key::Named(winit::keyboard::NamedKey::Enter) => {
+                            Some(unterm_mcp::handler::ConfirmationDecision::Allow)
+                        }
                         Key::Character(text) => crate::confirm::decision_for(text),
                         _ => None,
                     };
@@ -8736,40 +8784,6 @@ fn transform_hsv(color: [f32; 4], hue_factor: f32, saturation: f32, brightness: 
 /// Over everything else and at the top, because a thread is parked on the
 /// answer: a banner the user has to go looking for is a request that times out
 /// into a refusal.
-fn append_confirmation_banner(
-    window_width: f32,
-    font: &mut crate::terminal::TerminalFont,
-    atlas: &mut unterm_render::atlas::GlyphAtlas,
-    colors: unterm_render::quads::FrameColors,
-    quads: &mut unterm_render::quads::FrameQuads,
-) {
-    let Some(view) = unterm_mcp::handler::pending_confirmation_view() else {
-        return;
-    };
-    let metrics = font.metrics();
-    let cols = (window_width / metrics.width.max(1.0)) as usize;
-    let lines = crate::confirm::lines(&view.agent, &view.method, &view.input_preview, cols);
-
-    // An opaque strip first, so the terminal text underneath cannot be
-    // mistaken for part of the question.
-    quads.backgrounds.push(unterm_render::quads::Quad {
-        left: 0.0,
-        top: 0.0,
-        width: window_width,
-        height: metrics.height * lines.len() as f32,
-        color: colors.foreground,
-    });
-    for (row, line) in lines.iter().enumerate() {
-        crate::terminal::append_text(
-            line,
-            font,
-            atlas,
-            colors.background,
-            (metrics.width, row as f32 * metrics.height),
-            quads,
-        );
-    }
-}
 
 /// The palette's rows: every action a key can reach.
 ///
