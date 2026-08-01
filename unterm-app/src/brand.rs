@@ -115,6 +115,40 @@ fn glyph(width: usize, height: usize, coverage: Vec<u8>) -> RasterizedGlyph {
     }
 }
 
+/// Rasterize the compact Command Loop mark used by the 0.57.4 title bar.
+///
+/// This is intentionally not the application icon squeezed into a small
+/// square.  The old chrome used a two-stroke optical master whose empty space
+/// is part of the shape; that is why it balances beside the wordmark at one
+/// text-cell high.
+pub fn rasterize_compact(size: usize) -> RasterizedGlyph {
+    let size = size.max(1);
+    let body = [
+        (0.20, 0.10),
+        (0.20, 0.60),
+        (0.25, 0.70),
+        (0.40, 0.80),
+        (0.55, 0.80),
+        (0.70, 0.70),
+        (0.75, 0.60),
+    ];
+    let arrow = [(0.675, 0.425), (0.80, 0.55), (0.675, 0.675)];
+    let mut coverage = vec![0u8; size * size];
+    let scale = size as f32;
+    // The previous renderer used max(underline_height, 2px).  A tenth of the
+    // optical master is the same two-pixel stroke at its normal 18-20px size.
+    let half_stroke = 0.055f32;
+    for y in 0..size {
+        for x in 0..size {
+            let p = ((x as f32 + 0.5) / scale, (y as f32 + 0.5) / scale);
+            let distance = polyline_distance(p, &body).min(polyline_distance(p, &arrow));
+            let alpha = (half_stroke - distance) * scale + 0.5;
+            coverage[y * size + x] = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+        }
+    }
+    glyph(size, size, coverage)
+}
+
 /// Rasterize the mark into its three coverage bitmaps, anti-aliased.
 ///
 /// Coverage falls off over one device pixel around each edge, which is what
@@ -159,6 +193,13 @@ mod tests {
 
     fn ink(glyph: &RasterizedGlyph) -> usize {
         glyph.coverage.iter().filter(|&&c| c > 0).count()
+    }
+
+    #[test]
+    fn the_compact_chrome_mark_has_ink_and_keeps_its_square_box() {
+        let mark = rasterize_compact(20);
+        assert_eq!((mark.width, mark.height), (20, 20));
+        assert!(ink(&mark) > 0);
     }
 
     /// Every part of the icon is drawn, and edges are soft rather than a

@@ -27,10 +27,7 @@ fn ensure_manifest_flags_loading() {
                         .iter()
                         .map(|flag| flag.arg.clone())
                         .collect();
-                    unterm_services::ghost_text::merge_manifest_flags(
-                        &manifest.launch.exec,
-                        &args,
-                    );
+                    unterm_services::ghost_text::merge_manifest_flags(&manifest.launch.exec, &args);
                 }
             })
             .ok();

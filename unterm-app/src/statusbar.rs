@@ -280,21 +280,30 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
     }
 
     let density = density(columns);
-    let mut push =
-        |text: String, dim: bool, teal_from: Option<usize>, kind: SegmentKind, into: &mut Vec<Segment>| {
-            if !text.is_empty() {
-                into.push(Segment {
-                    text,
-                    dim,
-                    teal_from,
-                    error: false,
-                    kind,
-                });
-            }
-        };
+    let push = |text: String,
+                dim: bool,
+                teal_from: Option<usize>,
+                kind: SegmentKind,
+                into: &mut Vec<Segment>| {
+        if !text.is_empty() {
+            into.push(Segment {
+                text,
+                dim,
+                teal_from,
+                error: false,
+                kind,
+            });
+        }
+    };
 
     // The shell, where, and how big: the three that are always there.
-    push(status.shell.clone(), false, None, SegmentKind::Shell, &mut segments);
+    push(
+        status.shell.clone(),
+        false,
+        None,
+        SegmentKind::Shell,
+        &mut segments,
+    );
     push(
         short_path(&status.directory, density.cwd_columns),
         false,
@@ -322,9 +331,20 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
     // Both capture chips, always as a pair: they are two halves of one
     // decision, and one of them alone reads as a state rather than a choice.
     if density.show_capture {
-        let value = "capture:".len();
-        push("capture:exclude".to_string(), true, Some(value), SegmentKind::CaptureExclude, &mut segments);
-        push("capture:include".to_string(), true, Some(value), SegmentKind::CaptureInclude, &mut segments);
+        push(
+            unterm_services::i18n::t("status_bar.screenshot_exclude"),
+            true,
+            None,
+            SegmentKind::CaptureExclude,
+            &mut segments,
+        );
+        push(
+            unterm_services::i18n::t("status_bar.screenshot_include"),
+            true,
+            None,
+            SegmentKind::CaptureInclude,
+            &mut segments,
+        );
     }
     if density.show_telemetry {
         // The chip is the injection toggle, and its click is the switch. The
@@ -444,20 +464,20 @@ mod tests {
     #[test]
     fn the_segments_come_in_the_order_they_did_before() {
         let shown = texts(&segments(&status(), 200));
-        let wanted = [
-            "pwsh 7",
-            "project:unterm",
-            "capture:exclude",
-            "capture:include",
-            "proxy:on",
-            "mcp:0",
-            "theme:standard",
+        let wanted = vec![
+            "pwsh 7".to_string(),
+            "project:unterm".to_string(),
+            unterm_services::i18n::t("status_bar.screenshot_exclude"),
+            unterm_services::i18n::t("status_bar.screenshot_include"),
+            "proxy:on".to_string(),
+            "mcp:0".to_string(),
+            "theme:standard".to_string(),
         ];
         let mut at = 0;
         for want in wanted {
             let found = shown[at..]
                 .iter()
-                .position(|text| text == want)
+                .position(|text| text == &want)
                 .unwrap_or_else(|| panic!("{want:?} is missing or out of order in {shown:?}"));
             at += found + 1;
         }
@@ -643,7 +663,11 @@ mod tests {
                 .teal_from
         };
         assert_eq!(of("theme:"), Some("theme:".len()));
-        assert_eq!(of("capture:exclude"), Some("capture:".len()));
+        let capture = shown
+            .iter()
+            .find(|segment| segment.kind == SegmentKind::CaptureExclude)
+            .expect("desktop capture chip");
+        assert_eq!(capture.teal_from, None);
         // The path is the second segment, and reads teal from its first
         // character.
         assert_eq!(shown[1].teal_from, Some(0));

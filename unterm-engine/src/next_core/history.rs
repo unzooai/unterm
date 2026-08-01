@@ -93,13 +93,6 @@ impl HistoryBuffer {
         self.viewport_top = if next >= max_top { None } else { Some(next) };
     }
 
-    pub(super) fn history_lines<'a>(
-        &'a self,
-        live_lines: &'a [Vec<ScreenCell>],
-    ) -> Vec<&'a Vec<ScreenCell>> {
-        self.scrollback.iter().chain(live_lines.iter()).collect()
-    }
-
     pub(super) fn history_range<'a>(
         &'a self,
         live_lines: &'a [Vec<ScreenCell>],

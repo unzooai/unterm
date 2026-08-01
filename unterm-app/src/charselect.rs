@@ -624,10 +624,17 @@ mod picker_tests {
     /// numeric search compares against exactly this spelling.
     #[test]
     fn codepoints_are_spelled_like_0574() {
-        assert_eq!(choice("\u{2014}", "EM DASH", Group::UnicodeNames).codepoints(), "U+2014");
         assert_eq!(
-            choice("\u{1F44D}\u{1F3FD}", "thumbs up: medium skin tone", Group::PeopleAndBody)
-                .codepoints(),
+            choice("\u{2014}", "EM DASH", Group::UnicodeNames).codepoints(),
+            "U+2014"
+        );
+        assert_eq!(
+            choice(
+                "\u{1F44D}\u{1F3FD}",
+                "thumbs up: medium skin tone",
+                Group::PeopleAndBody
+            )
+            .codepoints(),
             "U+1F44D U+1F3FD"
         );
     }

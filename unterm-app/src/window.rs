@@ -133,6 +133,16 @@ enum ClipboardResult {
         result: Result<String, String>,
     },
     Written(Result<(), String>),
+    DirectoryPicked {
+        then: crate::palette::BrowseThen,
+        result: Result<Option<std::path::PathBuf>, String>,
+    },
+    ScreenshotFinished {
+        mode: String,
+        result: Result<std::path::PathBuf, String>,
+    },
+    ExportFinished(Result<std::path::PathBuf, String>),
+    ScrollbackCaptured(Result<std::path::PathBuf, String>),
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -150,6 +160,8 @@ struct PaneNotice {
 struct QuickMenu {
     entries: Vec<crate::palette::Entry>,
     hover: Option<usize>,
+    top_row: usize,
+    visible_rows: usize,
     left: f32,
     top: f32,
     width: f32,
@@ -158,7 +170,7 @@ struct QuickMenu {
 
 impl QuickMenu {
     fn height(&self) -> f32 {
-        self.entries.len() as f32 * self.row_height
+        self.visible_rows as f32 * self.row_height
     }
 
     fn row_at(&self, x: f32, y: f32) -> Option<usize> {
@@ -168,8 +180,103 @@ impl QuickMenu {
         if y < self.top || y >= self.top + self.height() {
             return None;
         }
-        Some(((y - self.top) / self.row_height) as usize)
+        let visible = ((y - self.top) / self.row_height) as usize;
+        (visible < self.visible_rows).then_some(self.top_row + visible)
     }
+
+    fn reveal_hover(&mut self) {
+        let Some(row) = self.hover else { return };
+        if row < self.top_row {
+            self.top_row = row;
+        } else if row >= self.top_row + self.visible_rows {
+            self.top_row = row + 1 - self.visible_rows;
+        }
+    }
+
+    fn scroll(&mut self, delta: isize) {
+        let max_top = self.entries.len().saturating_sub(self.visible_rows);
+        self.top_row = self.top_row.saturating_add_signed(delta).min(max_top);
+        if let Some(row) = self.hover {
+            self.hover = Some(
+                row.max(self.top_row)
+                    .min(self.top_row + self.visible_rows.saturating_sub(1)),
+            );
+        }
+    }
+
+    fn arrow_at(&self, x: f32, y: f32) -> Option<isize> {
+        if x < self.left + self.width - self.row_height || x >= self.left + self.width {
+            return None;
+        }
+        if y >= self.top && y < self.top + self.row_height && self.top_row > 0 {
+            Some(-1)
+        } else if y >= self.top + self.height() - self.row_height
+            && y < self.top + self.height()
+            && self.top_row + self.visible_rows < self.entries.len()
+        {
+            Some(1)
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod quick_menu_tests {
+    use super::*;
+
+    fn menu() -> QuickMenu {
+        let entries = (0..15)
+            .map(|index| crate::palette::Entry {
+                label: format!("item {index}"),
+                hint: String::new(),
+                command: crate::palette::Command::Action(crate::keys::Action::Copy),
+            })
+            .collect();
+        QuickMenu {
+            entries,
+            hover: Some(0),
+            top_row: 0,
+            visible_rows: 5,
+            left: 100.0,
+            top: 50.0,
+            width: 200.0,
+            row_height: 20.0,
+        }
+    }
+
+    #[test]
+    fn a_short_window_only_uses_the_rows_it_can_show() {
+        let menu = menu();
+        assert_eq!(menu.height(), 100.0);
+        assert_eq!(menu.row_at(120.0, 139.0), Some(4));
+        assert_eq!(menu.row_at(120.0, 151.0), None);
+    }
+
+    #[test]
+    fn scrolling_maps_visible_rows_back_to_the_real_entries() {
+        let mut menu = menu();
+        menu.scroll(4);
+        assert_eq!(menu.top_row, 4);
+        assert_eq!(menu.hover, Some(4));
+        assert_eq!(menu.row_at(120.0, 51.0), Some(4));
+        menu.scroll(99);
+        assert_eq!(menu.top_row, 10);
+    }
+
+    #[test]
+    fn keyboard_selection_pulls_the_visible_window_with_it() {
+        let mut menu = menu();
+        menu.hover = Some(8);
+        menu.reveal_hover();
+        assert_eq!(menu.top_row, 4);
+    }
+}
+
+#[derive(Clone, Debug)]
+struct GitDock {
+    cwd: std::path::PathBuf,
+    panel: crate::git::Panel,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -444,7 +551,10 @@ pub struct App {
     close_confirmed: bool,
     /// The window rect before a work-area maximise, so the second press
     /// puts it back exactly where it was.
-    unmaximized_rect: Option<(winit::dpi::PhysicalPosition<i32>, winit::dpi::PhysicalSize<u32>)>,
+    unmaximized_rect: Option<(
+        winit::dpi::PhysicalPosition<i32>,
+        winit::dpi::PhysicalSize<u32>,
+    )>,
     /// Names the reader has given tabs, keyed by stable tab id. A named tab
     /// keeps its name through program changes; an empty rename hands the tab
     /// back to automatic titling.
@@ -485,7 +595,7 @@ pub struct App {
     /// large repository is not something to run sixty times a second, and a
     /// panel that changes under the eye while being read is worse than one
     /// that is a moment old.
-    git_panel: Option<crate::git::Panel>,
+    git_panel: Option<GitDock>,
     /// Prompts waiting to go into the focused pane, while the composer
     /// is open. Closing it drops them: a queue that outlives the window
     /// showing it would fire prompts nobody can see coming.
@@ -792,10 +902,8 @@ impl App {
                 .with_title_hidden(true);
         }
         if let Some(saved) = &self.restore {
-            attributes = attributes.with_inner_size(winit::dpi::PhysicalSize::new(
-                saved.width,
-                saved.height,
-            ));
+            attributes = attributes
+                .with_inner_size(winit::dpi::PhysicalSize::new(saved.width, saved.height));
         }
         let window = Arc::new(event_loop.create_window(attributes)?);
         if self.restore.as_ref().map(|saved| saved.maximized) == Some(true) {
@@ -895,13 +1003,13 @@ impl App {
         }
         let placements = self.placements();
         let dividers = self.divider_quads();
-        let Some((window_width, session_id)) = self
-            .state
-            .as_ref()
-            .map(|live| (live.width as f32, live.session_id))
-        else {
+        let Some(window_width) = self.state.as_ref().map(|live| live.width as f32) else {
             return;
         };
+        // The tab registry is the source of truth for split focus.  Using the
+        // session that happened to create the window leaves the solid cursor,
+        // scrollbar and keyboard focus behind when another pane is clicked.
+        let session_id = self.focused_session();
 
         let mut quads = unterm_render::quads::FrameQuads::default();
         // The picture, under everything, filling the window with the middle of
@@ -1119,29 +1227,57 @@ impl App {
         if !self.scrollbar_enabled {
             return false;
         }
-        let Some(live) = self.state.as_ref() else {
-            return false;
-        };
-        self.pointer.0 >= live.width as f32 - crate::scrollbar::WIDTH
+        self.active_pane_scrollbar()
+            .is_some_and(|(_, left, top, track)| {
+                self.pointer.0 >= left
+                    && self.pointer.0 < left + crate::scrollbar::WIDTH
+                    && self.pointer.1 >= top
+                    && self.pointer.1 < top + track
+            })
     }
 
     /// Scroll to wherever the pointer is on the track.
     fn scroll_to_pointer(&mut self) {
-        let Some(live) = self.state.as_ref() else {
+        let Some((session_id, _left, track_top, track)) = self.active_pane_scrollbar() else {
             return;
         };
-        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+        let Ok(snapshot) = self.engine.read_styled_screen(session_id) else {
             return;
         };
-        let track_top = self.terminal_top();
-        let track = (live.height as f32 - track_top).max(1.0);
         let total = snapshot.scrollback_rows + snapshot.rows;
         let row = crate::scrollbar::row_at(total, snapshot.rows, self.pointer.1 - track_top, track);
-        let _ = self
-            .engine
-            .scroll_viewport_to(live.session_id, row as isize);
+        let _ = self.engine.scroll_viewport_to(session_id, row as isize);
         self.drawn_revision = None;
-        live.window.request_redraw();
+        if let Some(live) = self.state.as_ref() {
+            live.window.request_redraw();
+        }
+    }
+
+    /// The active pane's scrollbar track.  0.57.4 anchored the bar to the
+    /// focused PositionedPane's right edge; a window-global right edge makes
+    /// the bar apparently vanish as soon as the left pane has focus.
+    fn active_pane_scrollbar(&self) -> Option<(usize, f32, f32, f32)> {
+        let session_id = self.focused_session();
+        let placements = self.placements();
+        let placement = placements
+            .iter()
+            .find(|placement| placement.session_id == session_id)?;
+        let metrics = self.font.metrics();
+        let grid_right = placement.origin.0 + placement.cols as f32 * metrics.width;
+        let rightmost = placements
+            .iter()
+            .all(|other| other.origin.0 + other.cols as f32 * metrics.width <= grid_right + 0.5);
+        let pane_right = if rightmost {
+            self.terminal_left() + self.terminal_width()
+        } else {
+            grid_right
+        };
+        Some((
+            session_id,
+            pane_right - crate::scrollbar::WIDTH,
+            placement.origin.1,
+            (placement.rows as f32 * metrics.height).max(1.0),
+        ))
     }
 
     /// The scrollbar, down the right edge.
@@ -1480,6 +1616,7 @@ impl App {
         let window = self.state.as_ref().map(|live| live.width).unwrap_or(800) as f32;
         (window
             - self.dock_width(metrics)
+            - self.git_panel_width()
             - self.terminal_padding_left()
             - self.terminal_padding_right())
         .max(self.font.metrics().width)
@@ -1629,7 +1766,6 @@ impl App {
         self.tree = match self.tree.take() {
             Some(_) => None,
             None => {
-                self.sidebar_open = false;
                 let here = self
                     .current_directory()
                     .unwrap_or_else(|| std::path::PathBuf::from("."));
@@ -1655,25 +1791,49 @@ impl App {
 
     /// A press on the file tree. Returns true when the tree took it.
     ///
-    /// A directory opens or closes; a file has its path written at the prompt
-    /// rather than being opened. Writing it is the useful thing in a terminal:
-    /// what you were about to do with that file is type a command in front of
-    /// its name.
+    /// The disclosure arrow opens a directory; its name changes the focused
+    /// shell's directory. Keeping those hit targets separate is what makes a
+    /// file tree useful both for browsing and for navigating.
     fn click_tree(&mut self) -> bool {
         let Some(row) = self.tree_row_at(self.pointer.0, self.pointer.1) else {
             return false;
         };
-        let picked = self.tree.as_mut().and_then(|tree| tree.press(row));
-        if let (Some(path), Some(live)) = (picked, self.state.as_ref()) {
-            let text = path.display().to_string();
-            // Quoted, because a path with a space in it is two arguments
-            // otherwise -- and on this platform most of them have one.
-            let quoted = if text.contains(' ') {
-                format!("\"{text}\" ")
-            } else {
-                format!("{text} ")
-            };
-            let _ = self.engine.write_input(live.session_id, &quoted);
+        let disclosure = self
+            .tree
+            .as_ref()
+            .and_then(|tree| tree.rows.get(row))
+            .is_some_and(|row| {
+                row.is_dir
+                    && !row.is_parent
+                    && !row.is_drive
+                    && self.tree_dock().is_some_and(|(left, _, _, _)| {
+                        let columns = row.depth * 2 + 2;
+                        self.pointer.0 < left + columns as f32 * self.font.metrics().width
+                    })
+            });
+        let picked = self
+            .tree
+            .as_mut()
+            .and_then(|tree| tree.press(row, disclosure));
+        match picked {
+            Some(crate::tree::Picked::Directory(path)) => {
+                if let Some(tree) = self.tree.as_mut() {
+                    tree.request_root(path.clone());
+                }
+                self.change_directory(&path.display().to_string());
+            }
+            Some(crate::tree::Picked::File(path)) => {
+                if let Some(live) = self.state.as_ref() {
+                    let text = path.display().to_string();
+                    let quoted = if text.contains(' ') {
+                        format!("\"{text}\" ")
+                    } else {
+                        format!("{text} ")
+                    };
+                    let _ = self.engine.write_input(live.session_id, &quoted);
+                }
+            }
+            None => {}
         }
         self.drawn_revision = None;
         true
@@ -1718,7 +1878,7 @@ impl App {
                 return;
             };
             if let Some(here) = here {
-                tree.go_to(here);
+                tree.follow_root(here);
             }
             tree.refresh();
             // Never scrolled past the end: a tree showing nothing looks like a
@@ -1792,19 +1952,13 @@ impl App {
     /// The scale text and pt tokens are drawn at, as distinct from the
     /// display's own factor.
     ///
-    /// On Windows this is the display scale squared, and that is deliberate:
-    /// v0.57.4 ran DPI-virtualised there -- it rasterised its faces at the
-    /// monitor's DPI inside a 96-DPI coordinate space, and the compositor
-    /// then enlarged the whole window by the same factor again. Every glyph
-    /// a Windows user of 0.57.4 ever saw was scale-squared, and drawing at
-    /// the mathematically correct size reads as the whole product having
-    /// shrunk. At 100% the two agree exactly.
+    /// Winit gives the renderer physical pixels and a single display scale.
+    /// Applying that scale twice made a configured 12pt face render as 27pt
+    /// at 150% DPI, and enlarged both its row metrics and all custom chrome.
+    /// The old front end's DPI virtualisation is already accounted for by
+    /// winit's physical surface; the font must consume the scale exactly once.
     fn font_scale_for(scale: f32) -> f32 {
-        if cfg!(windows) {
-            scale * scale
-        } else {
-            scale
-        }
+        scale
     }
 
     fn font_scale(&self) -> f32 {
@@ -2126,8 +2280,8 @@ impl App {
                     .max(crate::ui_tokens::CHROME_SCROLLBAR_MIN_WIDTH);
             let track_height = footer_reserve - first_row;
             let span = visible as f32 / rows.len() as f32;
-            let thumb_height = (track_height * span)
-                .max(crate::ui_tokens::CHROME_SCROLLBAR_MIN_THUMB_HEIGHT * pt);
+            let thumb_height =
+                (track_height * span).max(crate::ui_tokens::CHROME_SCROLLBAR_MIN_THUMB_HEIGHT * pt);
             let travel = track_height - thumb_height;
             let progress = scroll as f32 / (rows.len() - visible) as f32;
             let mut track = chrome.dim_text;
@@ -2374,7 +2528,9 @@ impl App {
                     let indicator: Option<(&str, [f32; 4])> = if let Some(badge) = badge {
                         let (glyph, mut color) = match badge {
                             crate::cockpit::Badge::NeedsYou => ("!", badge.color()),
-                            crate::cockpit::Badge::Working => (crate::cockpit::BADGE, badge.color()),
+                            crate::cockpit::Badge::Working => {
+                                (crate::cockpit::BADGE, badge.color())
+                            }
                             crate::cockpit::Badge::Done => ("\u{2713}", badge.color()),
                         };
                         if matches!(*badge, crate::cockpit::Badge::Working) {
@@ -2519,7 +2675,15 @@ impl App {
                 crate::terminal::chrome_text_width(text, ui, atlas)
             }
         };
-        crate::topbar::layout(window_width, logical, pt, &stats, &cockpit, open, &mut measure)
+        crate::topbar::layout(
+            window_width,
+            logical,
+            pt,
+            &stats,
+            &cockpit,
+            open,
+            &mut measure,
+        )
     }
 
     /// Draw the bar along the top: the wordmark, the facts, the actions and the
@@ -2559,7 +2723,12 @@ impl App {
 
             // The window buttons are drawn rather than typed: a close cross
             // from a font is a different cross on every machine.
-            if let Some(button) = crate::topbar::window_button(piece.item) {
+            let maximized = self.unmaximized_rect.is_some()
+                || self
+                    .state
+                    .as_ref()
+                    .is_some_and(|live| live.window.is_maximized());
+            if let Some(button) = crate::topbar::window_button(piece.item, maximized) {
                 if is_hovered {
                     let fill = if button == crate::window_buttons::Button::Close {
                         crate::window_buttons::hover_fill(button, chrome.is_light)
@@ -2669,42 +2838,31 @@ impl App {
                 _ => chrome.dim_text,
             };
             if piece.item == crate::topbar::Item::Wordmark {
-                // The icon's mark, through a rasterizer: three parts in the
-                // icon's three colours -- the hook in the chrome's own
-                // foreground, the dot and arrowhead in the icon's teals.
-                // One colour was how the logo stopped looking like the logo.
+                // The compact Command Loop optical master used by 0.57.4.
+                // The full three-colour application icon has different ink
+                // bounds and looks lopsided when squeezed beside a wordmark.
                 let cell_width = self.chrome_width("M");
                 let em = crate::ui_tokens::UI_FONT_SIZE as f32 * pt;
                 let mark_height = (em * 0.95).round().max(8.0);
-                let mark_width = (mark_height * crate::brand::ASPECT).round().max(8.0);
                 let mark_top = ((height - mark_height) / 2.0).max(0.0);
-                let key_for = |part: u32| unterm_render::atlas::GlyphKey {
+                let key = unterm_render::atlas::GlyphKey {
                     stack: crate::chrome_font::STACK,
                     face: usize::MAX,
-                    glyph_index: u32::MAX - part,
+                    glyph_index: u32::MAX - 10,
                     pixel_size: mark_height as u32,
                 };
-                if self.atlas.get(key_for(0)).is_none() {
-                    let mark =
-                        crate::brand::rasterize(mark_width as usize, mark_height as usize);
-                    self.atlas.insert(key_for(0), &mark.hook);
-                    self.atlas.insert(key_for(1), &mark.dot);
-                    self.atlas.insert(key_for(2), &mark.arrow);
+                if self.atlas.get(key).is_none() {
+                    let mark = crate::brand::rasterize_compact(mark_height as usize);
+                    self.atlas.insert(key, &mark);
                 }
-                for (part, tint) in [
-                    (0, foreground),
-                    (1, crate::brand::DOT_COLOR),
-                    (2, crate::brand::ARROW_COLOR),
-                ] {
-                    if let Some(slot) = self.atlas.get(key_for(part)) {
-                        quads.glyphs.push(unterm_render::quads::glyph_quad(
-                            slot,
-                            piece.left,
-                            mark_top + mark_height,
-                            tint,
-                            &self.atlas,
-                        ));
-                    }
+                if let Some(slot) = self.atlas.get(key) {
+                    quads.glyphs.push(unterm_render::quads::glyph_quad(
+                        slot,
+                        piece.left,
+                        mark_top + mark_height,
+                        chrome.focus_rail,
+                        &self.atlas,
+                    ));
                 }
                 self.append_chrome(
                     &text,
@@ -2869,14 +3027,12 @@ impl App {
         if !self.scrollbar_enabled {
             return;
         }
-        let Some(live) = self.state.as_ref() else {
+        let Some((session_id, left, track_top, track)) = self.active_pane_scrollbar() else {
             return;
         };
-        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
+        let Ok(snapshot) = self.engine.read_styled_screen(session_id) else {
             return;
         };
-        let track_top = self.terminal_top();
-        let track = (live.height as f32 - track_top).max(1.0);
 
         let total = snapshot.scrollback_rows + snapshot.rows;
         let top_row = snapshot
@@ -2888,7 +3044,6 @@ impl App {
             return;
         };
 
-        let left = live.width as f32 - crate::scrollbar::WIDTH;
         // The track first, so the thumb reads as a position within something
         // rather than a stripe floating at the edge.
         quads.backgrounds.push(unterm_render::quads::Quad {
@@ -2960,7 +3115,8 @@ impl App {
     /// The focused pane's cursor cell, in window pixels, if it is on screen.
     fn cursor_cell_origin(&self) -> Option<(f32, f32)> {
         let live = self.state.as_ref()?;
-        let snapshot = self.engine.read_styled_screen(live.session_id).ok()?;
+        let session_id = self.focused_session();
+        let snapshot = self.engine.read_styled_screen(session_id).ok()?;
         if !snapshot.cursor.visible {
             return None;
         }
@@ -2971,7 +3127,7 @@ impl App {
         let origin = self
             .placements()
             .into_iter()
-            .find(|placement| placement.session_id == live.session_id)
+            .find(|placement| placement.session_id == session_id)
             .map(|placement| placement.origin)
             .unwrap_or((self.terminal_left(), self.terminal_top()));
         let metrics = self.font.metrics();
@@ -3128,10 +3284,8 @@ impl App {
             return;
         };
         let width = snapshot.cols.max(1);
-        let mut drag = crate::select::Drag::start(
-            SelectionPoint::new(0, cell.row),
-            SelectionShape::Linear,
-        );
+        let mut drag =
+            crate::select::Drag::start(SelectionPoint::new(0, cell.row), SelectionShape::Linear);
         drag.extend(SelectionPoint::new(width.saturating_sub(1), cell.row));
         self.drag = Some(drag);
         self.update_selection();
@@ -3167,8 +3321,7 @@ impl App {
             }
             Action::GitPanel => self.toggle_git_panel(),
             Action::DirJump => {
-                let entries = self.dir_jump_entries("");
-                self.open_browser(entries);
+                self.open_system_directory_picker(crate::palette::BrowseThen::ChangeDirectory);
             }
             Action::LeftTabBar => {
                 self.sidebar_open = !self.sidebar_open;
@@ -3187,9 +3340,10 @@ impl App {
                 self.drawn_revision = None;
             }
             Action::CommandPalette => {
-                let mut entries = command_entries();
-                entries.extend(workspace_entries());
-                self.open_palette(entries);
+                self.open_named_palette(
+                    self.command_palette_entries(),
+                    unterm_services::i18n::t("menu.command_palette"),
+                );
             }
             Action::Launcher => self.open_shell_selector(),
             Action::Search => {
@@ -3481,7 +3635,9 @@ impl App {
         // The chrome follows the display's scale but not the terminal's font
         // size: making the tab labels bigger because somebody zoomed the
         // terminal is not what zooming the terminal means.
-        if let Ok(chrome) = crate::chrome_font::open(&self.font_fallbacks, Self::font_scale_for(scale)) {
+        if let Ok(chrome) =
+            crate::chrome_font::open(&self.font_fallbacks, Self::font_scale_for(scale))
+        {
             self.chrome_font = chrome;
         }
         self.font_points = points;
@@ -3607,11 +3763,14 @@ impl App {
 
         // Size the new session to the rectangle it will actually get, so its
         // shell never sees a width it is not being drawn at.
-        let (cols, rows) = self.font.grid_for(live.width as f32, live.height as f32);
+        let (cols, rows) = self
+            .font
+            .grid_for(self.terminal_width(), self.terminal_height());
+        let (new_cols, new_rows) = initial_split_grid(axis, cols, rows);
         let env = launch_env_for_new_pane();
         let session = match self.engine.create_session(CreateSessionRequest {
-            cols: cols / 2,
-            rows,
+            cols: new_cols,
+            rows: new_rows,
             command_dir: None,
             command: prepare_shell(self.shell.clone()),
             env,
@@ -4269,12 +4428,32 @@ impl App {
     fn toggle_git_panel(&mut self) {
         self.git_panel = match self.git_panel {
             Some(_) => None,
-            None => Some(match self.current_directory() {
-                Some(directory) => crate::git::read(&directory),
-                None => crate::git::Panel::NotARepository,
-            }),
+            None => {
+                let cwd = self
+                    .current_directory()
+                    .or_else(dirs_next::home_dir)
+                    .unwrap_or_else(|| std::path::PathBuf::from("."));
+                Some(GitDock {
+                    panel: crate::git::read(&cwd),
+                    cwd,
+                })
+            }
         };
+        self.resize_panes();
         self.drawn_revision = None;
+    }
+
+    fn git_panel_width(&self) -> f32 {
+        if self.git_panel.is_none() {
+            return 0.0;
+        }
+        let pt = self.chrome_pt();
+        let window = self.state.as_ref().map(|live| live.width).unwrap_or(800) as f32;
+        let max = (window * crate::ui_tokens::GIT_PANEL_MAX_RATIO)
+            .max(crate::ui_tokens::GIT_PANEL_MIN_WIDTH * pt);
+        (crate::ui_tokens::GIT_PANEL_WIDTH * pt)
+            .clamp(crate::ui_tokens::GIT_PANEL_MIN_WIDTH * pt, max)
+            .round()
     }
 
     /// What git says about where this pane is.
@@ -4283,17 +4462,24 @@ impl App {
         window_width: f32,
         quads: &mut unterm_render::quads::FrameQuads,
     ) {
-        let Some(status) = self.git_panel.clone() else {
+        let Some(cwd) = self.current_directory() else {
+            return;
+        };
+        if let Some(dock) = self.git_panel.as_mut() {
+            if dock.cwd != cwd {
+                dock.cwd = cwd.clone();
+                dock.panel = crate::git::read(&cwd);
+            }
+        }
+        let Some(status) = self.git_panel.as_ref().map(|dock| dock.panel.clone()) else {
             return;
         };
         let metrics = self.font.metrics();
-        let width = (window_width * 0.5)
-            .max(metrics.width * 30.0)
-            .min(window_width);
+        let width = self.git_panel_width().min(window_width);
         // A repository inspector is a dock, not a modal: keep the terminal
         // visible beside it and anchor it to the right edge.
         let left = (window_width - width).max(0.0);
-        let top = metrics.height * 2.0;
+        let top = self.terminal_top();
         let foreground = self.colors.foreground;
 
         let heading = status.heading();
@@ -4303,7 +4489,7 @@ impl App {
             .take(MAX_GIT_ROWS)
             .map(|entry| format!("{:<3}{}", entry.code, entry.path))
             .collect();
-        let height = metrics.height * (lines.len() + 1) as f32;
+        let height = self.terminal_height();
 
         quads.backgrounds.extend(unterm_render::rounded::panel(
             left,
@@ -4574,8 +4760,7 @@ impl App {
                 }
                 self.copy_mode = Some(mode);
             }
-            motion @ (crate::copy_mode::Motion::WordLeft
-            | crate::copy_mode::Motion::WordRight) => {
+            motion @ (crate::copy_mode::Motion::WordLeft | crate::copy_mode::Motion::WordRight) => {
                 let rows = self.screen_shape().0;
                 let lines: Vec<String> = self
                     .state
@@ -4727,8 +4912,74 @@ impl App {
                     log::warn!("could not copy to the clipboard: {err}");
                     self.show_notice(unterm_services::i18n::t("interaction.paste_failed"));
                 }
+                ClipboardResult::DirectoryPicked { then, result } => match result {
+                    Ok(Some(path)) => {
+                        let path = path.display().to_string();
+                        match then {
+                            crate::palette::BrowseThen::ChangeDirectory => {
+                                self.change_directory(&path)
+                            }
+                            crate::palette::BrowseThen::NewTab => self.new_tab_in(&path),
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        log::warn!("could not open the system folder picker: {err}");
+                        self.show_notice(unterm_services::i18n::t("dirjump.picker_failed"));
+                    }
+                },
+                ClipboardResult::ScreenshotFinished { mode, result } => match result {
+                    Ok(path) => self.show_notice(unterm_services::i18n::t_args(
+                        "screenshot.saved",
+                        &[("mode", &mode), ("path", &path.display().to_string())],
+                    )),
+                    Err(err) => self.show_notice(unterm_services::i18n::t_args(
+                        "screenshot.failed",
+                        &[("mode", &mode), ("err", &err)],
+                    )),
+                },
+                ClipboardResult::ExportFinished(result) => match result {
+                    Ok(path) => self.show_notice(unterm_services::i18n::t_args(
+                        "recording.exported",
+                        &[("path", &path.display().to_string())],
+                    )),
+                    Err(err) => self.show_notice(unterm_services::i18n::t_args(
+                        "recording.export_failed",
+                        &[("err", &err)],
+                    )),
+                },
+                ClipboardResult::ScrollbackCaptured(result) => match result {
+                    Ok(path) => self.show_notice(format!("✓ {}", path.display())),
+                    Err(err) => self.show_notice(unterm_services::i18n::t_args(
+                        "scrollshot.failed",
+                        &[("err", &err)],
+                    )),
+                },
             }
         }
+    }
+
+    fn click_git_panel(&self) -> bool {
+        let Some(live) = self.state.as_ref() else {
+            return false;
+        };
+        let width = self.git_panel_width();
+        width > 0.0
+            && self.pointer.0 >= live.width as f32 - width
+            && self.pointer.1 >= self.terminal_top()
+            && self.pointer.1 < live.height as f32 - self.status_bar_height()
+    }
+
+    /// Open the native directory chooser away from winit's event thread.
+    fn open_system_directory_picker(&mut self, then: crate::palette::BrowseThen) {
+        let start = self.current_directory();
+        let title = unterm_services::i18n::t("dirjump.picker_title");
+        let tx = self.clipboard_tx.clone();
+        crate::clipboard::run(tx, move || ClipboardResult::DirectoryPicked {
+            then,
+            result: crate::directory::pick_directory(start.as_deref(), &title)
+                .map_err(|err| err.to_string()),
+        });
     }
 
     /// Open the palette on a set of rows.
@@ -4847,10 +5098,25 @@ impl App {
         let Some(live) = self.state.as_ref() else {
             return;
         };
-        match unterm_engine::RecordingEngine::export_markdown(&self.engine, live.session_id, None) {
-            Ok(exported) => log::info!("session exported to {}", exported.path),
-            Err(err) => log::warn!("could not export the session: {err}"),
-        }
+        let pane = live.session_id;
+        let tx = self.clipboard_tx.clone();
+        crate::clipboard::run(tx, move || {
+            let result = unterm_engine::RecordingEngine::export_markdown(
+                &unterm_engine::next_core(),
+                pane,
+                None,
+            )
+            .map(|exported| std::path::PathBuf::from(exported.path))
+            .map_err(|err| err.to_string())
+            .and_then(|path| {
+                arboard::Clipboard::new()
+                    .and_then(|mut board| board.set_text(path.display().to_string()))
+                    .map_err(|err| err.to_string())?;
+                Ok(path)
+            });
+            ClipboardResult::ExportFinished(result)
+        });
+        self.show_notice(unterm_services::i18n::t("recording.exporting"));
     }
 
     /// Settings live in a browser, not in a cell grid.
@@ -4902,6 +5168,13 @@ impl App {
         let Some(live) = self.state.as_ref() else {
             return;
         };
+        // A session restored by winit, a Win+Up gesture and a title-bar
+        // double-click use the OS maximized state rather than our work-area
+        // rectangle. The caption button must restore those immediately.
+        if live.window.is_maximized() {
+            live.window.set_maximized(false);
+            return;
+        }
         if let Some((position, size)) = self.unmaximized_rect.take() {
             live.window.set_outer_position(position);
             let _ = live.window.request_inner_size(size);
@@ -4971,7 +5244,7 @@ impl App {
         crate::session_restore::save(&crate::session_restore::LastSession {
             width: size.width,
             height: size.height,
-            maximized: live.window.is_maximized(),
+            maximized: live.window.is_maximized() || self.unmaximized_rect.is_some(),
             cwds,
         });
     }
@@ -5058,11 +5331,8 @@ impl App {
             Some(crate::statusbar::SegmentKind::Project) => {
                 self.run_key_action(crate::keys::Action::DirJump, session_id);
             }
-            Some(crate::statusbar::SegmentKind::CaptureInclude) => {
-                self.begin_region_selection();
-                self.show_notice(unterm_services::i18n::t("capture.drag_hint"));
-            }
-            Some(crate::statusbar::SegmentKind::CaptureExclude) => self.capture_screen_hidden(),
+            Some(crate::statusbar::SegmentKind::CaptureInclude) => self.start_system_capture(false),
+            Some(crate::statusbar::SegmentKind::CaptureExclude) => self.start_system_capture(true),
             Some(crate::statusbar::SegmentKind::Theme) => {
                 self.run_key_action(crate::keys::Action::ThemePicker, session_id);
             }
@@ -5192,7 +5462,10 @@ impl App {
         };
         self.palette = Some(crate::palette::Palette::new(vec![
             action(t("menu.new_tab"), crate::keys::Action::NewTab),
-            action(t("settings.menu.split_right"), crate::keys::Action::SplitRight),
+            action(
+                t("settings.menu.split_right"),
+                crate::keys::Action::SplitRight,
+            ),
             crate::palette::Entry {
                 label: t("tab.rename"),
                 hint: String::new(),
@@ -5224,10 +5497,20 @@ impl App {
             .map(|at| at.as_millis())
             .unwrap_or(0);
         let path = dir.join(format!("scrollshot-{stamp}.png"));
-        match crate::mcp_host::scrollback_png(pane, &path) {
-            Ok(_) => self.show_notice(format!("\u{2713} {}", path.display())),
-            Err(err) => self.show_notice(format!("capture failed: {err:#}")),
-        }
+        let tx = self.clipboard_tx.clone();
+        crate::clipboard::run(tx, move || {
+            let result = crate::mcp_host::scrollback_png(pane, &path)
+                .map(|_| path)
+                .map_err(|err| format!("{err:#}"))
+                .and_then(|path| {
+                    arboard::Clipboard::new()
+                        .and_then(|mut board| board.set_text(path.display().to_string()))
+                        .map_err(|err| err.to_string())?;
+                    Ok(path)
+                });
+            ClipboardResult::ScrollbackCaptured(result)
+        });
+        self.show_notice(unterm_services::i18n::t("scrollshot.started"));
     }
 
     fn open_settings(&mut self) {
@@ -5304,6 +5587,13 @@ impl App {
         let mut entries = Vec::new();
         if query.is_empty() {
             entries.push(crate::palette::Entry {
+                label: unterm_services::i18n::t("dirjump.system_picker"),
+                hint: "Ctrl+O".to_string(),
+                command: crate::palette::Command::OpenDirectoryPicker {
+                    then: crate::palette::BrowseThen::ChangeDirectory,
+                },
+            });
+            entries.push(crate::palette::Entry {
                 label: unterm_services::i18n::t("dirjump.here"),
                 hint: here.display().to_string(),
                 command: crate::palette::Command::ChangeDirectory {
@@ -5344,9 +5634,8 @@ impl App {
         // 0.57.4's chevron menu, in its order: the window's verbs with their
         // chords, then the palette, then the session's recording and capture
         // family, then Settings, then who this is.
-        let chord = |action: crate::keys::Action| {
-            crate::keys::chord_hint(action).unwrap_or_default()
-        };
+        let chord =
+            |action: crate::keys::Action| crate::keys::chord_hint(action).unwrap_or_default();
         let action = |label: String, action: crate::keys::Action| crate::palette::Entry {
             label,
             hint: chord(action),
@@ -5354,13 +5643,19 @@ impl App {
         };
         vec![
             action(t("menu.new_tab"), crate::keys::Action::NewTab),
-            action(t("settings.menu.split_right"), crate::keys::Action::SplitRight),
+            action(
+                t("settings.menu.split_right"),
+                crate::keys::Action::SplitRight,
+            ),
             action(t("menu.dir_jump"), crate::keys::Action::DirJump),
             action(t("menu.tree_sidebar"), crate::keys::Action::TreeSidebar),
             action(t("menu.git_panel"), crate::keys::Action::GitPanel),
             action(t("menu.left_tabs"), crate::keys::Action::LeftTabBar),
             action(t("menu.find"), crate::keys::Action::Search),
-            action(t("menu.command_palette"), crate::keys::Action::CommandPalette),
+            action(
+                t("menu.command_palette"),
+                crate::keys::Action::CommandPalette,
+            ),
             crate::palette::Entry {
                 label: if recording {
                     t("settings.menu.recording_on")
@@ -5374,6 +5669,16 @@ impl App {
                 label: t("settings.menu.export_session"),
                 hint: t("settings.menu.export_session.hint"),
                 command: crate::palette::Command::ExportSession,
+            },
+            crate::palette::Entry {
+                label: t("menu.capture_region"),
+                hint: t("command.capture_region.hint"),
+                command: crate::palette::Command::SelectCaptureRegion,
+            },
+            crate::palette::Entry {
+                label: t("menu.capture_desktop"),
+                hint: String::new(),
+                command: crate::palette::Command::CaptureDesktop,
             },
             crate::palette::Entry {
                 label: t("menu.capture_scrollback"),
@@ -5393,6 +5698,18 @@ impl App {
                 },
             },
         ]
+    }
+
+    /// Every command the GUI exposes, not only the subset with a key chord.
+    fn command_palette_entries(&self) -> Vec<crate::palette::Entry> {
+        let mut entries = command_entries();
+        for extra in self.quick_entries() {
+            if !entries.iter().any(|entry| entry.command == extra.command) {
+                entries.push(extra);
+            }
+        }
+        entries.extend(workspace_entries());
+        entries
     }
 
     /// The Insights card: what the AI layer is seeing, as rows to read.
@@ -5457,21 +5774,42 @@ impl App {
             }
             widest + (12.0 + 14.0) * pt
         };
-        let window_width = self.state.as_ref().map(|live| live.width as f32).unwrap_or(0.0);
-        let anchor = self
+        let window_width = self
+            .state
+            .as_ref()
+            .map(|live| live.width as f32)
+            .unwrap_or(0.0);
+        let anchor_right = self
             .top_bar(window_width)
             .iter()
             .find(|piece| piece.item == crate::topbar::Item::Menu)
-            .map(|piece| piece.left)
-            .unwrap_or(window_width - width);
-        let left = anchor.min((window_width - width - 4.0 * pt).max(0.0));
+            .map(|piece| piece.left + piece.width)
+            .unwrap_or(window_width);
+        let width = width.min((window_width - 8.0 * pt).max(1.0));
+        let left = (anchor_right - width)
+            .max(4.0 * pt)
+            .min((window_width - width - 4.0 * pt).max(0.0));
+        let window_height = self
+            .state
+            .as_ref()
+            .map(|live| live.height as f32)
+            .unwrap_or(0.0);
+        let top = self.top_bar_height() + 4.0 * pt;
+        let row_height = self.chrome_row_height();
+        let available_height =
+            (window_height - top - self.status_bar_height() - 4.0 * pt).max(row_height);
+        let visible_rows = ((available_height / row_height) as usize)
+            .max(1)
+            .min(entries.len());
         self.quick_menu = Some(QuickMenu {
             entries,
             hover: None,
+            top_row: 0,
+            visible_rows,
             left,
-            top: self.top_bar_height() + 4.0 * pt,
+            top,
             width,
-            row_height: self.chrome_row_height(),
+            row_height,
         });
         self.drawn_revision = None;
     }
@@ -5479,10 +5817,15 @@ impl App {
     /// A press while the dropdown is open: run the row under it, and close
     /// either way — a menu left open after a click elsewhere is debris.
     fn click_quick_menu(&mut self) -> bool {
-        let Some(menu) = self.quick_menu.take() else {
+        let Some(mut menu) = self.quick_menu.take() else {
             return false;
         };
         self.drawn_revision = None;
+        if let Some(delta) = menu.arrow_at(self.pointer.0, self.pointer.1) {
+            menu.scroll(delta);
+            self.quick_menu = Some(menu);
+            return true;
+        }
         if let Some(at) = menu.row_at(self.pointer.0, self.pointer.1) {
             if let Some(entry) = menu.entries.get(at) {
                 self.run_palette_command(entry.command.clone(), "");
@@ -5523,8 +5866,16 @@ impl App {
             + crate::ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt)
             .max(0.0);
         let hover = menu.row_at(self.pointer.0, self.pointer.1);
-        for (index, entry) in menu.entries.iter().enumerate() {
-            let row_top = menu.top + index as f32 * menu.row_height;
+        let has_scroll_gutter = menu.entries.len() > menu.visible_rows;
+        for (visible_index, (index, entry)) in menu
+            .entries
+            .iter()
+            .enumerate()
+            .skip(menu.top_row)
+            .take(menu.visible_rows)
+            .enumerate()
+        {
+            let row_top = menu.top + visible_index as f32 * menu.row_height;
             if hover == Some(index) {
                 quads.backgrounds.push(unterm_render::quads::Quad {
                     left: menu.left,
@@ -5550,18 +5901,51 @@ impl App {
             );
             if !entry.hint.is_empty() {
                 let wide = self.chrome_width(&entry.hint);
-                self.append_chrome(
-                    &entry.hint.clone(),
-                    chrome.dim_text,
-                    (menu.left + menu.width - wide - 14.0 * pt, row_top + text_offset),
-                    quads,
-                );
+                let label_wide = self.chrome_width(&entry.label);
+                if label_wide + wide + 34.0 * pt <= menu.width {
+                    let right_pad = if has_scroll_gutter { 30.0 } else { 14.0 } * pt;
+                    self.append_chrome(
+                        &entry.hint.clone(),
+                        chrome.dim_text,
+                        (
+                            menu.left + menu.width - wide - right_pad,
+                            row_top + text_offset,
+                        ),
+                        quads,
+                    );
+                }
             }
+        }
+        let arrow_left = menu.left + menu.width - 13.0 * pt;
+        let arrow_color = self.chrome_foreground();
+        if menu.top_row > 0 {
+            self.append_chrome(
+                "▲",
+                arrow_color,
+                (arrow_left, menu.top + text_offset),
+                quads,
+            );
+        }
+        if menu.top_row + menu.visible_rows < menu.entries.len() {
+            self.append_chrome(
+                "▼",
+                arrow_color,
+                (
+                    arrow_left,
+                    menu.top + menu.height() - menu.row_height + text_offset,
+                ),
+                quads,
+            );
         }
     }
 
     fn open_palette(&mut self, entries: Vec<crate::palette::Entry>) {
         self.palette = Some(crate::palette::Palette::new(entries));
+        self.drawn_revision = None;
+    }
+
+    fn open_named_palette(&mut self, entries: Vec<crate::palette::Entry>, title: String) {
+        self.palette = Some(crate::palette::Palette::new(entries).titled(title));
         self.drawn_revision = None;
     }
 
@@ -5634,8 +6018,8 @@ impl App {
     }
 
     /// Open a palette that goes and looks again as the query changes.
-    fn open_browser(&mut self, entries: Vec<crate::palette::Entry>) {
-        self.palette = Some(crate::palette::Palette::browsing(entries));
+    fn open_browser(&mut self, entries: Vec<crate::palette::Entry>, title: String) {
+        self.palette = Some(crate::palette::Palette::browsing(entries).titled(title));
         self.drawn_revision = None;
     }
 
@@ -5679,12 +6063,19 @@ impl App {
         let metrics = self.font.metrics();
         let rows = palette.visible().len().min(crate::palette::MAX_ROWS);
         Some(match palette.view {
-            crate::palette::View::Search => crate::palette::Geometry::new(
-                live.width as f32,
-                (metrics.width, metrics.height),
-                rows,
-                palette.error.is_some(),
-            ),
+            crate::palette::View::Search => {
+                let geometry = if palette.title.is_some() {
+                    crate::palette::Geometry::titled
+                } else {
+                    crate::palette::Geometry::new
+                };
+                geometry(
+                    live.width as f32,
+                    (metrics.width, metrics.height),
+                    rows,
+                    palette.error.is_some(),
+                )
+            }
             crate::palette::View::ShellSelector => {
                 self.shell_selector_card(rows, palette.error.is_some())
             }
@@ -5728,16 +6119,55 @@ impl App {
         let Some(card) = self.palette_card() else {
             return false;
         };
+        // The right-hand gutter belongs to the scroll arrows.  Hovering one
+        // must not silently select the row underneath it.
+        if self.palette_scroll_arrow_at(card).is_some() {
+            return true;
+        }
         let Some(row) = card.row_at(self.pointer.0, self.pointer.1) else {
             return false;
         };
         if let Some(palette) = self.palette.as_mut() {
-            if palette.selected != row {
-                palette.selected = row;
+            let selected = palette.window_start(crate::palette::MAX_ROWS) + row;
+            if palette.selected != selected {
+                palette.selected = selected;
                 self.drawn_revision = None;
             }
         }
         true
+    }
+
+    /// Which of the palette's visible scroll arrows is under the pointer.
+    ///
+    /// Arrows are part of the same bounded result window as the wheel and the
+    /// keyboard; keeping their hit test here prevents the painted button and
+    /// the row picker from disagreeing about who owns the click.
+    fn palette_scroll_arrow_at(&self, card: crate::palette::Geometry) -> Option<isize> {
+        let palette = self.palette.as_ref()?;
+        if card.rows == 0 {
+            return None;
+        }
+        let metrics = self.font.metrics();
+        let in_gutter = self.pointer.0 >= card.left + card.width - metrics.width * 2.0
+            && self.pointer.0 < card.left + card.width;
+        if !in_gutter {
+            return None;
+        }
+        let first_top = card.top + metrics.height * card.leading_rows as f32;
+        let last_top = first_top + metrics.height * (card.rows.saturating_sub(1)) as f32;
+        if self.pointer.1 >= first_top
+            && self.pointer.1 < first_top + metrics.height
+            && palette.can_scroll_up()
+        {
+            Some(-1)
+        } else if self.pointer.1 >= last_top
+            && self.pointer.1 < last_top + metrics.height
+            && palette.can_scroll_down(crate::palette::MAX_ROWS)
+        {
+            Some(1)
+        } else {
+            None
+        }
     }
 
     /// A press while a palette is open. Returns true when the palette took it.
@@ -5750,9 +6180,17 @@ impl App {
         let Some(card) = self.palette_card() else {
             return false;
         };
+        if let Some(delta) = self.palette_scroll_arrow_at(card) {
+            if let Some(palette) = self.palette.as_mut() {
+                palette.scroll(delta, crate::palette::MAX_ROWS);
+            }
+            self.drawn_revision = None;
+            return true;
+        }
         match card.row_at(self.pointer.0, self.pointer.1) {
             Some(row) => {
                 let chosen = self.palette.as_ref().and_then(|palette| {
+                    let row = palette.window_start(crate::palette::MAX_ROWS) + row;
                     palette
                         .visible()
                         .get(row)
@@ -5783,6 +6221,17 @@ impl App {
             WinitKey::Character(text) => Some(text.to_string()),
             _ => None,
         };
+
+        // Directory-jump parity with 0.57.4: the modifier shortcuts belong to
+        // the picker, not to the terminal underneath it.
+        if palette.source == crate::palette::Source::Directories
+            && self.ctrl_held
+            && matches!(character.as_deref(), Some("o") | Some("O"))
+        {
+            self.open_system_directory_picker(crate::palette::BrowseThen::ChangeDirectory);
+            self.drawn_revision = None;
+            return true;
+        }
 
         let mut keep = true;
         if palette.view == crate::palette::View::ShellSelector {
@@ -5843,7 +6292,20 @@ impl App {
                 }
             }
             crate::palette::Key::Backspace => {
-                palette.query.pop();
+                if palette.source == crate::palette::Source::Directories && palette.query.is_empty()
+                {
+                    if let Some(parent) = self
+                        .current_directory()
+                        .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+                    {
+                        palette.query = parent.display().to_string();
+                        if !palette.query.ends_with(std::path::MAIN_SEPARATOR) {
+                            palette.query.push(std::path::MAIN_SEPARATOR);
+                        }
+                    }
+                } else {
+                    palette.query.pop();
+                }
                 self.requery_palette(&mut palette);
             }
             crate::palette::Key::Type(text) => {
@@ -5854,7 +6316,25 @@ impl App {
                 keep = false;
                 let task = palette.query.clone();
                 if let Some(entry) = palette.current().cloned() {
-                    self.run_palette_command(entry.command, &task);
+                    if palette.source == crate::palette::Source::Directories && self.ctrl_held {
+                        let path = match entry.command {
+                            crate::palette::Command::ChangeDirectory { path }
+                            | crate::palette::Command::NewTabIn { path }
+                            | crate::palette::Command::Browse { path, .. } => Some(path),
+                            crate::palette::Command::OpenDirectoryPicker { .. } => {
+                                self.open_system_directory_picker(
+                                    crate::palette::BrowseThen::NewTab,
+                                );
+                                None
+                            }
+                            _ => None,
+                        };
+                        if let Some(path) = path {
+                            self.new_tab_in(&path);
+                        }
+                    } else {
+                        self.run_palette_command(entry.command, &task);
+                    }
                 }
             }
             // Nothing reaches the shell while the palette is open: a
@@ -5894,6 +6374,9 @@ impl App {
             crate::palette::Command::ChangeDirectory { path } => self.change_directory(&path),
             crate::palette::Command::NewTabIn { path } => self.new_tab_in(&path),
             crate::palette::Command::RestoreWorkspace { name } => self.restore_workspace(&name),
+            crate::palette::Command::OpenDirectoryPicker { then } => {
+                self.open_system_directory_picker(then)
+            }
             crate::palette::Command::OpenWorkspaceSave => self.open_workspace_save(),
             crate::palette::Command::SaveWorkspace => {
                 let name = task.trim().to_string();
@@ -5924,6 +6407,7 @@ impl App {
                 }
             }
             crate::palette::Command::CaptureScrollback => self.capture_scrollback(),
+            crate::palette::Command::CaptureDesktop => self.start_system_capture(true),
             crate::palette::Command::OpenUrl { url } => {
                 if let Err(err) = crate::links::open(&url) {
                     log::warn!("could not open {url}: {err}");
@@ -5934,7 +6418,7 @@ impl App {
                 self.perform_close();
             }
             crate::palette::Command::OpenTabRename { index } => self.open_tab_rename(index),
-            crate::palette::Command::SelectCaptureRegion => self.begin_region_selection(),
+            crate::palette::Command::SelectCaptureRegion => self.start_system_capture(false),
             // Information rows: reading them was the point.
             crate::palette::Command::Nothing => {}
             crate::palette::Command::Browse { path, then } => {
@@ -6021,10 +6505,29 @@ impl App {
         }
     }
 
+    /// Start the same native interactive screenshot flow 0.57.4 used.
+    fn start_system_capture(&mut self, hide_window: bool) {
+        let mode = if hide_window {
+            unterm_services::i18n::t("screenshot.mode.hidden")
+        } else {
+            unterm_services::i18n::t("screenshot.mode.visible")
+        };
+        self.show_notice(unterm_services::i18n::t_args(
+            "screenshot.started",
+            &[("mode", &mode)],
+        ));
+        let tx = self.clipboard_tx.clone();
+        crate::clipboard::run(tx, move || ClipboardResult::ScreenshotFinished {
+            mode,
+            result: crate::system_capture::capture_selected_region(hide_window)
+                .map_err(|err| format!("{err:#}")),
+        });
+    }
+
     fn begin_region_selection(&mut self) {
         self.region_selection = Some(RegionSelection::Armed);
         self.pending_region_capture = None;
-        self.show_notice("Drag to capture a region; Esc cancels".to_string());
+        self.show_notice(unterm_services::i18n::t("capture.drag_hint"));
         if let Some(live) = self.state.as_ref() {
             live.window.set_cursor(winit::window::CursorIcon::Crosshair);
             live.window.request_redraw();
@@ -6145,7 +6648,9 @@ impl App {
         // The bar is one terminal cell plus the slight vertical padding the
         // previous front end gave it — its text is set in the terminal face.
         let pt = self.chrome_pt();
-        let pad = (crate::ui_tokens::STATUS_BAR_VERTICAL_PADDING * pt).round().max(2.0);
+        let pad = (crate::ui_tokens::STATUS_BAR_VERTICAL_PADDING * pt)
+            .round()
+            .max(2.0);
         (self.font.metrics().height + pad * 2.0).round().max(1.0)
     }
 
@@ -6263,6 +6768,66 @@ impl App {
     /// Everything printable extends the pattern; Enter steps through the
     /// matches and Esc closes. Nothing else is taken, so a key the search has
     /// no use for still reaches the shell rather than vanishing.
+    fn click_search_bar(&mut self) -> bool {
+        let Some(mut search) = self.search.take() else {
+            return false;
+        };
+        let session_id = self.focused_session();
+        let Some(live) = self.state.as_ref() else {
+            self.search = Some(search);
+            return false;
+        };
+        let metrics = self.font.metrics();
+        let left = self.terminal_left();
+        let width = self.terminal_width();
+        let top = (live.height as f32 - self.status_bar_height() - metrics.height)
+            .max(self.terminal_top());
+        if self.pointer.0 < left
+            || self.pointer.0 >= left + width
+            || self.pointer.1 < top
+            || self.pointer.1 >= top + metrics.height
+        {
+            self.search = Some(search);
+            return false;
+        }
+
+        let controls_left = left + width - 13.0 * metrics.width;
+        let cell = ((self.pointer.0 - controls_left) / metrics.width).floor() as isize;
+        let mut keep = true;
+        let mut research = false;
+        match cell {
+            0..=2 => search.step(-1),
+            3..=5 => search.step(1),
+            6..=9 => {
+                search.cycle_mode();
+                research = true;
+            }
+            10..=12 => keep = false,
+            _ => {}
+        }
+        if keep {
+            if research {
+                let matches = if search.pattern.is_empty() {
+                    Vec::new()
+                } else {
+                    self.engine
+                        .search(session_id, &search.pattern, search.mode, MAX_SEARCH_MATCHES)
+                        .unwrap_or_default()
+                };
+                search.adopt(matches);
+            }
+            if let Some(found) = search.current() {
+                let _ = self
+                    .engine
+                    .scroll_viewport_to(session_id, found.row as isize);
+            }
+            self.search = Some(search);
+        }
+        self.drawn_revision = None;
+        live.window.request_redraw();
+        true
+    }
+
     fn handle_search_key(&mut self, event: &winit::event::KeyEvent) -> bool {
         use winit::keyboard::Key as WinitKey;
         let Some(mut search) = self.search.take() else {
@@ -6312,28 +6877,25 @@ impl App {
 
         if keep {
             if research {
-                let matches = self
-                    .state
-                    .as_ref()
-                    .filter(|_| !search.pattern.is_empty())
-                    .and_then(|live| {
-                        self.engine
-                            .search(
-                                live.session_id,
-                                &search.pattern,
-                                search.mode,
-                                MAX_SEARCH_MATCHES,
-                            )
-                            .ok()
-                    })
-                    .unwrap_or_default();
+                let matches = if search.pattern.is_empty() {
+                    Vec::new()
+                } else {
+                    self.engine
+                        .search(
+                            self.focused_session(),
+                            &search.pattern,
+                            search.mode,
+                            MAX_SEARCH_MATCHES,
+                        )
+                        .unwrap_or_default()
+                };
                 search.adopt(matches);
             }
             // Follow the current match, so finding something shows it.
-            if let (Some(found), Some(live)) = (search.current(), self.state.as_ref()) {
+            if let Some(found) = search.current() {
                 let _ = self
                     .engine
-                    .scroll_viewport_to(live.session_id, found.row as isize);
+                    .scroll_viewport_to(self.focused_session(), found.row as isize);
             }
             self.search = Some(search);
         }
@@ -6477,9 +7039,11 @@ impl App {
         };
         let metrics = self.font.metrics();
         let view = palette.view;
+        let window_start = palette.window_start(crate::palette::MAX_ROWS);
         let rows: Vec<(String, bool)> = palette
             .visible()
             .iter()
+            .skip(window_start)
             .take(crate::palette::MAX_ROWS)
             .enumerate()
             .map(|(index, entry)| {
@@ -6489,13 +7053,13 @@ impl App {
                     format!("   {}", entry.hint)
                 };
                 let prefix = if view == crate::palette::View::ShellSelector {
-                    format!("{}  ", index + 1)
+                    format!("{}  ", window_start + index + 1)
                 } else {
                     String::new()
                 };
                 (
                     format!("{prefix}{}{hint}", entry.label),
-                    index == palette.selected,
+                    window_start + index == palette.selected,
                 )
             })
             .collect();
@@ -6504,12 +7068,19 @@ impl App {
         // The same arithmetic the hit-testing uses, so a row is pressed where
         // it is drawn.
         let card = match view {
-            crate::palette::View::Search => crate::palette::Geometry::new(
-                window_width,
-                (metrics.width, metrics.height),
-                rows.len(),
-                error.is_some(),
-            ),
+            crate::palette::View::Search => {
+                let geometry = if palette.title.is_some() {
+                    crate::palette::Geometry::titled
+                } else {
+                    crate::palette::Geometry::new
+                };
+                geometry(
+                    window_width,
+                    (metrics.width, metrics.height),
+                    rows.len(),
+                    error.is_some(),
+                )
+            }
             crate::palette::View::ShellSelector => {
                 self.shell_selector_card(rows.len(), error.is_some())
             }
@@ -6566,20 +7137,38 @@ impl App {
                 color: mix(self.colors.background, foreground, 0.25),
             });
         } else {
+            if let Some(title) = palette.title.as_deref() {
+                crate::terminal::append_text(
+                    title,
+                    &mut self.font,
+                    &mut self.atlas,
+                    foreground,
+                    (left + metrics.width, top),
+                    quads,
+                );
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left: left + metrics.width,
+                    top: top + metrics.height - 1.0,
+                    width: (width - metrics.width * 2.0).max(0.0),
+                    height: 1.0,
+                    color: mix(self.colors.background, foreground, 0.25),
+                });
+            }
             // The query line, with a caret so an empty palette still looks
             // like something you type into.
             let query = format!("> {}", palette.query);
+            let query_top = top + metrics.height * usize::from(palette.title.is_some()) as f32;
             crate::terminal::append_text(
                 &query,
                 &mut self.font,
                 &mut self.atlas,
                 foreground,
-                (left + metrics.width, top),
+                (left + metrics.width, query_top),
                 quads,
             );
             quads.backgrounds.push(unterm_render::quads::Quad {
                 left: left + metrics.width * (query.chars().count() + 1) as f32,
-                top,
+                top: query_top,
                 width: (metrics.width * 0.15).max(1.0),
                 height: metrics.height,
                 color: foreground,
@@ -6616,6 +7205,38 @@ impl App {
                 &mut self.atlas,
                 foreground,
                 (left + metrics.width, row_top),
+                quads,
+            );
+        }
+
+        // Visible, clickable affordances for a result set larger than the
+        // card.  These share `top_row` with arrows, PageUp/PageDown and the
+        // wheel, so every navigation path shows the same slice.
+        let arrow_left = left + width - metrics.width * 1.6;
+        let arrow_color = mix(foreground, self.colors.background, 0.25);
+        if palette.can_scroll_up() && !rows.is_empty() {
+            crate::terminal::append_text(
+                "↑",
+                &mut self.font,
+                &mut self.atlas,
+                arrow_color,
+                (
+                    left + width - metrics.width * 1.6,
+                    top + metrics.height * card.leading_rows as f32,
+                ),
+                quads,
+            );
+        }
+        if palette.can_scroll_down(crate::palette::MAX_ROWS) && !rows.is_empty() {
+            crate::terminal::append_text(
+                "↓",
+                &mut self.font,
+                &mut self.atlas,
+                arrow_color,
+                (
+                    arrow_left,
+                    top + metrics.height * (card.leading_rows + rows.len() - 1) as f32,
+                ),
                 quads,
             );
         }
@@ -6675,27 +7296,29 @@ impl App {
         if search.matches.is_empty() {
             return;
         }
-        let Some(live) = self.state.as_ref() else {
+        if self.state.is_none() {
+            return;
+        }
+        let session_id = self.focused_session();
+        let Ok(snapshot) = self.engine.read_styled_screen(session_id) else {
             return;
         };
-        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
-            return;
-        };
-        let top_row = snapshot
-            .lines
-            .first()
-            .map(|line| line.row)
-            .unwrap_or(0);
+        let top_row = snapshot.lines.first().map(|line| line.row).unwrap_or(0);
         let rows = snapshot.rows as i64;
         let metrics = self.font.metrics();
-        let origin = (self.terminal_left(), self.terminal_top());
+        let origin = self
+            .placements()
+            .into_iter()
+            .find(|placement| placement.session_id == session_id)
+            .map(|placement| placement.origin)
+            .unwrap_or((self.terminal_left(), self.terminal_top()));
         let accent = self.chrome().focus_rail;
         for (index, found) in search.matches.iter().enumerate() {
             if found.row < top_row || found.row >= top_row + rows {
                 continue;
             }
-            let columns: usize = found
-                .text
+            let columns: usize = search
+                .pattern
                 .chars()
                 .map(crate::terminal::column_width)
                 .sum::<usize>()
@@ -6716,28 +7339,62 @@ impl App {
         window_width: f32,
         quads: &mut unterm_render::quads::FrameQuads,
     ) {
-        let Some(label) = self.search.as_ref().map(|search| search.label()) else {
+        let Some(search) = self.search.as_ref() else {
             return;
+        };
+        let label = search.label();
+        let mode = match search.mode {
+            unterm_engine::SearchMode::CaseSensitive => "Aa",
+            unterm_engine::SearchMode::CaseInsensitive => "aA",
+            unterm_engine::SearchMode::Regex => ".*",
         };
         let metrics = self.font.metrics();
         let height = self.state.as_ref().map(|live| live.height).unwrap_or(0) as f32;
-        let top = (height - metrics.height).max(0.0);
+        let left = self.terminal_left();
+        let width = self.terminal_width();
+        let top = (height - self.status_bar_height() - metrics.height).max(self.terminal_top());
         quads.backgrounds.push(unterm_render::quads::Quad {
-            left: 0.0,
+            left,
             top,
-            width: window_width,
+            width: width.min(window_width - left),
             height: metrics.height,
             color: self.colors.foreground,
         });
         let background = self.colors.background;
+        let button_cells = 13usize;
+        let columns = (width / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        let label = crate::sidebar::fit(&label, columns.saturating_sub(button_cells + 2));
         crate::terminal::append_text(
             &label,
             &mut self.font,
             &mut self.atlas,
             background,
-            (metrics.width, top),
+            (left + metrics.width, top),
             quads,
         );
+
+        let buttons = [("↑", 3usize), ("↓", 3usize), (mode, 4usize), ("×", 3usize)];
+        let mut pen = left + width - button_cells as f32 * metrics.width;
+        for (text, cells) in buttons {
+            let button_width = cells as f32 * metrics.width;
+            quads.backgrounds.push(unterm_render::quads::Quad {
+                left: pen + 1.0,
+                top: top + 1.0,
+                width: (button_width - 2.0).max(0.0),
+                height: (metrics.height - 2.0).max(0.0),
+                color: self.colors.background,
+            });
+            let text_width = text.chars().count() as f32 * metrics.width;
+            crate::terminal::append_text(
+                text,
+                &mut self.font,
+                &mut self.atlas,
+                self.colors.foreground,
+                (pen + ((button_width - text_width) / 2.0).max(0.0), top),
+                quads,
+            );
+            pen += button_width;
+        }
     }
 
     /// Name the window after what is running in it.
@@ -6829,8 +7486,42 @@ impl App {
 
     /// Where composed text is drawn, and the cell size it is drawn on.
     fn preedit_origin(&self) -> Option<((f32, f32), unterm_render::quads::CellMetrics)> {
-        let live = self.state.as_ref()?;
         let metrics = self.font.metrics();
+        if let Some(palette) = self.palette.as_ref() {
+            if palette.view == crate::palette::View::Search {
+                let card = self.palette_card()?;
+                let query_columns = palette
+                    .query
+                    .chars()
+                    .map(crate::terminal::column_width)
+                    .sum::<usize>();
+                return Some((
+                    (
+                        card.left + metrics.width * (3 + query_columns) as f32,
+                        card.top + metrics.height * usize::from(palette.title.is_some()) as f32,
+                    ),
+                    metrics,
+                ));
+            }
+        }
+        if let Some(search) = self.search.as_ref() {
+            let width = self.terminal_width();
+            let height = self.state.as_ref()?.height as f32;
+            let top = (height - self.status_bar_height() - metrics.height).max(self.terminal_top());
+            let columns = search
+                .pattern
+                .chars()
+                .map(crate::terminal::column_width)
+                .sum::<usize>();
+            return Some((
+                (
+                    self.terminal_left() + metrics.width * (9 + columns) as f32,
+                    top,
+                ),
+                metrics,
+            ));
+        }
+        let live = self.state.as_ref()?;
         let snapshot = self.engine.read_styled_screen(live.session_id).ok()?;
         let placement = self
             .placements()
@@ -6851,6 +7542,44 @@ impl App {
             ),
             metrics,
         ))
+    }
+
+    /// Commit text from an input method to the modal that owns the keyboard.
+    ///
+    /// Winit reports Chinese/Japanese/Korean input as `Ime::Commit`, not as a
+    /// normal keyboard character.  Sending every commit straight to the PTY
+    /// made English palette filtering work while Chinese appeared to do
+    /// nothing (and was secretly typed into the shell underneath).
+    fn commit_ime_to_modal(&mut self, text: &str) -> bool {
+        if let Some(mut palette) = self.palette.take() {
+            palette.query.push_str(text);
+            self.requery_palette(&mut palette);
+            self.palette = Some(palette);
+            self.drawn_revision = None;
+            return true;
+        }
+        if let Some(mut search) = self.search.take() {
+            search.pattern.push_str(text);
+            let matches = self
+                .engine
+                .search(
+                    self.focused_session(),
+                    &search.pattern,
+                    search.mode,
+                    MAX_SEARCH_MATCHES,
+                )
+                .unwrap_or_default();
+            search.adopt(matches);
+            if let Some(found) = search.current() {
+                let _ = self
+                    .engine
+                    .scroll_viewport_to(self.focused_session(), found.row as isize);
+            }
+            self.search = Some(search);
+            self.drawn_revision = None;
+            return true;
+        }
+        false
     }
 
     /// Draw what the input method is still composing.
@@ -6900,13 +7629,14 @@ impl App {
     /// strange wrapping, which is exactly the confusion a split is supposed
     /// to remove.
     fn divider_quads(&self) -> Vec<unterm_render::quads::Quad> {
-        let (Some(tab_id), Some(live)) = (self.tab_id, self.state.as_ref()) else {
+        let (Some(tab_id), Some(_live)) = (self.tab_id, self.state.as_ref()) else {
             return Vec::new();
         };
         let metrics = self.font.metrics();
         let (cols, rows) = self
             .font
-            .grid_for(live.width as f32, self.terminal_height());
+            .grid_for(self.terminal_width(), self.terminal_height());
+        let left_offset = self.terminal_left();
         let top_offset = self.terminal_top();
         let positions = self.tabs.positions(tab_id, cols, rows);
         if positions.len() < 2 {
@@ -6926,7 +7656,7 @@ impl App {
                 crate::panes::divider_after(rect.clone(), metrics, vertical)
             })
             .map(|(left, top, width, height)| unterm_render::quads::Quad {
-                left,
+                left: left + left_offset,
                 top: top + top_offset,
                 width,
                 height,
@@ -7135,24 +7865,41 @@ impl App {
     /// One per pane, top right, and only with two panes or more: a lone
     /// pane's close is the tab's close, and a button that would do that is
     /// a second close button. Ported from 0.57.4, which drew the same x.
-    fn pane_close_buttons(&self) -> Vec<(usize, f32, f32, f32)> {
+    fn pane_close_buttons(&self) -> Vec<(usize, f32, f32, f32, f32, f32)> {
         let placements = self.placements();
         if placements.len() < 2 {
             return Vec::new();
         }
         let metrics = self.font.metrics();
-        let pt = self.chrome_pt();
-        let side = (12.0 * pt).round();
-        let inset = (5.0 * pt).round();
+        let Some(active) = self.tab_id.and_then(|tab| self.tabs.active_pane(tab)) else {
+            return Vec::new();
+        };
+        let max_grid_right = placements
+            .iter()
+            .map(|placement| placement.origin.0 + placement.cols as f32 * metrics.width)
+            .fold(f32::NEG_INFINITY, f32::max);
         placements
             .into_iter()
+            // 0.57.4 intentionally shows exactly one close affordance: on the
+            // active pane.  A button on every pane leaves an X floating in the
+            // middle of a left/right split and reads as a misplaced control.
+            .filter(|placement| placement.session_id == active)
             .map(|placement| {
-                let width = placement.cols as f32 * metrics.width;
+                let grid_right = placement.origin.0 + placement.cols as f32 * metrics.width;
+                let pane_right = if (grid_right - max_grid_right).abs() <= 0.5 {
+                    self.terminal_left() + self.terminal_width()
+                } else {
+                    grid_right
+                };
+                let button_width = metrics.width * 3.0;
+                let button_height = metrics.height;
                 (
                     placement.session_id,
-                    placement.origin.0 + width - side - inset,
-                    placement.origin.1 + inset,
-                    side,
+                    (pane_right - button_width).max(0.0),
+                    placement.origin.1 - metrics.height * 0.28,
+                    button_width,
+                    button_height,
+                    pane_right,
                 )
             })
             .collect()
@@ -7162,8 +7909,8 @@ impl App {
     fn pane_close_button_at(&self, x: f32, y: f32) -> Option<usize> {
         self.pane_close_buttons()
             .into_iter()
-            .find(|(_, left, top, side)| {
-                x >= *left && x < left + side && y >= *top && y < top + side
+            .find(|(_, left, top, width, height, _)| {
+                x >= *left && x < left + width && y >= *top && y < top + height
             })
             .map(|(session_id, ..)| session_id)
     }
@@ -7176,25 +7923,51 @@ impl App {
         }
         let chrome = self.chrome();
         let hovered = self.pane_close_button_at(self.pointer.0, self.pointer.1);
-        for (session_id, left, top, side) in buttons {
+        for (session_id, left, top, width, height, pane_right) in buttons {
             let hover = hovered == Some(session_id);
+            let chip = (height * 0.82).min(width * 0.82);
+            let arm = (chip * 0.22).max(3.0);
+            let center_x = (pane_right - 5.0 * self.chrome_pt() - arm).max(left + arm);
+            let center_y = top + height / 2.0;
             if hover {
                 quads.backgrounds.push(unterm_render::quads::Quad {
-                    left: left - 2.0,
-                    top: top - 2.0,
-                    width: side + 4.0,
-                    height: side + 4.0,
+                    left: center_x - chip / 2.0,
+                    top: center_y - chip / 2.0,
+                    width: chip,
+                    height: chip,
                     color: chrome.hover_bg,
                 });
             }
-            let color = if hover {
+            let mut color = if hover {
                 self.chrome_foreground()
             } else {
-                chrome.dim_text
+                self.chrome_foreground()
             };
-            let wide = self.chrome_width("\u{00D7}");
-            let x = left + (side - wide) / 2.0;
-            self.append_chrome("\u{00D7}", color, (x, top - 2.0), quads);
+            color[3] *= if hover { 0.9 } else { 0.26 };
+            // The old renderer hand-stroked the X above terminal glyphs.
+            // Using a font glyph changes its baseline and makes it sink into
+            // the first text row, which is the severe offset seen here.
+            let thick = (height / 12.0).max(1.6);
+            let steps = ((arm * 4.0).round() as i32).max(24);
+            for step in -steps..=steps {
+                let t = step as f32 / steps as f32;
+                let dx = t * arm;
+                let dy = t * arm;
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left: center_x + dx - thick / 2.0,
+                    top: center_y + dy - thick / 2.0,
+                    width: thick,
+                    height: thick,
+                    color,
+                });
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left: center_x + dx - thick / 2.0,
+                    top: center_y - dy - thick / 2.0,
+                    width: thick,
+                    height: thick,
+                    color,
+                });
+            }
         }
     }
 
@@ -7541,9 +8314,14 @@ impl ApplicationHandler for App {
                         self.drawn_revision = None;
                     }
                     Ime::Commit(text) => {
-                        // Only now is it text the shell should see.
                         self.preedit = crate::ime::Preedit::default();
-                        if let Some(live) = self.state.as_ref() {
+                        // A palette/search owns committed IME text while it is
+                        // open.  Only an unclaimed commit belongs to the PTY.
+                        if self.commit_ime_to_modal(&text) {
+                            if let Some(live) = self.state.as_ref() {
+                                live.window.request_redraw();
+                            }
+                        } else if let Some(live) = self.state.as_ref() {
                             let pane = self.focused_session();
                             if self.engine.write_input(pane, &text).is_ok() {
                                 crate::ghost::observe_text(pane as u64, &text);
@@ -7615,13 +8393,39 @@ impl ApplicationHandler for App {
                 }
 
                 if self.quick_menu.is_some() {
-                    if matches!(
-                        event.logical_key,
-                        Key::Named(winit::keyboard::NamedKey::Escape)
-                    ) {
-                        self.quick_menu = None;
-                        self.drawn_revision = None;
+                    match event.logical_key {
+                        Key::Named(winit::keyboard::NamedKey::Escape) => {
+                            self.quick_menu = None;
+                        }
+                        Key::Named(winit::keyboard::NamedKey::ArrowDown) => {
+                            if let Some(menu) = self.quick_menu.as_mut() {
+                                let next = menu.hover.map(|row| row + 1).unwrap_or(0)
+                                    % menu.entries.len().max(1);
+                                menu.hover = Some(next);
+                                menu.reveal_hover();
+                            }
+                        }
+                        Key::Named(winit::keyboard::NamedKey::ArrowUp) => {
+                            if let Some(menu) = self.quick_menu.as_mut() {
+                                let len = menu.entries.len().max(1);
+                                menu.hover =
+                                    Some(menu.hover.unwrap_or(0).checked_sub(1).unwrap_or(len - 1));
+                                menu.reveal_hover();
+                            }
+                        }
+                        Key::Named(winit::keyboard::NamedKey::Enter) => {
+                            let command = self.quick_menu.take().and_then(|menu| {
+                                menu.entries
+                                    .get(menu.hover.unwrap_or(0))
+                                    .map(|entry| entry.command.clone())
+                            });
+                            if let Some(command) = command {
+                                self.run_palette_command(command, "");
+                            }
+                        }
+                        _ => {}
                     }
+                    self.drawn_revision = None;
                     // Every other key is the menu's to ignore: nothing may
                     // fall through to the shell under an open menu.
                     return;
@@ -7893,8 +8697,7 @@ impl ApplicationHandler for App {
                 // The platform's other right button: everywhere a right
                 // press acts, a macOS Ctrl+Left press acts the same.
                 let secondary = button == MouseButton::Right
-                    || (button == MouseButton::Left
-                        && crate::mouse::ctrl_left_is_secondary(held));
+                    || (button == MouseButton::Left && crate::mouse::ctrl_left_is_secondary(held));
 
                 if self.region_selection.is_some() {
                     if secondary && state == ElementState::Pressed {
@@ -8020,6 +8823,19 @@ impl ApplicationHandler for App {
                     && !secondary
                     && self.click_tree()
                 {
+                    return;
+                }
+                if state == ElementState::Pressed
+                    && button == MouseButton::Left
+                    && !secondary
+                    && self.click_search_bar()
+                {
+                    return;
+                }
+                // The Git dock is read-only, as in 0.57.4. Its reserved
+                // gutter swallows clicks so they cannot reach the pane beside
+                // it as terminal mouse input or a selection.
+                if self.click_git_panel() {
                     return;
                 }
                 if state == ElementState::Pressed
@@ -8155,11 +8971,10 @@ impl ApplicationHandler for App {
                 if state == ElementState::Pressed {
                     if let Some(pane) = self.pane_under_pointer() {
                         if pane != self.focused_session() {
-                            self.tabs.set_active_pane(pane);
-                            self.drawn_revision = None;
-                            if let Some(live) = self.state.as_ref() {
-                                live.window.request_redraw();
-                            }
+                            // Keep the registry, engine and Live session in
+                            // lockstep.  Updating only the registry left input
+                            // and the solid cursor in the previous pane.
+                            self.focus_session(pane);
                             return;
                         }
                     }
@@ -8247,8 +9062,13 @@ impl ApplicationHandler for App {
                 if lines == 0 {
                     return;
                 }
+                if let Some(menu) = self.quick_menu.as_mut() {
+                    menu.scroll(-lines);
+                    self.drawn_revision = None;
+                    return;
+                }
                 if let Some(palette) = self.palette.as_mut() {
-                    palette.step(-lines);
+                    palette.scroll(-lines, crate::palette::MAX_ROWS);
                     self.drawn_revision = None;
                     return;
                 }
@@ -8316,9 +9136,7 @@ impl ApplicationHandler for App {
                 if let Some(live) = self.state.as_ref() {
                     // The wheel belongs to the pane under the pointer, not
                     // whichever pane happens to hold the keyboard.
-                    let session_id = self
-                        .pane_under_pointer()
-                        .unwrap_or(live.session_id);
+                    let session_id = self.pane_under_pointer().unwrap_or(live.session_id);
                     // On the alternate screen there is nothing to scroll back
                     // into: less, man and vim without mouse reporting expect
                     // the wheel as arrow keys, three per notch, exactly as the
@@ -8326,7 +9144,11 @@ impl ApplicationHandler for App {
                     let modes = self.engine.pane_modes(session_id).unwrap_or_default();
                     if modes.alt_screen_active {
                         let arrow = if lines > 0 {
-                            if modes.application_cursor_keys { "\x1bOA" } else { "\x1b[A" }
+                            if modes.application_cursor_keys {
+                                "\x1bOA"
+                            } else {
+                                "\x1b[A"
+                            }
                         } else if modes.application_cursor_keys {
                             "\x1bOB"
                         } else {
@@ -8520,6 +9342,13 @@ fn encode(logical: &winit::keyboard::Key, held: crate::mouse::Held) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_scale_is_applied_once_to_fonts_and_chrome() {
+        assert_eq!(App::font_scale_for(1.0), 1.0);
+        assert_eq!(App::font_scale_for(1.5), 1.5);
+        assert_eq!(App::font_scale_for(2.0), 2.0);
+    }
 
     #[test]
     fn an_externally_closed_split_is_removed_from_the_mirrored_layout() {
@@ -8790,33 +9619,66 @@ fn transform_hsv(color: [f32; 4], hue_factor: f32, saturation: f32, brightness: 
 /// Built from the same table the keys use, so a chord and a palette row
 /// cannot drift apart -- and the chord is shown as the hint, which is how a
 /// palette teaches the keyboard.
+fn initial_split_grid(
+    axis: unterm_engine::next_core::layout::SplitAxis,
+    cols: usize,
+    rows: usize,
+) -> (usize, usize) {
+    match axis {
+        unterm_engine::next_core::layout::SplitAxis::Horizontal => {
+            ((cols.saturating_sub(1) / 2).max(1), rows.max(1))
+        }
+        unterm_engine::next_core::layout::SplitAxis::Vertical => {
+            (cols.max(1), (rows.saturating_sub(1) / 2).max(1))
+        }
+    }
+}
+
 fn command_entries() -> Vec<crate::palette::Entry> {
     let mut entries: Vec<crate::palette::Entry> = Vec::new();
-    for binding in crate::keys::effective_bindings() {
-        let label = binding.action.label();
-        // One row per action, whichever chord came first: nine Select Tab
-        // rows would push everything else off a short list, which is also
-        // why 0.57.4's launcher deduplicated its key assignments.
-        if entries.iter().any(|entry| entry.label == label) {
-            continue;
-        }
+    for &action in crate::keys::PALETTE_ACTIONS {
+        let label = command_label(action);
         entries.push(crate::palette::Entry {
-            label: label.to_string(),
-            hint: format!("{} {}", binding.mods.name(), binding.trigger.name()),
-            command: crate::palette::Command::Action(binding.action),
+            label,
+            hint: crate::keys::chord_hint(action).unwrap_or_default(),
+            command: crate::palette::Command::Action(action),
         });
     }
     entries.push(crate::palette::Entry {
-        label: "Tab Navigator".to_string(),
-        hint: "fuzzy projects and tabs".to_string(),
+        label: unterm_services::i18n::t("command.tab_navigator"),
+        hint: unterm_services::i18n::t("command.tab_navigator.hint"),
         command: crate::palette::Command::OpenTabNavigator,
     });
     entries.push(crate::palette::Entry {
-        label: "Capture Region".to_string(),
-        hint: "drag a desktop rectangle".to_string(),
+        label: unterm_services::i18n::t("command.capture_region"),
+        hint: unterm_services::i18n::t("command.capture_region.hint"),
         command: crate::palette::Command::SelectCaptureRegion,
     });
     entries
+}
+
+fn command_label(action: crate::keys::Action) -> String {
+    use crate::keys::Action;
+    let key = match action {
+        Action::Copy => Some("command.copy"),
+        Action::Paste => Some("command.paste"),
+        Action::SplitRight => Some("command.split_right"),
+        Action::SplitDown => Some("command.split_down"),
+        Action::NewTab => Some("command.new_tab"),
+        Action::CloseTab => Some("command.close_tab"),
+        Action::Search => Some("command.search"),
+        Action::CommandPalette => Some("command.command_palette"),
+        Action::Launcher => Some("command.launcher"),
+        Action::NewWindow => Some("command.new_window"),
+        Action::ZoomPane => Some("command.zoom_pane"),
+        Action::SelectPane => Some("command.select_pane"),
+        Action::TreeSidebar => Some("command.file_tree"),
+        Action::DirJump => Some("command.directory"),
+        Action::Settings => Some("command.settings"),
+        _ => None,
+    };
+    key.map(unterm_services::i18n::t)
+        .unwrap_or_else(|| action.label().to_string())
 }
 
 /// The saved workspaces: a row reopens each, and the last row saves one.
@@ -8962,6 +9824,13 @@ fn which(program: &str) -> Option<std::path::PathBuf> {
 mod palette_entry_tests {
     use super::*;
 
+    #[test]
+    fn split_startup_size_follows_its_axis() {
+        use unterm_engine::next_core::layout::SplitAxis;
+        assert_eq!(initial_split_grid(SplitAxis::Horizontal, 121, 41), (60, 41));
+        assert_eq!(initial_split_grid(SplitAxis::Vertical, 121, 41), (121, 20));
+    }
+
     /// The palette lists every key action, with the chord that reaches it.
     ///
     /// Built from the key table rather than a second list, so a chord and a
@@ -8972,19 +9841,20 @@ mod palette_entry_tests {
         let entries = command_entries();
         let bindings = crate::keys::effective_bindings();
         for binding in &bindings {
+            let expected_label = command_label(binding.action);
             let row = entries
                 .iter()
-                .find(|entry| entry.label == binding.action.label())
+                .find(|entry| entry.label == expected_label)
                 .unwrap_or_else(|| panic!("{} has no palette row", binding.action.label()));
             // The chord shown is the first one bound to the action, which is
             // the chord the key table would act on.
             let first = bindings
                 .iter()
-                .find(|other| other.action.label() == binding.action.label())
+                .find(|other| command_label(other.action) == expected_label)
                 .expect("the binding we started from");
             assert_eq!(
                 row.hint,
-                format!("{} {}", first.mods.name(), first.trigger.name()),
+                crate::keys::display_chord(first.mods, first.trigger),
                 "{} should show the chord that reaches it",
                 row.label
             );
@@ -8995,6 +9865,20 @@ mod palette_entry_tests {
         assert!(entries
             .iter()
             .any(|entry| matches!(entry.command, crate::palette::Command::SelectCaptureRegion)));
+    }
+
+    #[test]
+    fn the_palette_contains_every_declared_gui_action() {
+        let entries = command_entries();
+        for action in crate::keys::PALETTE_ACTIONS {
+            assert!(
+                entries.iter().any(|entry| {
+                    matches!(entry.command, crate::palette::Command::Action(found) if found == *action)
+                }),
+                "{} is absent",
+                action.name()
+            );
+        }
     }
 
     /// One row per action, not one per chord: nine Select Tab rows -- or two

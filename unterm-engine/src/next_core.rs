@@ -324,13 +324,6 @@ impl NextCoreScreen {
         self.render_state.mark_all_dirty(self.rows);
     }
 
-    fn snapshot_lines(&self) -> Vec<String> {
-        self.history_lines()
-            .into_iter()
-            .map(Self::line_text)
-            .collect()
-    }
-
     fn snapshot_viewport_lines(&self) -> Vec<String> {
         self.history_text_range(self.viewport_start(), self.rows)
     }
@@ -414,10 +407,6 @@ impl NextCoreScreen {
 
     fn current_dir(&self) -> Option<String> {
         self.current_dir.clone()
-    }
-
-    fn history_lines(&self) -> Vec<&Vec<ScreenCell>> {
-        self.history.history_lines(&self.lines)
     }
 
     fn history_len(&self) -> usize {

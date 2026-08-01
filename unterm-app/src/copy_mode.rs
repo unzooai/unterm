@@ -60,7 +60,10 @@ pub enum Motion {
     ToggleBlockSelection,
     /// vim's `f`/`F`/`t`/`T`: arm a jump to the next typed character. `till`
     /// stops one short of it, the way `t` does.
-    Find { forward: bool, till: bool },
+    Find {
+        forward: bool,
+        till: bool,
+    },
     /// vim's `;` and `,`: the last find again, in the same or the opposite
     /// direction.
     RepeatFind(bool),
@@ -157,10 +160,7 @@ impl CopyMode {
             }
             // Handled by the window, which has the screen's text; the plain
             // width this function is given is not enough to find a character.
-            Motion::WordLeft
-            | Motion::WordRight
-            | Motion::Find { .. }
-            | Motion::RepeatFind(_) => {}
+            Motion::WordLeft | Motion::WordRight | Motion::Find { .. } | Motion::RepeatFind(_) => {}
             Motion::ToggleSelection => self.toggle(SelectKind::Cell),
             Motion::ToggleLineSelection => self.toggle(SelectKind::Line),
             Motion::ToggleBlockSelection => self.toggle(SelectKind::Block),
@@ -235,7 +235,9 @@ impl CopyMode {
         let found = if forward {
             (self.column + 1..chars.len()).find(|&at| chars[at] == target)
         } else {
-            (0..self.column.min(chars.len())).rev().find(|&at| chars[at] == target)
+            (0..self.column.min(chars.len()))
+                .rev()
+                .find(|&at| chars[at] == target)
         };
         let Some(at) = found else {
             return;
@@ -581,9 +583,15 @@ mod tests {
     #[test]
     fn vim_keys_and_arrows_both_move() {
         assert_eq!(motion_for(None, Some("h"), false), Some(Motion::Left));
-        assert_eq!(motion_for(Some("ArrowLeft"), None, false), Some(Motion::Left));
+        assert_eq!(
+            motion_for(Some("ArrowLeft"), None, false),
+            Some(Motion::Left)
+        );
         assert_eq!(motion_for(None, Some("j"), false), Some(Motion::Down));
-        assert_eq!(motion_for(Some("ArrowDown"), None, false), Some(Motion::Down));
+        assert_eq!(
+            motion_for(Some("ArrowDown"), None, false),
+            Some(Motion::Down)
+        );
     }
 
     #[test]

@@ -944,7 +944,83 @@ pub fn chord_hint(action: Action) -> Option<String> {
     effective_bindings()
         .iter()
         .find(|binding| binding.action == action)
-        .map(|binding| format!("{} {}", binding.mods.name(), binding.trigger.name()))
+        .map(|binding| display_chord(binding.mods, binding.trigger))
+}
+
+/// Every distinct command the palette offers. Families whose members differ
+/// by direction are all present; numbered tab selection is one row because
+/// its label and purpose are shared.
+pub const PALETTE_ACTIONS: &[Action] = &[
+    Action::Copy,
+    Action::Paste,
+    Action::SplitRight,
+    Action::SplitDown,
+    Action::ScrollPageUp,
+    Action::ScrollPageDown,
+    Action::PreviousPrompt,
+    Action::NextPrompt,
+    Action::NewTab,
+    Action::NextTab,
+    Action::PreviousTab,
+    Action::CloseTab,
+    Action::Search,
+    Action::CommandPalette,
+    Action::Launcher,
+    Action::CopyMode,
+    Action::QuickSelect,
+    Action::Insights,
+    Action::CockpitInbox,
+    Action::GitPanel,
+    Action::Composer,
+    Action::ThemePicker,
+    Action::LeftTabBar,
+    Action::DirJump,
+    Action::NewWindow,
+    Action::ClosePane,
+    Action::ZoomPane,
+    Action::Settings,
+    Action::CharSelect,
+    Action::TreeSidebar,
+    Action::FleetLaunch,
+    Action::ClearScrollback,
+    Action::ClearScreen,
+    Action::SelectPane,
+    Action::SwapPane,
+    Action::FocusPane(Direction::Left),
+    Action::FocusPane(Direction::Right),
+    Action::FocusPane(Direction::Up),
+    Action::FocusPane(Direction::Down),
+    Action::ResizePane(Direction::Left),
+    Action::ResizePane(Direction::Right),
+    Action::ResizePane(Direction::Up),
+    Action::ResizePane(Direction::Down),
+    Action::MoveTab(-1),
+    Action::MoveTab(1),
+    Action::SelectTab(1),
+    Action::IncreaseFontSize,
+    Action::DecreaseFontSize,
+    Action::ResetFontSize,
+    Action::ToggleFullScreen,
+];
+
+/// A key chord as people expect to read it in menus.
+///
+/// `Mods::name` deliberately keeps the config-file spelling (`CTRL|SHIFT`),
+/// but exposing that parser syntax in the command palette made shortcuts look
+/// like broken labels. The UI uses platform-neutral title case and `+`.
+pub fn display_chord(mods: Mods, trigger: Trigger) -> String {
+    let mut parts = Vec::new();
+    if mods.ctrl {
+        parts.push("Ctrl".to_string());
+    }
+    if mods.shift {
+        parts.push("Shift".to_string());
+    }
+    if mods.alt {
+        parts.push("Alt".to_string());
+    }
+    parts.push(trigger.name());
+    parts.join("+")
 }
 
 /// What this key press means to the front end, if anything.
@@ -1254,8 +1330,7 @@ mod user_binding_tests {
     }
 
     fn parsed(source: &str) -> (Vec<UserBinding>, Vec<ConfigError>) {
-        let config =
-            unterm_engine::next_core::config::parse(source).expect("config should parse");
+        let config = unterm_engine::next_core::config::parse(source).expect("config should parse");
         user_bindings_from(&config)
     }
 
@@ -1352,19 +1427,26 @@ mod user_binding_tests {
         assert!(user.is_empty());
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].line, 2);
-        assert!(errors[0].message.contains("NewTabb"), "{}", errors[0].message);
+        assert!(
+            errors[0].message.contains("NewTabb"),
+            "{}",
+            errors[0].message
+        );
     }
 
     #[test]
     fn a_bad_chord_is_a_warning_not_a_binding() {
-        let (user, errors) = parsed(
-            "[keys]\nHYPER+T = \"NewTab\"\nCTRL+Banana = \"NewTab\"\nCTRL+ = \"NewTab\"",
-        );
+        let (user, errors) =
+            parsed("[keys]\nHYPER+T = \"NewTab\"\nCTRL+Banana = \"NewTab\"\nCTRL+ = \"NewTab\"");
 
         assert!(user.is_empty());
         assert_eq!(errors.len(), 3);
         assert!(errors[0].message.contains("HYPER"), "{}", errors[0].message);
-        assert!(errors[1].message.contains("Banana"), "{}", errors[1].message);
+        assert!(
+            errors[1].message.contains("Banana"),
+            "{}",
+            errors[1].message
+        );
         assert!(
             errors[2].message.contains("without a key"),
             "{}",
@@ -1378,7 +1460,11 @@ mod user_binding_tests {
 
         assert!(user.is_empty());
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("string"), "{}", errors[0].message);
+        assert!(
+            errors[0].message.contains("string"),
+            "{}",
+            errors[0].message
+        );
     }
 
     #[test]
@@ -1392,7 +1478,9 @@ mod user_binding_tests {
 
     #[test]
     fn folded_bindings_show_the_override_not_the_original() {
-        let user = bindings("[keys]\nCTRL|SHIFT+T = \"Search\"\nF11 = \"None\"\nCTRL|ALT+G = \"GitPanel\"");
+        let user = bindings(
+            "[keys]\nCTRL|SHIFT+T = \"Search\"\nF11 = \"None\"\nCTRL|ALT+G = \"GitPanel\"",
+        );
         let folded = fold_bindings(&user);
 
         // One built-in replaced, one removed, one added.

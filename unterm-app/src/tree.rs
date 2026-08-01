@@ -62,6 +62,13 @@ pub struct Row {
     pub is_drive: bool,
 }
 
+/// What activating a tree row asks the window to do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Picked {
+    Directory(PathBuf),
+    File(PathBuf),
+}
+
 impl Row {
     /// What the row says: an arrow for a directory, and its name.
     pub fn text(&self, columns: usize) -> String {
@@ -271,6 +278,9 @@ pub struct Tree {
     pub rows: Vec<Row>,
     pub scroll: usize,
     scanned_at: std::time::Instant,
+    /// A directory the user asked the shell to enter. Shell cwd reporting is
+    /// asynchronous, so a stale report must not immediately snap us back.
+    requested_root: Option<(PathBuf, std::time::Instant)>,
     /// The navigation this tree is showing. A scan started before a collapse
     /// carries an older number and is discarded rather than putting the old
     /// tree back.
@@ -289,24 +299,24 @@ impl Tree {
             rows,
             scroll: 0,
             scanned_at: std::time::Instant::now(),
+            requested_root: None,
             epoch: 0,
             pending: Default::default(),
             scanning: Default::default(),
         }
     }
 
-    /// Open or close a directory, or move the root when it is the `..` row.
-    pub fn press(&mut self, row: usize) -> Option<PathBuf> {
+    /// Activate a row, or only open/close it when its disclosure arrow was hit.
+    pub fn press(&mut self, row: usize, disclosure: bool) -> Option<Picked> {
         let row = self.rows.get(row)?.clone();
         if row.is_parent || row.is_drive {
-            self.root = row.path.clone();
-            self.expanded.clear();
-            self.scroll = 0;
-            self.rescan();
-            return None;
+            return Some(Picked::Directory(row.path));
         }
         if !row.is_dir {
-            return Some(row.path);
+            return Some(Picked::File(row.path));
+        }
+        if !disclosure {
+            return Some(Picked::Directory(row.path));
         }
         if !self.expanded.remove(&row.path) {
             self.expanded.insert(row.path);
@@ -331,6 +341,27 @@ impl Tree {
         self.expanded.clear();
         self.scroll = 0;
         self.rescan();
+    }
+
+    /// Move immediately for a user navigation and wait for the shell's cwd
+    /// report to catch up before accepting another root.
+    pub fn request_root(&mut self, root: PathBuf) {
+        self.go_to(root.clone());
+        self.requested_root = Some((root, std::time::Instant::now()));
+    }
+
+    /// Follow the shell without letting one stale cwd sample undo a click.
+    pub fn follow_root(&mut self, root: PathBuf) {
+        if let Some((requested, since)) = self.requested_root.as_ref() {
+            if *requested == root {
+                self.requested_root = None;
+            } else if since.elapsed() < std::time::Duration::from_secs(3) {
+                return;
+            } else {
+                self.requested_root = None;
+            }
+        }
+        self.go_to(root);
     }
 
     /// Take whatever a background scan finished, and start one if the tree has
@@ -458,7 +489,7 @@ mod tests {
             .expect("the directory is listed");
         assert!(!tree.rows[at].expanded);
 
-        assert_eq!(tree.press(at), None);
+        assert_eq!(tree.press(at, true), None);
         let child = tree
             .rows
             .iter()
@@ -466,7 +497,7 @@ mod tests {
             .expect("the child appeared");
         assert_eq!(child.depth, 1, "the child is not indented under its parent");
 
-        assert_eq!(tree.press(at), None);
+        assert_eq!(tree.press(at, true), None);
         assert!(!tree.rows.iter().any(|row| row.path.ends_with("main.rs")));
     }
 
@@ -483,19 +514,49 @@ mod tests {
             .iter()
             .position(|row| row.path == file)
             .expect("the file is listed");
-        assert_eq!(tree.press(at), Some(file));
+        assert_eq!(tree.press(at, false), Some(Picked::File(file)));
     }
 
-    /// Pressing the way up moves the root there and forgets what was open:
-    /// the paths that were expanded are no longer where they were.
+    /// Pressing the way up asks the shell to move too. Moving only the tree's
+    /// root is immediately undone when the tree follows the shell on repaint.
     #[test]
-    fn pressing_the_way_up_moves_the_root() {
+    fn pressing_the_way_up_selects_the_parent_directory() {
         let root = tempdir();
         let inner = root.path().join("project");
         std::fs::create_dir(&inner).expect("a directory");
         let mut tree = Tree::new(inner.clone());
-        assert_eq!(tree.press(0), None);
-        assert_eq!(tree.root, root.path());
+        assert_eq!(
+            tree.press(0, false),
+            Some(Picked::Directory(root.path().to_path_buf()))
+        );
+        assert_eq!(tree.root, inner);
+    }
+
+    #[test]
+    fn pressing_a_directory_name_selects_it_without_expanding() {
+        let root = tempdir();
+        let inner = root.path().join("src");
+        std::fs::create_dir(&inner).expect("a directory");
+        let mut tree = Tree::new(root.path().to_path_buf());
+        let at = tree.rows.iter().position(|row| row.path == inner).unwrap();
+        assert_eq!(
+            tree.press(at, false),
+            Some(Picked::Directory(inner.clone()))
+        );
+        assert!(!tree.rows[at].expanded);
+    }
+
+    #[test]
+    fn a_stale_shell_cwd_does_not_undo_a_requested_directory() {
+        let root = tempdir();
+        let old = root.path().join("old");
+        let new = root.path().join("new");
+        std::fs::create_dir(&old).unwrap();
+        std::fs::create_dir(&new).unwrap();
+        let mut tree = Tree::new(old.clone());
+        tree.request_root(new.clone());
+        tree.follow_root(old);
+        assert_eq!(tree.root, new);
     }
 
     /// Scrolling stops at both ends. A tree scrolled past its last row is a

@@ -12,6 +12,71 @@
 
 use crate::palette::{BrowseThen, Command, Entry};
 
+/// Ask the operating system for a directory without holding the UI thread.
+///
+/// Windows' `FolderBrowserDialog` is hosted by a short-lived STA PowerShell
+/// process.  Keeping that work here makes the directory palette and the
+/// system picker share one validated `PathBuf` result instead of each action
+/// growing its own quoting and cancellation rules.
+#[cfg(windows)]
+pub fn pick_directory(
+    start_at: Option<&std::path::Path>,
+    title: &str,
+) -> anyhow::Result<Option<std::path::PathBuf>> {
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = $env:UNTERM_FOLDER_PICKER_TITLE
+$dialog.ShowNewFolderButton = $true
+if ($env:UNTERM_FOLDER_PICKER_START -and (Test-Path -LiteralPath $env:UNTERM_FOLDER_PICKER_START -PathType Container)) {
+  $dialog.SelectedPath = $env:UNTERM_FOLDER_PICKER_START
+}
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::Out.Write($dialog.SelectedPath)
+}
+"#;
+
+    let mut command = std::process::Command::new("powershell.exe");
+    command.args([
+        "-NoProfile",
+        "-STA",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        SCRIPT,
+    ]);
+    command.env("UNTERM_FOLDER_PICKER_TITLE", title);
+    if let Some(start) = start_at.filter(|path| path.is_dir()) {
+        command.env("UNTERM_FOLDER_PICKER_START", start);
+    }
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(0x08000000);
+
+    let output = command.output()?;
+    if !output.status.success() {
+        anyhow::bail!("system folder picker returned {}", output.status);
+    }
+    let selected = String::from_utf8(output.stdout)?.trim().to_string();
+    if selected.is_empty() {
+        return Ok(None);
+    }
+    let path = std::path::PathBuf::from(selected);
+    if !path.is_dir() {
+        anyhow::bail!("selected path is not a directory: {}", path.display());
+    }
+    Ok(Some(path))
+}
+
+#[cfg(not(windows))]
+pub fn pick_directory(
+    _start_at: Option<&std::path::Path>,
+    _title: &str,
+) -> anyhow::Result<Option<std::path::PathBuf>> {
+    anyhow::bail!("the system folder picker is not available on this platform")
+}
+
 /// The rows for picking inside `path`: the parent, then the folders under it.
 ///
 /// Unreadable directories give an empty list rather than an error: the palette

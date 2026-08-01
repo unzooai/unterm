@@ -300,7 +300,12 @@ pub fn scrollback_png(pane_id: usize, path: &std::path::Path) -> Result<(u32, u3
     )?;
     let mut fonts = crate::fonts::FontStack::system(BASE_PIXEL_SIZE)
         .context("no font to draw the capture with")?;
-    let image = draw(&mut fonts, &scrollback.lines, scrollback.cols, BASE_PIXEL_SIZE);
+    let image = draw(
+        &mut fonts,
+        &scrollback.lines,
+        scrollback.cols,
+        BASE_PIXEL_SIZE,
+    );
     image
         .save_with_format(path, image::ImageFormat::Png)
         .with_context(|| format!("write the capture to {}", path.display()))?;

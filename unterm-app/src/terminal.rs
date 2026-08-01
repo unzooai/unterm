@@ -246,14 +246,7 @@ pub struct VisualBell {
 
 impl VisualBell {
     pub fn from_config(config: &Config) -> Self {
-        let ms = |key: &str| {
-            config
-                .float_of(key)
-                .ok()
-                .flatten()
-                .unwrap_or(0.0)
-                .max(0.0) as u64
-        };
+        let ms = |key: &str| config.float_of(key).ok().flatten().unwrap_or(0.0).max(0.0) as u64;
         let easing = |key: &str| {
             config
                 .str_of(key)
@@ -417,9 +410,7 @@ impl TerminalFont {
             _ => face.pixel_size() as f32 * 0.6,
         };
         let (height, baseline) = match face.line_metrics() {
-            Some((ascender, _descender, line_height)) if ascender > 0.0 => {
-                (line_height, ascender)
-            }
+            Some((ascender, _descender, line_height)) if ascender > 0.0 => (line_height, ascender),
             _ => {
                 let size = face.pixel_size() as f32;
                 (size * 1.2, size)
@@ -2235,8 +2226,7 @@ mod text_blink_tests {
         let empty = parse("").expect("empty config parses");
         assert_eq!(text_blink_rates(&empty), (500, 250));
 
-        let set = parse("text_blink_rate = 0\ntext_blink_rate_rapid = 100")
-            .expect("config parses");
+        let set = parse("text_blink_rate = 0\ntext_blink_rate_rapid = 100").expect("config parses");
         assert_eq!(text_blink_rates(&set), (0, 100));
     }
 
@@ -2375,10 +2365,9 @@ mod visual_bell_tests {
     /// brightness at the bell, gone when the fade completes.
     #[test]
     fn a_fade_out_alone_starts_at_full() {
-        let config = parse(
-            "[visual_bell]\nfade_out_duration_ms = 120\nfade_out_function = \"Linear\"",
-        )
-        .expect("config parses");
+        let config =
+            parse("[visual_bell]\nfade_out_duration_ms = 120\nfade_out_function = \"Linear\"")
+                .expect("config parses");
         let bell = VisualBell::from_config(&config);
         assert_eq!(bell.intensity_at(0), Some(1.0));
         assert_eq!(bell.intensity_at(60), Some(0.5));

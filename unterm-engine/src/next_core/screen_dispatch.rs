@@ -137,17 +137,18 @@ pub(super) fn search(
     max_results: usize,
 ) -> Result<Vec<ScreenSearchMatch>> {
     let started_at = Instant::now();
-    let lines = snapshot_lines(pane_id)?;
+    // Read through the same history-range path used by screen.text and
+    // scrollback export.  The former snapshot helper could return an empty
+    // catalogue for a live PTY even while its styled viewport visibly held
+    // text, making every GUI and MCP search report zero matches.
+    let screen = session_handles::screen_current(pane_id)?;
+    let lines = {
+        let screen = screen.lock();
+        screen.history_text_range(0, screen.history_len())
+    };
     let matches = screen_search::find_matches(&lines, pattern, mode, max_results);
     mark_screen_read(pane_id, started_at.elapsed())?;
     Ok(matches)
-}
-
-pub(super) fn snapshot_lines(pane_id: usize) -> Result<Vec<String>> {
-    let screen = session_handles::screen_current(pane_id)?;
-
-    let lines = screen.lock().snapshot_lines();
-    Ok(lines)
 }
 
 pub(super) fn line_text_range(pane_id: usize, start: usize, count: usize) -> Result<Vec<String>> {

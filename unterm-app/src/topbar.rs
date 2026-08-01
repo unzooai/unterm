@@ -83,7 +83,7 @@ pub fn native_traffic_lights() -> bool {
 /// horizontal split, a folder, a magnifier, a gear.
 pub const ACTIONS: &[(Action, char, &str)] = &[
     (Action::CommandPalette, '\u{eb6a}', "menu.command_palette"),
-    (Action::TreeSidebar, '\u{ebf3}', "web.nav.project"),
+    (Action::TreeSidebar, '\u{ebf3}', "menu.tree_sidebar"),
     (Action::SplitRight, '\u{eb56}', ""),
     (Action::DirJump, '\u{ea83}', ""),
     (Action::Search, '\u{ea6d}', ""),
@@ -199,7 +199,17 @@ pub fn layout(
             });
         };
 
-    take(Item::Menu, MENU, "", None, &mut right);
+    take(
+        Item::Menu,
+        MENU,
+        "",
+        // The chevron is the menu affordance itself.  0.57.4 did not leave a
+        // second "More actions" label floating over the dropdown after it
+        // was pressed.
+        None,
+        &mut right,
+    );
+
     for (action, icon, label_key) in ACTIONS.iter().rev() {
         let wanted = match action {
             Action::SplitRight => density.show_split,
@@ -252,6 +262,11 @@ pub fn layout(
     // separated it from the word by another 0.42 cell. Measuring the actual
     // UI face keeps that relationship intact for Segoe, SF Pro and Inter.
     let brand_cell = measure("M");
+    // The old box model gave the brand another 0.3 cell before the mark.
+    // Without it the icon hugs the window edge while the wordmark pulls
+    // right, making the pair look off-centre even when their vertical metrics
+    // agree.
+    left += brand_cell * 0.3;
     // Logo, the gap to the wordmark, and 0.7 cells of air after it --
     // the brand block's own right margin, as 0.57.4 spaced it.
     let wordmark = measure(WORDMARK) + brand_cell * (0.95 + 0.42 + 0.7);
@@ -292,9 +307,10 @@ pub fn layout(
 }
 
 /// The window button this piece is, if it is one.
-pub fn window_button(item: Item) -> Option<crate::window_buttons::Button> {
+pub fn window_button(item: Item, maximized: bool) -> Option<crate::window_buttons::Button> {
     match item {
         Item::Minimise => Some(crate::window_buttons::Button::Minimise),
+        Item::Maximise if maximized => Some(crate::window_buttons::Button::Restore),
         Item::Maximise => Some(crate::window_buttons::Button::Maximise),
         Item::Close => Some(crate::window_buttons::Button::Close),
         _ => None,
@@ -324,6 +340,18 @@ pub fn is_drag_handle(placed: &[Placed], x: f32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn maximize_caption_reflects_the_window_state() {
+        assert_eq!(
+            window_button(Item::Maximise, false),
+            Some(crate::window_buttons::Button::Maximise)
+        );
+        assert_eq!(
+            window_button(Item::Maximise, true),
+            Some(crate::window_buttons::Button::Restore)
+        );
+    }
 
     /// A stand-in for a proportional face: every character the same width, but
     /// a width that is not a terminal cell, so nothing can accidentally depend

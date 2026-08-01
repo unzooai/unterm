@@ -98,22 +98,14 @@ pub fn quads(
         // A rule low in the box rather than through its middle, so it reads as
         // "down to the taskbar" rather than as a minus sign.
         Button::Minimise => strokes::line(at(0.0, 0.6), at(1.0, 0.6), weight, color),
-        // Corners chamfered a tenth, as before -- but squared up: the path
-        // this came from ran 0.1 to 1.0 across and 0.1 to 1.0 down, which puts
-        // the box a tenth right of centre. Visible once it is the only thing
-        // in the corner of a window.
-        Button::Maximise => strokes::polyline(
-            &[
-                at(0.2, 0.1),
-                at(0.8, 0.1),
-                at(0.9, 0.2),
-                at(0.9, 0.8),
-                at(0.8, 0.9),
-                at(0.2, 0.9),
-                at(0.1, 0.8),
-                at(0.1, 0.2),
-                at(0.2, 0.1),
-            ],
+        // Windows draws a square outline here. Chamfering every corner made
+        // the caption read as a rounded app button rather than Maximise,
+        // especially after DPI scaling softened the four short diagonals.
+        Button::Maximise => strokes::rectangle(
+            origin.0 + size * 0.15,
+            origin.1 + size * 0.15,
+            size * 0.7,
+            size * 0.7,
             weight,
             color,
         ),

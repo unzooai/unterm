@@ -100,10 +100,10 @@ mod windows_impl {
             match rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(req) => {
                     let result = match hwnd {
-                        Some(hwnd) => unsafe {
-                            deliver(hwnd, &mut icon_added, &req.title, &req.body)
+                        Some(hwnd) => {
+                            unsafe { deliver(hwnd, &mut icon_added, &req.title, &req.body) }
+                                .map_err(|err| format!("{err:#}"))
                         }
-                        .map_err(|err| format!("{err:#}")),
                         None => Err(window_err.to_string()),
                     };
                     // The caller may have timed out and gone; that is fine.

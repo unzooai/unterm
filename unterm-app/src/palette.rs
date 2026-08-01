@@ -23,6 +23,8 @@ pub enum Command {
     NewTabIn { path: String },
     /// Reopen a saved workspace, a tab per saved directory.
     RestoreWorkspace { name: String },
+    /// Open the operating system's directory chooser.
+    OpenDirectoryPicker { then: BrowseThen },
     /// Ask for a name to save the open tabs under.
     OpenWorkspaceSave,
     /// Save the open tabs as a workspace named by the typed line.
@@ -50,6 +52,8 @@ pub enum Command {
     RenameTab { tab_id: usize },
     /// Render the focused pane's entire scrollback to one tall PNG.
     CaptureScrollback,
+    /// Capture the current desktop while keeping the Unterm window out.
+    CaptureDesktop,
     /// Open a page in the system browser.
     OpenUrl { url: String },
     /// The confirmation the close request asked for.
@@ -129,11 +133,21 @@ pub enum View {
 /// An open palette.
 #[derive(Clone, Debug, Default)]
 pub struct Palette {
+    /// A short heading that says what this particular palette is for.
+    pub title: Option<String>,
     pub query: String,
     pub entries: Vec<Entry>,
     /// Indices into `entries`, best first.
     pub matches: Vec<usize>,
     pub selected: usize,
+    /// First match currently visible in the bounded result window.
+    ///
+    /// This is deliberately separate from `selected`.  The old command
+    /// palette kept both values: keyboard navigation keeps the selection in
+    /// view, while a wheel or the on-card arrows can move the visible window
+    /// itself.  Deriving this value only from `selected` makes a palette look
+    /// as though it cannot scroll.
+    pub top_row: usize,
     pub source: Source,
     pub view: View,
     /// Something that went wrong, shown under the line rather than instead of
@@ -146,16 +160,24 @@ pub struct Palette {
 impl Palette {
     pub fn new(entries: Vec<Entry>) -> Self {
         let mut palette = Self {
+            title: None,
             query: String::new(),
             entries,
             matches: Vec::new(),
             selected: 0,
+            top_row: 0,
             source: Source::Fixed,
             view: View::Search,
             error: None,
         };
         palette.refilter();
         palette
+    }
+
+    /// Give a search palette a visible purpose instead of an anonymous `>`.
+    pub fn titled(mut self, title: String) -> Self {
+        self.title = Some(title);
+        self
     }
 
     /// A palette whose line is text rather than a filter.
@@ -196,6 +218,7 @@ impl Palette {
         self.matches = (0..entries.len()).collect();
         self.entries = entries;
         self.selected = 0;
+        self.top_row = 0;
     }
 
     /// The rows to show, in order.
@@ -212,14 +235,66 @@ impl Palette {
             .and_then(|i| self.entries.get(*i))
     }
 
-    /// Move the selection, wrapping.
+    /// First result shown in a bounded-height palette.
+    ///
+    /// The selection is an index in the complete match list.  Keeping the
+    /// drawing fixed on rows 0..12 while that index moves past 12 makes the
+    /// rest of the command palette exist only in memory: arrows select an
+    /// invisible command and neither mouse nor Enter agrees with the screen.
+    pub fn window_start(&self, rows: usize) -> usize {
+        self.top_row
+            .min(self.matches.len().saturating_sub(rows.max(1)))
+    }
+
+    /// Keep the selected row inside the visible result window.
+    fn reveal_selection(&mut self, rows: usize) {
+        if self.matches.is_empty() || rows == 0 {
+            self.top_row = 0;
+            return;
+        }
+        if self.selected < self.top_row {
+            self.top_row = self.selected;
+        } else if self.selected >= self.top_row.saturating_add(rows) {
+            self.top_row = self.selected + 1 - rows;
+        }
+        self.top_row = self.top_row.min(self.matches.len().saturating_sub(rows));
+    }
+
+    /// Move the selection, clamping at both ends as the 0.57.4 palette did.
     pub fn step(&mut self, delta: isize) {
         if self.matches.is_empty() {
             self.selected = 0;
+            self.top_row = 0;
             return;
         }
-        let len = self.matches.len() as isize;
-        self.selected = (self.selected as isize + delta).rem_euclid(len) as usize;
+        self.selected = self
+            .selected
+            .saturating_add_signed(delta)
+            .min(self.matches.len() - 1);
+        self.reveal_selection(MAX_ROWS);
+    }
+
+    /// Move the result window with a wheel or one of its visible arrows.
+    pub fn scroll(&mut self, delta: isize, rows: usize) {
+        if self.matches.is_empty() || rows == 0 {
+            self.selected = 0;
+            self.top_row = 0;
+            return;
+        }
+        let max_top = self.matches.len().saturating_sub(rows);
+        self.top_row = self.top_row.saturating_add_signed(delta).min(max_top);
+        self.selected = self
+            .selected
+            .max(self.top_row)
+            .min((self.top_row + rows - 1).min(self.matches.len() - 1));
+    }
+
+    pub fn can_scroll_up(&self) -> bool {
+        self.top_row > 0
+    }
+
+    pub fn can_scroll_down(&self, rows: usize) -> bool {
+        self.top_row.saturating_add(rows) < self.matches.len()
     }
 
     /// Rebuild the match list for the current query.
@@ -236,6 +311,7 @@ impl Palette {
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
         self.matches = scored.into_iter().map(|(_, index)| index).collect();
         self.selected = 0;
+        self.top_row = 0;
     }
 }
 
@@ -404,12 +480,50 @@ mod tests {
     }
 
     #[test]
-    fn stepping_wraps_at_both_ends() {
+    fn stepping_stops_at_both_ends_like_the_old_palette() {
         let mut palette = palette(&["a", "b", "c"]);
         palette.step(-1);
-        assert_eq!(palette.selected, 2);
-        palette.step(1);
         assert_eq!(palette.selected, 0);
+        palette.step(99);
+        assert_eq!(palette.selected, 2);
+    }
+
+    #[test]
+    fn the_visible_window_follows_a_selection_below_the_first_page() {
+        let labels: Vec<String> = (0..20).map(|index| format!("command {index}")).collect();
+        let mut palette = Palette::new(labels.iter().map(|label| entry(label)).collect());
+        for _ in 0..15 {
+            palette.step(1);
+        }
+
+        assert_eq!(palette.selected, 15);
+        assert_eq!(palette.window_start(12), 4);
+        assert!(palette.selected < palette.window_start(12) + 12);
+    }
+
+    #[test]
+    fn wheel_scrolling_moves_the_window_and_keeps_selection_visible() {
+        let labels: Vec<String> = (0..20).map(|index| format!("command {index}")).collect();
+        let mut palette = Palette::new(labels.iter().map(|label| entry(label)).collect());
+
+        palette.scroll(5, 12);
+        assert_eq!(palette.top_row, 5);
+        assert_eq!(palette.selected, 5);
+        assert!(palette.can_scroll_up());
+        assert!(palette.can_scroll_down(12));
+
+        palette.scroll(99, 12);
+        assert_eq!(palette.top_row, 8);
+        assert_eq!(palette.selected, 8);
+        assert!(!palette.can_scroll_down(12));
+    }
+
+    #[test]
+    fn the_visible_window_stays_at_the_top_on_the_first_page() {
+        let mut palette = palette(&["a", "b", "c"]);
+        palette.step(2);
+
+        assert_eq!(palette.window_start(12), 0);
     }
 
     #[test]
@@ -428,6 +542,7 @@ mod tests {
         palette.query = "tab".to_string();
         palette.refilter();
         assert_eq!(palette.selected, 0);
+        assert_eq!(palette.top_row, 0);
     }
 
     #[test]
@@ -649,6 +764,11 @@ impl Geometry {
         Self::framed(window_width, cell, rows, has_error, 1, 0)
     }
 
+    /// A search palette with a heading above its query line.
+    pub fn titled(window_width: f32, cell: (f32, f32), rows: usize, has_error: bool) -> Self {
+        Self::framed(window_width, cell, rows, has_error, 2, 0)
+    }
+
     /// Lay out a card with a known number of non-selectable lines around its
     /// selectable rows. Shell selection uses a title and subtitle above the
     /// rows and a keyboard hint below them.
@@ -663,6 +783,8 @@ impl Geometry {
         let (cell_width, cell_height) = cell;
         let width = (window_width * 0.6)
             .max(cell_width * 24.0)
+            .min(cell_width * 76.0)
+            .min((window_width - cell_width * 4.0).max(cell_width * 24.0))
             .min(window_width);
         let lines = rows + leading_rows + trailing_rows + usize::from(has_error);
         Self {

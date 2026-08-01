@@ -110,8 +110,12 @@ mod tests {
     #[test]
     fn a_round_trip_keeps_the_directories_in_order() {
         let dir = tempfile::tempdir().expect("a temporary directory");
-        save_in(dir.path(), "review", &[tab("api", "/code/api"), tab("web", "/code/web")])
-            .expect("a saved workspace");
+        save_in(
+            dir.path(),
+            "review",
+            &[tab("api", "/code/api"), tab("web", "/code/web")],
+        )
+        .expect("a saved workspace");
 
         let saved = list_in(dir.path());
         assert_eq!(saved.len(), 1);
