@@ -121,6 +121,30 @@ impl Drop for FontFace {
     }
 }
 
+/// The coverage curve that stands in for the platform's font smoothing.
+///
+/// FreeType reports linear coverage, and compositing it as sRGB alpha reads
+/// light-on-dark text thinner than the platform draws the same face --
+/// CoreText both blends gamma-aware and fattens antialiased edges a touch.
+/// Lifting mid coverage with a fixed power curve reproduces that weight;
+/// full and empty pixels pass through untouched, so hinted stems stay crisp.
+/// Off macOS the platform convention is the thinner rendering, and the
+/// coverage passes through unchanged.
+fn smoothed(value: u8) -> u8 {
+    if !cfg!(target_os = "macos") || value == 0 || value == 255 {
+        return value;
+    }
+    // 255 * (v/255)^0.62, tabulated so the raster loop stays a lookup.
+    static CURVE: std::sync::OnceLock<[u8; 256]> = std::sync::OnceLock::new();
+    CURVE.get_or_init(|| {
+        let mut table = [0u8; 256];
+        for (index, slot) in table.iter_mut().enumerate() {
+            *slot = ((index as f32 / 255.0).powf(0.62) * 255.0).round() as u8;
+        }
+        table
+    })[value as usize]
+}
+
 impl FontFace {
     /// Load `path` and size it to `pixel_size` pixels per em.
     pub fn open(path: &Path, pixel_size: u32) -> Result<Self> {
@@ -357,6 +381,9 @@ impl FontFace {
                 // from `buffer`, and `offset + width` stays inside that.
                 let row_bytes = unsafe { std::slice::from_raw_parts(buffer.offset(offset), width) };
                 coverage.extend_from_slice(row_bytes);
+            }
+            for value in &mut coverage {
+                *value = smoothed(*value);
             }
             coverage
         };
