@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0b0d0e; font-family:-apple-system,'SF Pro Text',sans-serif;
+         display:flex; gap:40px; padding:30px; }
+  .window { width:1010px; height:557px; border-radius:10px; overflow:hidden;
+            display:flex; box-shadow:0 20px 60px rgba(0,0,0,.6); position:relative;
+            border:1px solid #2a2d2f; }
+  .caption { position:absolute; top:-24px; left:0; color:#8a9095; font-size:12px; }
+
+  /* ============ 一体化侧栏 ============ */
+  .sidebar { width:218px; background:#161a1c; display:flex; flex-direction:column;
+             border-right:1px solid #26292b; flex-shrink:0; }
+  .sb-head { height:44px; display:flex; align-items:center; padding:0 14px; gap:7px; }
+  .light { width:12px; height:12px; border-radius:50%; }
+  .l-r{background:#ff5f57}.l-y{background:#febc2e}.l-g{background:#28c840}
+
+  .sb-list { flex:1; padding:4px 8px; overflow:hidden; }
+  .group { margin-top:10px; }
+  .group:first-child { margin-top:2px; }
+  .g-head { display:flex; align-items:center; gap:6px; padding:3px 8px;
+            color:#6d7377; font-size:11px; letter-spacing:.04em; }
+  .g-head .tri { font-size:8px; width:8px; color:#565b5e; }
+  .g-head .cnt { margin-left:auto; color:#4a4f52; font-size:11px; font-variant-numeric:tabular-nums; }
+  .row { display:flex; align-items:center; gap:8px; height:30px; padding:0 8px 0 10px;
+         border-radius:6px; margin:1px 0; position:relative; color:#b9bec2; font-size:13px; }
+  .row .key { width:26px; color:#565b5e; font-size:11px; font-variant-numeric:tabular-nums;
+              font-family:'SF Mono',ui-monospace,monospace; }
+  .row .ic { width:15px; text-align:center; color:#7d8388; font-size:13px; }
+  .row .ic.agent { color:#4fd1b0; }
+  .row .title { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .title .dim { color:#6d7377; }
+  .row .dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .dot.amber { background:#e5a84b; box-shadow:0 0 6px rgba(229,168,75,.5); }
+  .dot.grey  { background:#565b5e; }
+  .ring { width:11px; height:11px; border-radius:50%; flex-shrink:0;
+          background:conic-gradient(#4fd1b0 0 64%, #2c3134 64% 100%);
+          -webkit-mask:radial-gradient(circle 3.2px, transparent 97%, #000 100%); }
+  .row.active { background:#22282b; color:#e8eaeb; }
+  .row.active::before { content:''; position:absolute; left:0; top:5px; bottom:5px;
+                        width:3px; border-radius:2px; background:#4fd1b0; }
+  .row.active .key { color:#8a9095; }
+
+  .sb-foot { height:34px; border-top:1px solid #26292b; display:flex; }
+  .sb-foot div { flex:1; display:flex; align-items:center; justify-content:center;
+                 color:#6d7377; font-size:13px; }
+  .sb-foot div:hover { background:#1d2224; }
+
+  /* ============ 终端列 ============ */
+  .main { flex:1; display:flex; flex-direction:column; background:#101314; }
+  .topbar { height:38px; display:flex; align-items:center; padding:0 12px;
+            background:#161a1c; border-bottom:1px solid #26292b; gap:14px; }
+  .tb-stats { margin-left:auto; color:#6d7377; font-size:12px;
+              font-family:'SF Mono',ui-monospace,monospace; }
+  .tb-icons { display:flex; gap:14px; color:#8a9095; font-size:13px; }
+  .term { flex:1; padding:10px 14px; font-family:'SF Mono',ui-monospace,monospace;
+          font-size:13px; line-height:20px; color:#d0d4d6; }
+  .p { color:#4fd1b0; } .cmt{ color:#6d7377; }
+  .statusbar { height:26px; background:#161a1c; border-top:1px solid #26292b;
+               display:flex; align-items:center; gap:16px; padding:0 12px;
+               font-family:'SF Mono',ui-monospace,monospace; font-size:11.5px; color:#8a9095; }
+  .statusbar .v { color:#4fd1b0; }
+</style></head><body>
+
+<div class="window"><div class="caption">一体化设计稿 — 左栏从头到尾,新行语法</div>
+  <div class="sidebar">
+    <div class="sb-head">
+      <div class="light l-r"></div><div class="light l-y"></div><div class="light l-g"></div>
+    </div>
+    <div class="sb-list">
+      <div class="group">
+        <div class="g-head"><span class="tri">▾</span> unterm</div>
+        <div class="row active"><span class="key">⌘1</span><span class="ic agent">⬢</span>
+          <span class="title">claude <span class="dim">· unterm</span></span></div>
+        <div class="row"><span class="key">⌘2</span><span class="ic agent">⬢</span>
+          <span class="title">codex <span class="dim">· unterm</span></span><span class="dot amber"></span></div>
+        <div class="row"><span class="key">⌘3</span><span class="ic">❯_</span>
+          <span class="title">zsh</span></div>
+      </div>
+      <div class="group">
+        <div class="g-head"><span class="tri">▾</span> notebook</div>
+        <div class="row"><span class="key">⌘4</span><span class="ic agent">⬢</span>
+          <span class="title">gemini <span class="dim">· notebook</span></span><span class="ring"></span></div>
+        <div class="row"><span class="key">⌘5</span><span class="ic">❯_</span>
+          <span class="title">zsh</span><span class="dot grey"></span></div>
+      </div>
+      <div class="group">
+        <div class="g-head"><span class="tri">▸</span> socal <span class="cnt">2</span></div>
+      </div>
+    </div>
+    <div class="sb-foot"><div>+</div><div>▾</div><div>⌕</div></div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <span class="tb-stats">claude · 3.2% cpu · 45M · 12m</span>
+      <span class="tb-icons">☰ &nbsp;◫ &nbsp;⌸ &nbsp;⌕ &nbsp;⚙ &nbsp;⌄</span>
+    </div>
+    <div class="term">
+      <div><span class="p">alexlee@192 unterm %</span> cargo test --workspace</div>
+      <div>    Finished `release` profile [optimized] target(s) in 2m 42s</div>
+      <div>test result: ok. 616 passed; 0 failed</div>
+      <div><span class="cmt">星期日 12时58分54秒 — CJK 对齐正常</span></div>
+      <div><span class="p">alexlee@192 unterm %</span> ▊</div>
+    </div>
+    <div class="statusbar">
+      <span>zsh</span><span class="v">~/unterm</span><span>105x29</span>
+      <span>project:<span class="v">unterm</span></span>
+      <span>theme:<span class="v">notion-dark</span></span>
+    </div>
+  </div>
+</div>
+
+</body></html>
