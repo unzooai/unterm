@@ -15,6 +15,7 @@ pub mod launch_env;
 pub mod peer_mcp;
 pub mod recording;
 pub mod scrollback_options;
+pub mod search_regex;
 pub mod server_info;
 
 /// The desktop work area: the screen minus the taskbar, in physical pixels

@@ -14,7 +14,6 @@ base64.workspace = true
 parking_lot.workspace = true
 portable-pty = { workspace = true, features = ["serde_support"] }
 procinfo = { workspace = true, default-features = false }
-regex.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 freetype.workspace = true

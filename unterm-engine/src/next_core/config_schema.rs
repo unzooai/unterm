@@ -202,27 +202,22 @@ fn hyperlink_rule_problem(rule: &Value) -> Option<String> {
             )
         }
     };
-    match regex::Regex::new(pattern) {
-        Err(error) => {
-            // The regex crate draws its error over several lines with a
-            // caret; the last line is the reason, and the only part that
-            // survives being put on one.
-            let reason = error.to_string();
-            let reason = reason.lines().last().unwrap_or("does not compile");
-            let reason = reason.strip_prefix("error: ").unwrap_or(reason);
-            Some(format!("`{pattern}` is not a valid regex -- {reason}"))
-        }
-        Ok(compiled) if highlight >= compiled.captures_len() => Some(format!(
-            "capture number {highlight} is out of range -- `{pattern}` has {} capture group{}",
-            compiled.captures_len() - 1,
-            if compiled.captures_len() == 2 {
-                ""
-            } else {
-                "s"
-            }
-        )),
-        Ok(_) => None,
+    // Shape only: whether the pattern *compiles* is the front end's to say,
+    // where the regex engine actually lives -- the kernel holds a dependency
+    // budget, and a regex crate does not fit in it for a load-time warning.
+    // links.rs reports a rule that fails to compile the moment it is used.
+    let unbalanced = pattern.matches('(').count()
+        < pattern.matches(')').count().saturating_sub(
+            pattern.matches("\\)").count(),
+        );
+    let _ = highlight;
+    if pattern.is_empty() {
+        return Some("the regex must not be empty".to_string());
     }
+    if unbalanced {
+        return Some(format!("`{pattern}` has more `)` than `(`"));
+    }
+    None
 }
 
 #[cfg(test)]
@@ -389,15 +384,16 @@ mod tests {
     }
 
     #[test]
-    fn a_hyperlink_rule_that_does_not_compile_is_rejected_with_its_line() {
-        let errors = check_source("\nhyperlink_rules = [[\"a(b\", \"$0\"]]");
+    fn a_hyperlink_rule_shaped_wrong_is_rejected_with_its_line() {
+        // Structural checks only: whether a pattern *compiles* is the front
+        // end's call, where the regex engine lives -- but a rule that could
+        // never be right is still caught here, at its line.
+        let errors = check_source("\nhyperlink_rules = [[\"a)b))\", \"$0\"]]");
 
-        // A rule that silently never matches is the same failure as a key
-        // that does nothing.
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].line, 2);
         assert!(
-            errors[0].message.contains("not a valid regex"),
+            errors[0].message.contains("more `)`"),
             "{}",
             errors[0].message
         );
@@ -422,12 +418,12 @@ mod tests {
     }
 
     #[test]
-    fn a_highlight_the_regex_cannot_satisfy_is_rejected() {
-        let errors = check_source(r#"hyperlink_rules = [["\bPR-(\d+)", "$1", 2]]"#);
+    fn a_negative_highlight_is_rejected() {
+        let errors = check_source(r#"hyperlink_rules = [["\bPR-(\d+)", "$1", -1]]"#);
 
         assert_eq!(errors.len(), 1);
         assert!(
-            errors[0].message.contains("out of range"),
+            errors[0].message.contains("negative"),
             "{}",
             errors[0].message
         );

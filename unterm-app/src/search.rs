@@ -4,7 +4,19 @@
 //! rows are. What lives here is the part a front end owns: what the bar says,
 //! which match is current, and how moving between them behaves at the ends.
 
-use unterm_engine::{ScreenSearchMatch, SearchMode};
+use unterm_engine::ScreenSearchMatch;
+
+/// How the pattern reads. The bar's three modes; the kernel only speaks the
+/// two literal ones, and the regex mode is matched by the front end over the
+/// same lines -- the kernel's dependency budget has no room for a regex
+/// engine.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Mode {
+    CaseSensitive,
+    #[default]
+    CaseInsensitive,
+    Regex,
+}
 
 /// An open search.
 #[derive(Clone, Debug, Default)]
@@ -14,7 +26,7 @@ pub struct Search {
     /// Which match is current, if there are any.
     pub selected: usize,
     /// How the pattern reads: ignore case to start, Ctrl+R to cycle.
-    pub mode: SearchMode,
+    pub mode: Mode,
 }
 
 impl Search {
@@ -61,9 +73,9 @@ impl Search {
     /// exact, then ignore case, then regex, then around again.
     pub fn cycle_mode(&mut self) {
         self.mode = match self.mode {
-            SearchMode::CaseSensitive => SearchMode::CaseInsensitive,
-            SearchMode::CaseInsensitive => SearchMode::Regex,
-            SearchMode::Regex => SearchMode::CaseSensitive,
+            Mode::CaseSensitive => Mode::CaseInsensitive,
+            Mode::CaseInsensitive => Mode::Regex,
+            Mode::Regex => Mode::CaseSensitive,
         };
     }
 
@@ -73,9 +85,9 @@ impl Search {
     /// Ctrl+R has to show something even when the matches do not change.
     pub fn label(&self) -> String {
         let mode = match self.mode {
-            SearchMode::CaseSensitive => "case-sensitive",
-            SearchMode::CaseInsensitive => "ignore case",
-            SearchMode::Regex => "regex",
+            Mode::CaseSensitive => "case-sensitive",
+            Mode::CaseInsensitive => "ignore case",
+            Mode::Regex => "regex",
         };
         if self.pattern.is_empty() {
             return format!("Search:  ({mode})");
@@ -238,13 +250,13 @@ mod tests {
         // Exact, ignore case, regex, around again — 0.57.4's order, and a
         // fresh search starts on ignore case as it did there.
         let mut s = Search::default();
-        assert_eq!(s.mode, SearchMode::CaseInsensitive);
+        assert_eq!(s.mode, Mode::CaseInsensitive);
         s.cycle_mode();
-        assert_eq!(s.mode, SearchMode::Regex);
+        assert_eq!(s.mode, Mode::Regex);
         s.cycle_mode();
-        assert_eq!(s.mode, SearchMode::CaseSensitive);
+        assert_eq!(s.mode, Mode::CaseSensitive);
         s.cycle_mode();
-        assert_eq!(s.mode, SearchMode::CaseInsensitive);
+        assert_eq!(s.mode, Mode::CaseInsensitive);
     }
 
     #[test]

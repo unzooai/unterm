@@ -7,7 +7,12 @@ param(
     # earlier tranche had set. Recalibrate to the measured size plus about a
     # hundred lines of headroom, as before, instead of turning this into an
     # unbounded "new features" allowance.
-    [int]$MaxCoreSourceLines = 12550,
+    # 12550 -> 12800 (2026-08-02): font collections gained per-face
+    # enumeration and indexed opens, rasterization gained the macOS
+    # smoothing curve, and search gained its mode plumbing -- capability,
+    # not sprawl. The regex crate that tried to ride along was evicted to
+    # the front end the same day; dependencies stay at ten.
+    [int]$MaxCoreSourceLines = 12800,
     [int]$MaxProbeSourceLines = 2500,
     [int]$MaxDirectDependencies = 10,
     # A debug binary carries its debug info, so this tracks the toolchain and

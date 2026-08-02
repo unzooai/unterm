@@ -1277,6 +1277,62 @@ impl App {
     /// tells the user nothing and takes a column to say it.
 
     /// The bar along the bottom: where you are, and what agents are doing.
+    /// Run the bar's search in whichever mode it is in.
+    ///
+    /// Literal modes go to the kernel, which owns the scrollback. Regex is
+    /// matched here over the same lines: the kernel's dependency budget has
+    /// no room for a regex engine, and the bar should not care where the
+    /// matching happened.
+    fn run_search(
+        &self,
+        session_id: usize,
+        pattern: &str,
+        mode: crate::search::Mode,
+    ) -> Vec<unterm_engine::ScreenSearchMatch> {
+        if pattern.is_empty() {
+            return Vec::new();
+        }
+        match mode {
+            crate::search::Mode::CaseSensitive => self
+                .engine
+                .search(
+                    session_id,
+                    pattern,
+                    unterm_engine::SearchMode::CaseSensitive,
+                    MAX_SEARCH_MATCHES,
+                )
+                .unwrap_or_default(),
+            crate::search::Mode::CaseInsensitive => self
+                .engine
+                .search(
+                    session_id,
+                    pattern,
+                    unterm_engine::SearchMode::CaseInsensitive,
+                    MAX_SEARCH_MATCHES,
+                )
+                .unwrap_or_default(),
+            crate::search::Mode::Regex => {
+                let Ok(snapshot) = self.engine.read_scrollback_text(
+                    session_id,
+                    unterm_engine::ScrollbackTextRequest {
+                        start_line: None,
+                        end_line: None,
+                        tail_lines: None,
+                        escapes: false,
+                    },
+                ) else {
+                    return Vec::new();
+                };
+                unterm_services::search_regex::find_matches(
+                    &snapshot.lines,
+                    snapshot.first_row,
+                    pattern,
+                    MAX_SEARCH_MATCHES,
+                )
+            }
+        }
+    }
+
     /// The parked-agent question, painted over the status row the way 0.57.4
     /// painted it: the whole bar inverts, and one line asks and names its keys.
     fn append_confirmation_banner(
@@ -6701,13 +6757,7 @@ impl App {
         }
         if keep {
             if research {
-                let matches = if search.pattern.is_empty() {
-                    Vec::new()
-                } else {
-                    self.engine
-                        .search(session_id, &search.pattern, search.mode, MAX_SEARCH_MATCHES)
-                        .unwrap_or_default()
-                };
+                let matches = self.run_search(session_id, &search.pattern, search.mode);
                 search.adopt(matches);
             }
             if let Some(found) = search.current() {
@@ -6771,18 +6821,8 @@ impl App {
 
         if keep {
             if research {
-                let matches = if search.pattern.is_empty() {
-                    Vec::new()
-                } else {
-                    self.engine
-                        .search(
-                            self.focused_session(),
-                            &search.pattern,
-                            search.mode,
-                            MAX_SEARCH_MATCHES,
-                        )
-                        .unwrap_or_default()
-                };
+                let matches =
+                    self.run_search(self.focused_session(), &search.pattern, search.mode);
                 search.adopt(matches);
             }
             // Follow the current match, so finding something shows it.
@@ -7238,9 +7278,9 @@ impl App {
         };
         let label = search.label();
         let mode = match search.mode {
-            unterm_engine::SearchMode::CaseSensitive => "Aa",
-            unterm_engine::SearchMode::CaseInsensitive => "aA",
-            unterm_engine::SearchMode::Regex => ".*",
+            crate::search::Mode::CaseSensitive => "Aa",
+            crate::search::Mode::CaseInsensitive => "aA",
+            crate::search::Mode::Regex => ".*",
         };
         let metrics = self.font.metrics();
         let height = self.state.as_ref().map(|live| live.height).unwrap_or(0) as f32;
@@ -7453,15 +7493,7 @@ impl App {
         }
         if let Some(mut search) = self.search.take() {
             search.pattern.push_str(text);
-            let matches = self
-                .engine
-                .search(
-                    self.focused_session(),
-                    &search.pattern,
-                    search.mode,
-                    MAX_SEARCH_MATCHES,
-                )
-                .unwrap_or_default();
+            let matches = self.run_search(self.focused_session(), &search.pattern, search.mode);
             search.adopt(matches);
             if let Some(found) = search.current() {
                 let _ = self

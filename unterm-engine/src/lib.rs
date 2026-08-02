@@ -780,7 +780,6 @@ pub enum SearchMode {
     CaseSensitive,
     #[default]
     CaseInsensitive,
-    Regex,
 }
 
 #[derive(Clone, Debug, Serialize)]

@@ -21,34 +21,6 @@ pub(super) fn find_matches(
             let lines: Vec<String> = lines.iter().map(|line| line.to_lowercase()).collect();
             literal_matches(&lines, &pattern, max_results)
         }
-        SearchMode::Regex => {
-            // A pattern that does not parse matches nothing. The user sees
-            // the count fall to zero while typing and keeps typing; an error
-            // would have to go somewhere, and half-typed patterns are the
-            // common case, not the exception.
-            let Ok(regex) = regex::Regex::new(pattern) else {
-                return Vec::new();
-            };
-            let mut matches = Vec::new();
-            for (row, line) in lines.iter().enumerate() {
-                for found in regex.find_iter(line) {
-                    // A pattern like `a*` matches emptiness everywhere;
-                    // highlighting nothing at every column helps nobody.
-                    if found.as_str().is_empty() {
-                        continue;
-                    }
-                    matches.push(ScreenSearchMatch {
-                        row: row as i64,
-                        col: line[..found.start()].chars().count(),
-                        text: line.clone(),
-                    });
-                    if matches.len() >= max_results {
-                        return matches;
-                    }
-                }
-            }
-            matches
-        }
     }
 }
 
@@ -129,31 +101,4 @@ mod tests {
         assert_eq!(matches[1].col, 6);
     }
 
-    #[test]
-    fn regex_mode_matches_patterns_with_character_columns() {
-        let lines = vec!["你x1 x22".to_string()];
-
-        let matches = find(&lines, r"x\d+", SearchMode::Regex);
-
-        assert_eq!(matches.len(), 2);
-        assert_eq!(matches[0].col, 1);
-        assert_eq!(matches[1].col, 4);
-    }
-
-    #[test]
-    fn an_unfinished_regex_matches_nothing_rather_than_failing() {
-        let lines = vec!["abc(def".to_string()];
-
-        assert!(find(&lines, "abc(", SearchMode::Regex).is_empty());
-    }
-
-    #[test]
-    fn a_regex_that_matches_emptiness_finds_nothing_to_show() {
-        let lines = vec!["aaa bbb".to_string()];
-
-        let matches = find(&lines, "b*", SearchMode::Regex);
-
-        assert_eq!(matches.len(), 1, "only the non-empty match remains");
-        assert_eq!(matches[0].col, 4);
-    }
 }

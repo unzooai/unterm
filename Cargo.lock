@@ -5684,7 +5684,6 @@ dependencies = [
  "parking_lot",
  "portable-pty",
  "procinfo",
- "regex",
  "serde",
  "serde_json",
  "termwiz",
