@@ -348,7 +348,29 @@ pub struct TerminalFont {
     /// and without this the two overwrite each other in the atlas whenever they
     /// land on the same pixel size.
     stack_id: u8,
+    /// Each fallback glyph's natural `(advance, ink width, ink height)` at
+    /// the base pixel size, measured once.
+    ///
+    /// `glyph_pixel_size` needs these every frame for every fallback glyph on
+    /// screen, and measuring means rasterizing; without the cache a screen of
+    /// CJK would re-rasterize itself once per glyph per frame just to decide
+    /// what size to draw at.
+    naturals: std::collections::HashMap<(usize, u32), (i32, i32, i32)>,
 }
+
+/// How far a fallback glyph may be scaled up to fill its columns.
+///
+/// A symbol face with an unusually small advance would otherwise be blown up
+/// until its ink hit the cap anyway; this keeps the arithmetic from ever
+/// asking for something absurd.
+const MAX_FIT_SCALE: f32 = 2.4;
+
+/// And how far down, when the ink would otherwise overflow its cell box.
+///
+/// Below this the glyph is unreadably small, and a face whose metrics ask for
+/// it is a face whose metrics are broken; drawing slightly too big is the
+/// lesser harm.
+const MIN_FIT_SCALE: f32 = 0.5;
 
 impl TerminalFont {
     /// Open the machine's default monospace face at `pixel_size`.
@@ -358,7 +380,7 @@ impl TerminalFont {
         let entry = index
             .default_monospace()
             .ok_or_else(|| anyhow::anyhow!("no monospace font found on this machine"))?;
-        let face = FontFace::open(&entry.path, pixel_size)?;
+        let face = FontFace::open_indexed(&entry.path, entry.face_index, pixel_size)?;
         Ok(Self::from_face(face, &[], pixel_size))
     }
 
@@ -383,7 +405,7 @@ impl TerminalFont {
                 log::warn!("font {name:?} is not installed; using the default");
             }
         }
-        let face = FontFace::open(&entry.path, pixel_size)?;
+        let face = FontFace::open_indexed(&entry.path, entry.face_index, pixel_size)?;
         Ok(Self::from_face_shaped(face, fallbacks, pixel_size, shape))
     }
 
@@ -433,6 +455,7 @@ impl TerminalFont {
                 baseline,
             },
             stack_id: 0,
+            naturals: std::collections::HashMap::new(),
         }
     }
 
@@ -459,6 +482,73 @@ impl TerminalFont {
 
     pub fn pixel_size(&self) -> u32 {
         self.stack.pixel_size()
+    }
+
+    /// The pixel size one glyph should be rasterized at so it fills the
+    /// `span` columns its character occupies.
+    ///
+    /// The primary face *is* the grid -- its advance defined the cell -- so
+    /// its glyphs are always taken at the base size, byte-identical to what
+    /// this renderer always drew. A fallback face was designed for its own
+    /// em: taken at the primary's size, a double-width CJK glyph is one em
+    /// wide (about the pixel size) while its two cells add up to about 1.2
+    /// ems of a monospace primary. Every hanzi came out visibly small, with
+    /// a gap trailing it -- "星期日" read as "星 期 日".
+    ///
+    /// The rule: scale by `target / advance` so the glyph's designed spacing
+    /// fills its columns, clamped so it neither shrinks below its natural
+    /// size on that account nor explodes past `MAX_FIT_SCALE`; then cap by
+    /// the ink itself so nothing overflows `span` columns across or one row
+    /// down -- which is what shrinks a square symbol glyph into its single
+    /// cell instead of letting it spill over its neighbour.
+    ///
+    /// This is the *one* place the size is decided. The ensure passes and
+    /// the placement lookups all key the atlas through it, because two
+    /// copies of this arithmetic disagreeing means a glyph filed under a key
+    /// nothing asks for: it silently misses the atlas and the character
+    /// vanishes.
+    pub fn glyph_pixel_size(&mut self, face: usize, glyph_index: u32, span: usize) -> u32 {
+        let base = self.stack.pixel_size();
+        // The chrome's stack draws proportional text at the face's own
+        // advances; it has no cells to fill. Only the terminal's grid fits.
+        if face == 0 || self.stack_id != 0 {
+            return base;
+        }
+        let (advance, ink_width, ink_height) = match self.naturals.get(&(face, glyph_index)) {
+            Some(natural) => *natural,
+            None => {
+                let natural = self
+                    .stack
+                    .rasterize_index(face, glyph_index)
+                    .map(|glyph| (glyph.advance_x, glyph.width as i32, glyph.height as i32))
+                    .unwrap_or((0, 0, 0));
+                self.naturals.insert((face, glyph_index), natural);
+                natural
+            }
+        };
+        if advance <= 0 {
+            return base;
+        }
+
+        let target = self.metrics.width * span.max(1) as f32;
+        // Fill the columns. Never below 1.0 from the advance alone: a symbol
+        // whose advance is wide but whose ink already fits should be left at
+        // its natural size, not shrunk to honour spacing nothing sees.
+        let mut scale = (target / advance as f32).clamp(1.0, MAX_FIT_SCALE);
+        // And never overflow the cell box: the ink itself has to stay inside
+        // `span` columns and one row, which can pull the scale below 1.0 for
+        // a glyph that was already too big.
+        if ink_width > 0 {
+            scale = scale.min(target / ink_width as f32);
+        }
+        if ink_height > 0 {
+            scale = scale.min(self.metrics.height / ink_height as f32);
+        }
+        let scale = scale.max(MIN_FIT_SCALE);
+
+        // Floored rather than rounded: rounding up re-crosses the line the
+        // caps just drew.
+        ((base as f32 * scale).floor() as u32).max(1)
     }
 
     /// How many cells fit in a window of this size.
@@ -566,30 +656,24 @@ pub fn append_pane(
             ensure_glyph(font, atlas, cell.ch);
         }
     }
-    for row in &shaped_rows {
-        for (face, run) in row {
+    for (row, shaped) in shaped_rows.iter().enumerate() {
+        let cells = &lines[row];
+        for (face, run) in shaped {
             for glyph in &run.glyphs {
-                ensure_shaped_glyph(font, atlas, *face, glyph.glyph_index);
+                let (_, span) = glyph_cell(cells, &run.run, glyph.cluster as usize);
+                ensure_shaped_glyph(font, atlas, *face, glyph.glyph_index, span);
             }
         }
     }
 
-    // Which face drew each character, resolved once, so the lookup below
-    // matches the key each glyph was filed under.
-    let pixel_size = font.pixel_size();
-    let stack_id = font.stack_id();
-    let mut face_of: std::collections::HashMap<char, usize> = std::collections::HashMap::new();
-    let mut index_of: std::collections::HashMap<char, u32> = std::collections::HashMap::new();
+    // The key each character was filed under, resolved once, so the lookup
+    // below matches it exactly -- face, index and fitted pixel size alike.
+    let mut key_of: std::collections::HashMap<char, GlyphKey> = std::collections::HashMap::new();
     for cells in &lines {
         for cell in cells.iter() {
-            let face = *face_of
-                .entry(cell.ch)
-                .or_insert_with(|| font.stack.face_for(cell.ch));
-            index_of.entry(cell.ch).or_insert_with(|| {
-                font.stack
-                    .glyph_index_for(face, cell.ch)
-                    .unwrap_or_default()
-            });
+            if let std::collections::hash_map::Entry::Vacant(slot) = key_of.entry(cell.ch) {
+                slot.insert(glyph_key(font, cell.ch));
+            }
         }
     }
 
@@ -619,8 +703,7 @@ pub fn append_pane(
             top,
             metrics,
             colors,
-            pixel_size,
-            stack_id,
+            font,
             atlas,
             quads,
         );
@@ -631,15 +714,7 @@ pub fn append_pane(
             metrics,
             colors,
             atlas,
-            |ch| {
-                let face = face_of.get(&ch).copied().unwrap_or(0);
-                atlas.get(GlyphKey {
-                    stack: stack_id,
-                    face,
-                    glyph_index: index_of.get(&ch).copied().unwrap_or_default(),
-                    pixel_size,
-                })
-            },
+            |ch| key_of.get(&ch).and_then(|key| atlas.get(*key)),
             quads,
             &shaped,
         );
@@ -859,7 +934,10 @@ fn ensure_glyph(font: &mut TerminalFont, atlas: &mut GlyphAtlas, ch: char) {
     if atlas.get(key).is_some() {
         return;
     }
-    if let Some((_, glyph)) = font.stack_mut().rasterize(ch) {
+    // At the key's own size, which is the fitted one: rasterizing at the base
+    // size here would file a glyph whose picture disagrees with its key, and
+    // the fitted lookup would find the wrong-sized bitmap.
+    if let Some((_, glyph)) = font.stack_mut().rasterize_at(ch, key.pixel_size) {
         atlas.insert(key, &glyph);
     }
 }
@@ -909,8 +987,7 @@ fn place_shaped_row(
     top: f32,
     metrics: CellMetrics,
     colors: FrameColors,
-    pixel_size: u32,
-    stack_id: u8,
+    font: &mut TerminalFont,
     atlas: &GlyphAtlas,
     quads: &mut FrameQuads,
 ) -> std::collections::HashSet<usize> {
@@ -918,13 +995,9 @@ fn place_shaped_row(
 
     for (face, shaped) in rows {
         for glyph in &shaped.glyphs {
-            let column = shaped.run.column_of(glyph.cluster as usize);
-            let Some(slot) = atlas.get(GlyphKey {
-                stack: stack_id,
-                face: *face,
-                glyph_index: glyph.glyph_index,
-                pixel_size,
-            }) else {
+            let (column, span) = glyph_cell(cells, &shaped.run, glyph.cluster as usize);
+            let Some(slot) = atlas.get(shaped_glyph_key(font, *face, glyph.glyph_index, span))
+            else {
                 // Not in the atlas: leave the column to the per-character
                 // path rather than claiming it and drawing nothing.
                 continue;
@@ -948,11 +1021,30 @@ fn place_shaped_row(
     drawn
 }
 
+/// The column a shaped glyph's cluster came from, and how many columns that
+/// cell occupies.
+///
+/// One function for the ensure pass and the placement pass both: the span
+/// feeds the atlas key's pixel size, and the two passes computing it
+/// differently would file a glyph under a key the lookup never asks for --
+/// which is a character silently missing from the screen.
+fn glyph_cell(cells: &[StyledCell], run: &crate::shape::Run, cluster: usize) -> (usize, usize) {
+    let column = run.column_of(cluster);
+    let span = cells_at(cells, column)
+        .map(|cell| cell.width.max(1))
+        .unwrap_or(1);
+    (column, span)
+}
+
 /// The cell at a column, counting wide cells as the columns they occupy.
 fn cells_at(cells: &[StyledCell], column: usize) -> Option<&StyledCell> {
     let mut at = 0usize;
     for cell in cells {
-        let width = cell.width.max(1);
+        // Spacers after wide characters hold no columns of their own.
+        let width = cell.width;
+        if width == 0 {
+            continue;
+        }
         if column < at + width {
             return Some(cell);
         }
@@ -971,22 +1063,40 @@ fn ensure_shaped_glyph(
     atlas: &mut GlyphAtlas,
     face: usize,
     glyph_index: u32,
+    span: usize,
 ) -> bool {
-    let key = GlyphKey {
-        stack: font.stack_id(),
-        face,
-        glyph_index,
-        pixel_size: font.pixel_size(),
-    };
+    let key = shaped_glyph_key(font, face, glyph_index, span);
     if atlas.get(key).is_some() {
         return true;
     }
-    match font.stack_mut().rasterize_index(face, glyph_index) {
+    match font
+        .stack_mut()
+        .rasterize_index_at(face, glyph_index, key.pixel_size)
+    {
         Some(glyph) => {
             atlas.insert(key, &glyph);
             true
         }
         None => false,
+    }
+}
+
+/// Where a shaped glyph lives in the atlas.
+///
+/// The pixel size in the key is the fitted one, worked out in
+/// `glyph_pixel_size` and nowhere else: the ensure pass files under this key
+/// and `place_shaped_row` asks by it, so the two cannot drift.
+fn shaped_glyph_key(
+    font: &mut TerminalFont,
+    face: usize,
+    glyph_index: u32,
+    span: usize,
+) -> GlyphKey {
+    GlyphKey {
+        stack: font.stack_id(),
+        face,
+        glyph_index,
+        pixel_size: font.glyph_pixel_size(face, glyph_index, span),
     }
 }
 
@@ -996,22 +1106,25 @@ fn ensure_shaped_glyph(
 /// character are different pictures; filing a fallback glyph under the primary
 /// would show one where the other belongs.
 fn glyph_key(font: &mut TerminalFont, ch: char) -> GlyphKey {
-    let pixel_size = font.pixel_size();
     let stack = font.stack_id();
     let face = font.stack_mut().face_for(ch);
+    // The face's own index for the character, not its code point. The
+    // shaped path files glyphs by real index, and a code point standing
+    // in for one collides with whatever glyph actually has that number:
+    // the two entries overwrite each other and characters disappear from
+    // the middle of a word.
+    let glyph_index = font
+        .stack_mut()
+        .glyph_index_for(face, ch)
+        .unwrap_or_default();
     GlyphKey {
         stack,
         face,
-        // The face's own index for the character, not its code point. The
-        // shaped path files glyphs by real index, and a code point standing
-        // in for one collides with whatever glyph actually has that number:
-        // the two entries overwrite each other and characters disappear from
-        // the middle of a word.
-        glyph_index: font
-            .stack_mut()
-            .glyph_index_for(face, ch)
-            .unwrap_or_default(),
-        pixel_size,
+        glyph_index,
+        // Fitted to the columns the character occupies, same as the shaped
+        // path. A fallback glyph taken at the primary's size sits small in
+        // its cells; one keyed at a size nothing rasterized vanishes.
+        pixel_size: font.glyph_pixel_size(face, glyph_index, column_width(ch)),
     }
 }
 
@@ -1497,14 +1610,12 @@ mod shaped_row_tests {
         let rows = shape_row(cells, font);
         for (face, run) in &rows {
             for glyph in &run.glyphs {
-                ensure_shaped_glyph(font, atlas, *face, glyph.glyph_index);
+                let (_, span) = glyph_cell(cells, &run.run, glyph.cluster as usize);
+                ensure_shaped_glyph(font, atlas, *face, glyph.glyph_index, span);
             }
         }
         let metrics = font.metrics();
-        let pixel_size = font.pixel_size();
-        place_shaped_row(
-            &rows, cells, 0.0, 0.0, metrics, colors, pixel_size, 0, atlas, quads,
-        )
+        place_shaped_row(&rows, cells, 0.0, 0.0, metrics, colors, font, atlas, quads)
     }
 
     fn cells(text: &str) -> Vec<StyledCell> {
@@ -1568,6 +1679,229 @@ mod shaped_row_tests {
         assert!(drawn.contains(&0), "first character drawn");
         assert!(drawn.contains(&2), "second character at column 2, not 1");
         assert_eq!(quads.glyphs.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod fallback_fit_tests {
+    use super::*;
+    use unterm_engine::{CellStyle, CursorSnapshot, StyledCell, StyledScreenLine};
+
+    /// A one-line snapshot whose cells carry their real column widths, the
+    /// way the engine reports them -- the module-level helper calls every
+    /// cell one column wide, which is exactly the lie these tests exist to
+    /// catch.
+    fn snapshot_of(text: &str) -> StyledScreenSnapshot {
+        let cells: Vec<StyledCell> = text
+            .chars()
+            .map(|ch| StyledCell {
+                ch,
+                style: CellStyle::default(),
+                width: column_width(ch),
+            })
+            .collect();
+        let cols = cells.iter().map(|cell| cell.width.max(1)).sum();
+        StyledScreenSnapshot {
+            lines: vec![StyledScreenLine {
+                row: 0,
+                wrapped: false,
+                cells,
+            }],
+            cursor: CursorSnapshot {
+                x: 0,
+                y: 99,
+                visible: false,
+                shape: "Default".to_string(),
+            },
+            cols,
+            rows: 1,
+            scrollback_rows: 0,
+            revision: 1,
+            dirty_rows: None,
+            mouse: Default::default(),
+            bells: 0,
+            notifications: 0,
+            last_notification: None,
+            focus_reporting: false,
+            clipboard_request: None,
+        }
+    }
+
+    fn colors() -> FrameColors {
+        FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
+        }
+    }
+
+    /// A double-width character from a fallback face fills its two cells.
+    ///
+    /// Rasterizing every face at the primary's pixel size left a CJK em --
+    /// about one pixel-size wide -- covering ~83% of two monospace cells:
+    /// "星期日" read as "星 期 日", a visible gap trailing every hanzi.
+    /// The grid stores a spacer cell after every wide character. It owns no
+    /// columns: the character after CJK text must land immediately after the
+    /// wide cells, not one phantom blank per hanzi later.
+    #[test]
+    fn a_spacer_after_a_wide_character_adds_no_column() {
+        if std::env::var_os("GITHUB_ACTIONS").is_some() {
+            return;
+        }
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(512, 512);
+
+        let mut snapshot = snapshot_of("星b");
+        // The spacer the engine stores under the wide character's tail.
+        snapshot.lines[0].cells.insert(
+            1,
+            StyledCell {
+                ch: ' ',
+                style: CellStyle::default(),
+                width: 0,
+            },
+        );
+        let quads = frame_quads(&snapshot, &mut font, &mut atlas, colors());
+        let metrics = font.metrics();
+        let b = quads
+            .glyphs
+            .iter()
+            .filter(|glyph| glyph.quad.width < metrics.width * 1.2)
+            .min_by(|a, b| a.quad.left.total_cmp(&b.quad.left))
+            .expect("the ascii after the hanzi should draw");
+        // 'b' belongs to column 2. With the spacer miscounted it lands at
+        // column 3, a full cell adrift of everything the program aligned.
+        assert!(
+            (b.quad.left - 2.0 * metrics.width).abs() < metrics.width * 0.9,
+            "'b' should start at column 2, not {}",
+            b.quad.left / metrics.width
+        );
+    }
+
+    #[test]
+    fn a_wide_fallback_glyph_fills_its_two_cells() {
+        // A hosted CI runner has no CJK font install to probe.
+        if std::env::var_os("GITHUB_ACTIONS").is_some() {
+            return;
+        }
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return;
+        };
+        if font.stack_mut().face_for('星') == 0 {
+            return; // The primary has its own CJK; nothing to fit.
+        }
+        let mut atlas = GlyphAtlas::new(512, 512);
+
+        let quads = frame_quads(&snapshot_of("星"), &mut font, &mut atlas, colors());
+
+        let metrics = font.metrics();
+        let glyph = quads
+            .glyphs
+            .iter()
+            .max_by(|a, b| a.quad.width.total_cmp(&b.quad.width))
+            .expect("the hanzi should draw");
+        assert!(
+            glyph.quad.width > 1.5 * metrics.width,
+            "a fallback hanzi should fill most of its two cells: ink {} in {}-wide cells",
+            glyph.quad.width,
+            metrics.width
+        );
+        assert!(
+            glyph.quad.width <= 2.0 * metrics.width + 1.0,
+            "and never spill past them: ink {} in {}-wide cells",
+            glyph.quad.width,
+            metrics.width
+        );
+        assert!(
+            glyph.quad.height <= metrics.height + 1.0,
+            "nor grow taller than the row: ink {} in {}-tall cells",
+            glyph.quad.height,
+            metrics.height
+        );
+    }
+
+    /// A single-width symbol from a fallback face stays inside its one cell.
+    ///
+    /// The bundled Nerd Font's icons are near-square: at their natural size
+    /// they are wider than a monospace cell, and unfitted they overflowed
+    /// into the neighbouring column.
+    #[test]
+    fn a_single_width_fallback_symbol_stays_in_its_cell() {
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return;
+        };
+        // The bundled symbols face: guaranteed present, never the primary.
+        let ch = '\u{f07b}';
+        if font.stack_mut().face_for(ch) == 0 {
+            return; // No fallback carries it here; nothing to fit.
+        }
+        assert_eq!(column_width(ch), 1, "the test premise: a one-column icon");
+        let mut atlas = GlyphAtlas::new(512, 512);
+
+        let quads = frame_quads(
+            &snapshot_of(&ch.to_string()),
+            &mut font,
+            &mut atlas,
+            colors(),
+        );
+
+        let metrics = font.metrics();
+        for glyph in &quads.glyphs {
+            assert!(
+                glyph.quad.left + glyph.quad.width <= metrics.width + 1.0,
+                "a one-cell symbol must not overflow its cell: right edge {} vs cell {}",
+                glyph.quad.left + glyph.quad.width,
+                metrics.width
+            );
+            assert!(
+                glyph.quad.height <= metrics.height + 1.0,
+                "nor its row: ink {} in {}-tall cells",
+                glyph.quad.height,
+                metrics.height
+            );
+        }
+    }
+
+    /// ASCII from the primary face is untouched by the fitting.
+    ///
+    /// The primary's advance defined the grid, so its glyphs are the
+    /// reference the fix must not move: keys stay at the base pixel size and
+    /// every quad sits exactly where the unfitted arithmetic put it.
+    #[test]
+    fn ascii_from_the_primary_face_is_untouched() {
+        let Ok(mut font) = TerminalFont::open(16) else {
+            return;
+        };
+        let base = font.pixel_size();
+        let mut atlas = GlyphAtlas::new(512, 512);
+
+        let quads = frame_quads(&snapshot_of("Hi"), &mut font, &mut atlas, colors());
+
+        let metrics = font.metrics();
+        let mut glyphs: Vec<_> = quads.glyphs.iter().collect();
+        glyphs.sort_by(|a, b| a.quad.left.total_cmp(&b.quad.left));
+        assert_eq!(glyphs.len(), 2);
+        for (column, ch) in "Hi".chars().enumerate() {
+            let key = glyph_key(&mut font, ch);
+            assert_eq!(
+                key.pixel_size, base,
+                "{ch:?} must be keyed at the base size"
+            );
+            let (face, natural) = font.stack_mut().rasterize(ch).expect("ASCII rasterizes");
+            assert_eq!(face, 0, "ASCII comes from the primary");
+            // The exact quad the pre-fitting renderer built: cell origin plus
+            // the natural bearing, the natural ink size, on the baseline.
+            let quad = &glyphs[column].quad;
+            assert_eq!(
+                quad.left,
+                column as f32 * metrics.width + natural.bearing_x as f32
+            );
+            assert_eq!(quad.top, metrics.baseline - natural.bearing_y as f32);
+            assert_eq!(quad.width, natural.width as f32);
+            assert_eq!(quad.height, natural.height as f32);
+        }
     }
 }
 

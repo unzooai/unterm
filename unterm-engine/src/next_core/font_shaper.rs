@@ -156,7 +156,7 @@ mod tests {
     fn monospace_face(pixel_size: u32) -> Option<FontFace> {
         let index = FontIndex::scan();
         let entry = index.default_monospace()?;
-        FontFace::open(&entry.path, pixel_size).ok()
+        FontFace::open_indexed(&entry.path, entry.face_index, pixel_size).ok()
     }
 
     #[test]
@@ -332,7 +332,7 @@ mod lifetime_tests {
             eprintln!("no monospace font found; skipping");
             return;
         };
-        let Ok(face) = FontFace::open(&entry.path, 16) else {
+        let Ok(face) = FontFace::open_indexed(&entry.path, entry.face_index, 16) else {
             return;
         };
         let mut shaper = Shaper::new(&face).expect("create shaper");

@@ -207,9 +207,15 @@ pub fn build_row(
     let mut column = 0usize;
 
     for cell in cells {
+        // The spacer stored after a wide character: its columns belong to
+        // the character before it. Counting it as one of its own is how a
+        // row grew a phantom blank cell after every hanzi.
+        if cell.width == 0 {
+            continue;
+        }
         // A wide character occupies two columns, and its background has to
         // cover both or the second shows through.
-        let span = cell.width.max(1) as f32;
+        let span = cell.width as f32;
         let left = left_origin + column as f32 * metrics.width;
         let (foreground, background) = resolve(&cell.style, colors);
 
@@ -232,7 +238,7 @@ pub fn build_row(
         // to the cell, they join exactly.
         if let Some(drawn) = crate::box_glyphs::quads_for(cell.ch, left, top, metrics, foreground) {
             out.backgrounds.extend(drawn);
-            column += cell.width.max(1);
+            column += cell.width;
             continue;
         }
 
@@ -268,7 +274,7 @@ pub fn build_row(
             foreground,
         ));
 
-        column += cell.width.max(1);
+        column += cell.width;
     }
 }
 

@@ -20,6 +20,10 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FontEntry {
     pub path: PathBuf,
+    /// Which face inside the file: 0 for a plain .ttf, the collection slot
+    /// for a .ttc. Opening the path without it lands on whatever face is
+    /// first, which for PingFang is Ultralight.
+    pub face_index: i64,
     pub family: String,
     pub style: String,
     /// The face reports fixed advance widths, i.e. it is a monospace font.
@@ -51,6 +55,12 @@ pub fn font_directories() -> Vec<PathBuf> {
         }
         dirs.push(PathBuf::from("/Library/Fonts"));
         dirs.push(PathBuf::from("/System/Library/Fonts"));
+        // Where macOS keeps fonts it downloaded on demand -- PingFang lives
+        // here, not under /System/Library/Fonts. Without it the Chinese
+        // fallback lands on Hiragino W0, and every hanzi comes out hairline.
+        dirs.push(PathBuf::from(
+            "/System/Library/AssetsV2/com_apple_MobileAsset_Font8",
+        ));
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -101,18 +111,40 @@ fn collect_font_files(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Read what a font file claims, or `None` if FreeType cannot open it.
-pub fn describe(path: &Path) -> Option<FontEntry> {
+/// Read what a font file claims: one entry per face it carries.
+///
+/// A collection is a family in one file; describing only its first face
+/// hands the index a single arbitrary weight -- PingFang's is Ultralight --
+/// and `best_in_family` can then never find the regular one.
+pub fn describe(path: &Path) -> Vec<FontEntry> {
     // Size is irrelevant for reading metadata, but a face has to be sized
     // before it is usable, so pick something small and valid.
-    let face = FontFace::open(path, 16).ok()?;
-    let (family, style, monospace) = face.describe()?;
-    Some(FontEntry {
-        path: path.to_path_buf(),
-        family,
-        style,
-        monospace,
-    })
+    let Ok(first) = FontFace::open(path, 16) else {
+        return Vec::new();
+    };
+    let count = first.num_faces().max(1);
+    let mut entries = Vec::new();
+    for face_index in 0..count {
+        let face = if face_index == 0 {
+            None
+        } else {
+            match FontFace::open_indexed(path, face_index, 16) {
+                Ok(face) => Some(face),
+                Err(_) => continue,
+            }
+        };
+        let described = face.as_ref().unwrap_or(&first).describe();
+        if let Some((family, style, monospace)) = described {
+            entries.push(FontEntry {
+                path: path.to_path_buf(),
+                face_index,
+                family,
+                style,
+                monospace,
+            });
+        }
+    }
+    entries
 }
 
 /// Every font the platform has installed, indexed by family name.
@@ -126,7 +158,7 @@ pub fn scan_installed_fonts() -> Vec<FontEntry> {
     }
     files.sort();
     files.dedup();
-    files.iter().filter_map(|path| describe(path)).collect()
+    files.iter().flat_map(|path| describe(path)).collect()
 }
 
 /// Index of installed fonts, keyed by lowercased family name.
@@ -173,16 +205,17 @@ impl FontIndex {
     /// for a family by name and getting Bold Italic would be surprising.
     pub fn best_in_family(&self, name: &str) -> Option<&FontEntry> {
         let faces = self.family(name);
-        faces
-            .iter()
-            .find(|entry| {
-                // "Roman" is what several shipped faces call regular --
-                // Cascadia Mono among them, so leaving it out would make the
-                // default font depend on directory order.
-                let style = entry.style.to_lowercase();
-                matches!(style.as_str(), "regular" | "book" | "normal" | "roman")
-            })
-            .or_else(|| faces.first())
+        // The lower the closer to regular. "Roman" is what several shipped
+        // faces call it -- Cascadia Mono among them; W3/W4 are the regular
+        // weights in Hiragino's numbering, whose W0 is a hairline that a
+        // first-wins pick would land on.
+        let closeness = |entry: &FontEntry| match entry.style.to_lowercase().as_str() {
+            "regular" | "book" | "normal" | "roman" => 0,
+            "w3" | "w4" => 1,
+            "medium" | "text" => 2,
+            _ => 3,
+        };
+        faces.iter().min_by_key(|entry| closeness(entry))
     }
 
     /// A monospace face, trying the usual terminal fonts before settling for
@@ -269,12 +302,14 @@ mod tests {
         let entries = vec![
             FontEntry {
                 path: PathBuf::from("bold.ttf"),
+                face_index: 0,
                 family: "Test Family".into(),
                 style: "Bold".into(),
                 monospace: true,
             },
             FontEntry {
                 path: PathBuf::from("regular.ttf"),
+                face_index: 0,
                 family: "Test Family".into(),
                 style: "Regular".into(),
                 monospace: true,
@@ -298,12 +333,14 @@ mod tests {
         let roman = FontIndex::from_entries(vec![
             FontEntry {
                 path: PathBuf::from("italic.ttf"),
+                face_index: 0,
                 family: "Roman Family".into(),
                 style: "Italic".into(),
                 monospace: true,
             },
             FontEntry {
                 path: PathBuf::from("roman.ttf"),
+                face_index: 0,
                 family: "Roman Family".into(),
                 style: "Roman".into(),
                 monospace: true,
@@ -323,18 +360,21 @@ mod tests {
         let entries = vec![
             FontEntry {
                 path: PathBuf::from("zzz.ttf"),
+                face_index: 0,
                 family: "Zzz Mono".into(),
                 style: "Regular".into(),
                 monospace: true,
             },
             FontEntry {
                 path: PathBuf::from("aaa.ttf"),
+                face_index: 0,
                 family: "Aaa Sans".into(),
                 style: "Regular".into(),
                 monospace: false,
             },
             FontEntry {
                 path: PathBuf::from("mmm.ttf"),
+                face_index: 0,
                 family: "Mmm Mono".into(),
                 style: "Regular".into(),
                 monospace: true,
@@ -350,6 +390,7 @@ mod tests {
         // No monospace at all is None, not a proportional face.
         let only_proportional = FontIndex::from_entries(vec![FontEntry {
             path: PathBuf::from("a.ttf"),
+            face_index: 0,
             family: "Aaa Sans".into(),
             style: "Regular".into(),
             monospace: false,

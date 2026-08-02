@@ -389,9 +389,13 @@ pub fn labelled(lines: &[StyledScreenLine]) -> Vec<Labelled> {
         let mut columns: Vec<usize> = Vec::new();
         let mut column = 0usize;
         for cell in &line.cells {
+            // Spacers after wide characters hold no columns of their own.
+            if cell.width == 0 {
+                continue;
+            }
             text.push(cell.ch);
             columns.push(column);
-            column += cell.width.max(1);
+            column += cell.width;
         }
         columns.push(column);
 

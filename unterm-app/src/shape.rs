@@ -82,7 +82,13 @@ pub fn runs(
     let mut column = 0usize;
 
     for cell in cells {
-        let width = cell.width.max(1);
+        // The spacer after a wide character: its columns are the wide
+        // cell's. Treating it as a space both broke the run after every
+        // CJK character and shifted every column after it by one.
+        if cell.width == 0 {
+            continue;
+        }
+        let width = cell.width;
         if cell.ch == ' '
             || cell.ch == '\0'
             || cell.style.hidden

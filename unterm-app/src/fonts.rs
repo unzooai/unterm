@@ -277,6 +277,74 @@ impl FontStack {
             .ok()
     }
 
+    /// As `rasterize_index`, at a pixel size other than the stack's own.
+    ///
+    /// For fitting a fallback glyph to the primary's cells: a fallback face
+    /// was designed around its own em, and taking it at the primary's size
+    /// leaves a double-width CJK glyph well short of its two cells. The face
+    /// is put back to the stack's size before returning, whatever happened,
+    /// because shaping and every other rasterization assume the base size.
+    pub fn rasterize_index_at(
+        &mut self,
+        face: usize,
+        glyph_index: u32,
+        pixel_size: u32,
+    ) -> Option<RasterizedGlyph> {
+        if pixel_size == self.pixel_size {
+            return self.rasterize_index(face, glyph_index);
+        }
+        let base = self.pixel_size;
+        let face = self.faces.get_mut(face)?;
+        face.set_pixel_size(pixel_size).ok()?;
+        let rasterized = face.rasterize_glyph_index(glyph_index);
+        if let Err(err) = face.set_pixel_size(base) {
+            log::warn!("could not restore font size {base}: {err:#}");
+        }
+        rasterized.ok()
+    }
+
+    /// As `rasterize`, at a pixel size other than the stack's own.
+    ///
+    /// The same face-by-face walk, with each candidate resized for its one
+    /// glyph and put back before the next thing touches it. The blank-bitmap
+    /// skip is kept: a colour face that reports a glyph and renders nothing
+    /// renders nothing at every size.
+    pub fn rasterize_at(&mut self, ch: char, pixel_size: u32) -> Option<(usize, RasterizedGlyph)> {
+        if pixel_size == self.pixel_size {
+            return self.rasterize(ch);
+        }
+        let candidates: Vec<usize> = self
+            .faces
+            .iter()
+            .enumerate()
+            .filter(|(_, face)| face.has_glyph(ch))
+            .map(|(index, _)| index)
+            .collect();
+
+        let base = self.pixel_size;
+        let mut first: Option<(usize, RasterizedGlyph)> = None;
+        for index in candidates {
+            let face = &mut self.faces[index];
+            if face.set_pixel_size(pixel_size).is_err() {
+                continue;
+            }
+            let rasterized = face.rasterize(ch);
+            if let Err(err) = face.set_pixel_size(base) {
+                log::warn!("could not restore font size {base}: {err:#}");
+            }
+            let Ok(glyph) = rasterized else {
+                continue;
+            };
+            if glyph.width > 0 && glyph.height > 0 {
+                return Some((index, glyph));
+            }
+            // Keep the first answer as a fallback: a character with no ink
+            // anywhere still needs its advance.
+            first.get_or_insert((index, glyph));
+        }
+        first
+    }
+
     /// Rasterize `ch` from whichever face can actually draw it.
     ///
     /// Having a glyph and drawing one are different questions, and the gap
@@ -316,7 +384,7 @@ impl FontStack {
 }
 
 fn open(entry: &FontEntry, pixel_size: u32) -> anyhow::Result<FontFace> {
-    Ok(FontFace::open(&entry.path, pixel_size)?)
+    Ok(FontFace::open_indexed(&entry.path, entry.face_index, pixel_size)?)
 }
 
 #[cfg(test)]

@@ -184,7 +184,11 @@ fn marked_links(row: usize, line: &StyledScreenLine) -> Vec<Link> {
     let mut links: Vec<Link> = Vec::new();
     let mut column = 0usize;
     for cell in &line.cells {
-        let width = cell.width.max(1);
+        // Spacers after wide characters hold no columns of their own.
+        if cell.width == 0 {
+            continue;
+        }
+        let width = cell.width;
         if let Some(uri) = cell.style.hyperlink.as_deref() {
             match links.last_mut() {
                 // The same link continuing: one span, not one per cell.
@@ -213,10 +217,14 @@ fn printed_links(row: usize, line: &StyledScreenLine, rules: &Rules) -> Vec<Link
     let mut columns: Vec<usize> = Vec::new();
     let mut column = 0usize;
     for cell in &line.cells {
+        // Spacers after wide characters hold no columns of their own.
+        if cell.width == 0 {
+            continue;
+        }
         starts.push(text.len());
         columns.push(column);
         text.push(cell.ch);
-        column += cell.width.max(1);
+        column += cell.width;
     }
     starts.push(text.len());
     columns.push(column);

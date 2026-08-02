@@ -124,6 +124,16 @@ impl Drop for FontFace {
 impl FontFace {
     /// Load `path` and size it to `pixel_size` pixels per em.
     pub fn open(path: &Path, pixel_size: u32) -> Result<Self> {
+        Self::open_indexed(path, 0, pixel_size)
+    }
+
+    /// Load one face of a file that may carry several.
+    ///
+    /// A .ttc collection is a family in one file -- PingFang ships Ultralight
+    /// through Semibold in a single path, and index 0 is whatever happens to
+    /// be first. A caller that always opens 0 gets that arbitrary weight for
+    /// the whole family, which is how every CJK glyph came out hairline-thin.
+    pub fn open_indexed(path: &Path, face_index: i64, pixel_size: u32) -> Result<Self> {
         let library = Arc::new(Library::init()?);
         let path_c = CString::new(path.as_os_str().to_string_lossy().as_bytes())
             .with_context(|| format!("font path is not representable as C string: {path:?}"))?;
@@ -133,10 +143,12 @@ impl FontFace {
         // `face` is a valid out-pointer.
         let err = {
             let _inside = FREETYPE.lock();
-            unsafe { FT_New_Face(library.raw, path_c.as_ptr(), 0, &mut face) }
+            unsafe { FT_New_Face(library.raw, path_c.as_ptr(), face_index as _, &mut face) }
         };
         if err != 0 {
-            return Err(anyhow!("FT_New_Face({path:?}) failed with error {err}"));
+            return Err(anyhow!(
+                "FT_New_Face({path:?}[{face_index}]) failed with error {err}"
+            ));
         }
 
         let mut face = Self {
@@ -146,6 +158,13 @@ impl FontFace {
         };
         face.set_pixel_size(pixel_size)?;
         Ok(face)
+    }
+
+    /// How many faces the file this face came from carries. 1 for a plain
+    /// .ttf; the collection size for a .ttc.
+    pub fn num_faces(&self) -> i64 {
+        // SAFETY: `self.face` is live for as long as `self`.
+        unsafe { (*self.face).num_faces as i64 }
     }
 
     /// A share in the library this face was loaded from.

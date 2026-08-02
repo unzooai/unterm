@@ -258,28 +258,34 @@ pub fn layout(
         };
         left += (72.0 * scale).round();
     }
-    // v0.57.4 sized the Command Loop mark to 0.95 title-font cells and
-    // separated it from the word by another 0.42 cell. Measuring the actual
-    // UI face keeps that relationship intact for Segoe, SF Pro and Inter.
-    let brand_cell = measure("M");
-    // The old box model gave the brand another 0.3 cell before the mark.
-    // Without it the icon hugs the window edge while the wordmark pulls
-    // right, making the pair look off-centre even when their vertical metrics
-    // agree.
-    left += brand_cell * 0.3;
-    // Logo, the gap to the wordmark, and 0.7 cells of air after it --
-    // the brand block's own right margin, as 0.57.4 spaced it.
-    let wordmark = measure(WORDMARK) + brand_cell * (0.95 + 0.42 + 0.7);
-    if left + wordmark < right {
-        placed.push(Placed {
-            item: Item::Wordmark,
-            left,
-            width: wordmark,
-            icon: None,
-            label: WORDMARK.to_string(),
-            tooltip: None,
-        });
-        left += wordmark;
+    // On macOS the corner already says whose window this is -- the traffic
+    // lights, the Dock icon, the app menu. 0.57.4 put no brand in the bar
+    // there, and neither does any native Mac app; the mark stays where a
+    // Windows or Linux window genuinely has no other identity.
+    if !native_traffic_lights() {
+        // v0.57.4 sized the Command Loop mark to 0.95 title-font cells and
+        // separated it from the word by another 0.42 cell. Measuring the
+        // actual UI face keeps that relationship intact for Segoe and Inter.
+        let brand_cell = measure("M");
+        // The old box model gave the brand another 0.3 cell before the mark.
+        // Without it the icon hugs the window edge while the wordmark pulls
+        // right, making the pair look off-centre even when their vertical
+        // metrics agree.
+        left += brand_cell * 0.3;
+        // Logo, the gap to the wordmark, and 0.7 cells of air after it --
+        // the brand block's own right margin, as 0.57.4 spaced it.
+        let wordmark = measure(WORDMARK) + brand_cell * (0.95 + 0.42 + 0.7);
+        if left + wordmark < right {
+            placed.push(Placed {
+                item: Item::Wordmark,
+                left,
+                width: wordmark,
+                icon: None,
+                label: WORDMARK.to_string(),
+                tooltip: None,
+            });
+            left += wordmark;
+        }
     }
 
     // And the facts, in whatever is between. Right-aligned against the
@@ -378,14 +384,11 @@ mod tests {
         for item in [Item::Close, Item::Maximise, Item::Minimise] {
             assert!(!has(&bar, item), "{item:?} should be the system's");
         }
-        let wordmark = bar
-            .iter()
-            .find(|piece| piece.item == Item::Wordmark)
-            .expect("the wordmark still appears");
+        // And no brand beside them: the corner already says whose window
+        // this is, the way 0.57.4 and every native Mac app leave it.
         assert!(
-            wordmark.left >= 72.0,
-            "the wordmark sits under the traffic lights at {}",
-            wordmark.left
+            !has(&bar, Item::Wordmark),
+            "the wordmark crowds the traffic lights"
         );
     }
 
@@ -574,16 +577,19 @@ mod tests {
             .iter()
             .find(|piece| piece.item == Item::Stats)
             .expect("a wide bar has room for the facts");
-        let wordmark = bar
+        // On macOS there is no wordmark to sit after; the facts still keep
+        // clear of whatever the bar starts with.
+        let content_start = bar
             .iter()
             .find(|piece| piece.item == Item::Wordmark)
-            .expect("a wide bar has its wordmark");
+            .map(|wordmark| wordmark.left + wordmark.width)
+            .unwrap_or(0.0);
         let first_action = bar
             .iter()
             .filter(|piece| matches!(piece.item, Item::Action(_)))
             .map(|piece| piece.left)
             .fold(f32::MAX, f32::min);
-        assert!(stats.left > wordmark.left + wordmark.width);
+        assert!(stats.left > content_start);
         assert!(stats.left + stats.width <= first_action + 0.5);
     }
 
