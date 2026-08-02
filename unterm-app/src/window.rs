@@ -1107,7 +1107,6 @@ impl App {
         self.append_git_panel(window_width, &mut quads);
         self.append_composer(window_width, &mut quads);
         self.append_suggestion(window_width, &mut quads);
-        self.append_palette(window_width, &mut quads);
         self.append_top_bar(window_width, &mut quads);
         self.append_sidebar(&mut quads);
         self.append_tree(&mut quads);
@@ -1117,9 +1116,15 @@ impl App {
         // supposed to cover, which is an invisible question.
         self.append_confirmation_banner(window_width, &mut quads);
         self.append_pane_close_buttons(&mut quads);
+        quads.raise_since(overlays);
+        // The true modals, above the docks as well: a tier is
+        // backgrounds-then-glyphs, so a palette in the overlay tier had the
+        // file tree's text bleeding through its card.
+        let modals = quads.mark();
+        self.append_palette(window_width, &mut quads);
         self.append_tooltip(window_width, &mut quads);
         self.append_quick_menu(&mut quads);
-        quads.raise_since(overlays);
+        quads.raise_since_modal(modals);
 
         let Some(live) = self.state.as_mut() else {
             return;

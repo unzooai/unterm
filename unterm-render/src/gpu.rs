@@ -117,6 +117,24 @@ pub fn build_vertices(quads: &FrameQuads) -> Vec<u8> {
             1.0,
         );
     }
+    // And the modals last of all: a palette card over the docks, its text
+    // over the card.
+    for quad in &quads.modal_backgrounds {
+        push_quad(&mut vertices, *quad, [0.0; 4], 0.0);
+    }
+    for glyph in &quads.modal_glyphs {
+        push_quad(
+            &mut vertices,
+            glyph.quad,
+            [
+                glyph.tex_left,
+                glyph.tex_top,
+                glyph.tex_right,
+                glyph.tex_bottom,
+            ],
+            1.0,
+        );
+    }
 
     bytemuck::cast_slice(&vertices).to_vec()
 }
@@ -127,7 +145,9 @@ pub fn vertex_count(quads: &FrameQuads) -> u32 {
         + quads.backgrounds.len()
         + quads.glyphs.len()
         + quads.overlay_backgrounds.len()
-        + quads.overlay_glyphs.len())
+        + quads.overlay_glyphs.len()
+        + quads.modal_backgrounds.len()
+        + quads.modal_glyphs.len())
         * 6) as u32
 }
 

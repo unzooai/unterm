@@ -96,6 +96,13 @@ pub struct FrameQuads {
     /// straight through the panel that is supposed to be on top of them.
     pub overlay_backgrounds: Vec<Quad>,
     pub overlay_glyphs: Vec<GlyphQuad>,
+    /// Drawn after the overlays: a true modal -- the command palette, a
+    /// tooltip -- covers even the panels. Two tiers because a tier is
+    /// backgrounds-then-glyphs: a modal in the overlay tier has the dock's
+    /// text bleeding through its card, since every glyph in a tier lands on
+    /// top of every background in it.
+    pub modal_backgrounds: Vec<Quad>,
+    pub modal_glyphs: Vec<GlyphQuad>,
 }
 
 /// How much had been drawn at a moment, so what came after can be raised.
@@ -123,6 +130,13 @@ impl FrameQuads {
         self.overlay_backgrounds
             .extend(self.backgrounds.drain(mark.backgrounds..));
         self.overlay_glyphs.extend(self.glyphs.drain(mark.glyphs..));
+    }
+
+    /// Move everything drawn since `mark` in front of the overlays too.
+    pub fn raise_since_modal(&mut self, mark: Mark) {
+        self.modal_backgrounds
+            .extend(self.backgrounds.drain(mark.backgrounds..));
+        self.modal_glyphs.extend(self.glyphs.drain(mark.glyphs..));
     }
 }
 
