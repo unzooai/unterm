@@ -505,7 +505,7 @@ $Suites = @(
         Filter = "terminal::dpi_tests::"
         ExpectedCount = 3
         RequiredTests = @(
-            "terminal::dpi_tests::points_become_more_pixels_than_points",
+            "terminal::dpi_tests::points_follow_the_platforms_convention",
             "terminal::dpi_tests::a_scaled_display_gets_proportionally_more_pixels",
             "terminal::dpi_tests::nothing_rounds_away_to_no_font_at_all"
         )
