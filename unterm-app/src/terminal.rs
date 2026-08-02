@@ -361,13 +361,6 @@ pub struct TerminalFont {
     naturals: std::collections::HashMap<(usize, u32), (i32, i32, i32)>,
 }
 
-/// How far a fallback glyph may be scaled up to fill its columns.
-///
-/// A symbol face with an unusually small advance would otherwise be blown up
-/// until its ink hit the cap anyway; this keeps the arithmetic from ever
-/// asking for something absurd.
-const MAX_FIT_SCALE: f32 = 2.4;
-
 /// And how far down, when the ink would otherwise overflow its cell box.
 ///
 /// Below this the glyph is unreadably small, and a face whose metrics ask for
@@ -510,11 +503,13 @@ impl TerminalFont {
     /// ems of a monospace primary. Every hanzi came out visibly small, with
     /// a gap trailing it -- "星期日" read as "星 期 日".
     ///
-    /// The rule: scale by `target / advance` so the glyph's designed spacing
-    /// fills its columns, clamped so it neither shrinks below its natural
-    /// size on that account nor explodes past `MAX_FIT_SCALE`; then cap by
-    /// the ink itself so nothing overflows `span` columns across or one row
-    /// down -- which is what shrinks a square symbol glyph into its single
+    /// The rule: a fallback glyph keeps its natural size -- at the same
+    /// pixel size as the primary it already agrees with the latin around it,
+    /// and a CJK glyph sitting in 1.2 ems of cells with a little air at its
+    /// sides is exactly how 0.57.4 set it. Enlarging it to *fill* the cells
+    /// made every hanzi tower over the line it sits in. The only scaling is
+    /// downward: the ink must stay inside `span` columns across and one row
+    /// down, which is what shrinks a square symbol glyph into its single
     /// cell instead of letting it spill over its neighbour.
     ///
     /// This is the *one* place the size is decided. The ensure passes and
@@ -529,7 +524,7 @@ impl TerminalFont {
         if face == 0 || self.stack_id != 0 {
             return base;
         }
-        let (advance, ink_width, ink_height) = match self.naturals.get(&(face, glyph_index)) {
+        let (_advance, ink_width, ink_height) = match self.naturals.get(&(face, glyph_index)) {
             Some(natural) => *natural,
             None => {
                 let natural = self
@@ -541,15 +536,10 @@ impl TerminalFont {
                 natural
             }
         };
-        if advance <= 0 {
-            return base;
-        }
 
         let target = self.metrics.width * span.max(1) as f32;
-        // Fill the columns. Never below 1.0 from the advance alone: a symbol
-        // whose advance is wide but whose ink already fits should be left at
-        // its natural size, not shrunk to honour spacing nothing sees.
-        let mut scale = (target / advance as f32).clamp(1.0, MAX_FIT_SCALE);
+        // Natural size, shrink-only: ink decides everything.
+        let mut scale = 1.0f32;
         // And never overflow the cell box: the ink itself has to stay inside
         // `span` columns and one row, which can pull the scale below 1.0 for
         // a glyph that was already too big.
@@ -1818,8 +1808,8 @@ mod fallback_fit_tests {
             .max_by(|a, b| a.quad.width.total_cmp(&b.quad.width))
             .expect("the hanzi should draw");
         assert!(
-            glyph.quad.width > 1.5 * metrics.width,
-            "a fallback hanzi should fill most of its two cells: ink {} in {}-wide cells",
+            glyph.quad.width > 1.1 * metrics.width,
+            "a fallback hanzi is wider than one cell at its natural size: ink {} in {}-wide cells",
             glyph.quad.width,
             metrics.width
         );
