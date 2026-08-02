@@ -1,6 +1,8 @@
 {
   "meta.title": "Unterm — a terminal AI agents can control",
   "meta.desc": "Le terminal que les agents IA peuvent piloter — et le cockpit qui les pilote. Statut en direct de Claude Code / Codex / Gemini dans chaque panneau, une boîte de réception pour les agents qui vous attendent, des flottes parallèles dans des git worktrees isolés, et une revue au diff près de tout ce qu'ils changent. MCP + CLI, local d'abord, MIT.",
+  "cap.stat.startup": "démarrage → MCP prêt",
+  "cap.stat.kernel": "lignes du noyau",
   "nav.features": "Features",
   "nav.principles": "Principles",
   "nav.compare": "Compare",

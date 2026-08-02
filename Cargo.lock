@@ -5586,7 +5586,7 @@ checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "unterm-agents"
-version = "0.60.2"
+version = "0.61.0"
 dependencies = [
  "anyhow",
  "assert_fs",
@@ -5611,7 +5611,7 @@ dependencies = [
 
 [[package]]
 name = "unterm-app"
-version = "0.60.2"
+version = "0.61.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -5647,7 +5647,7 @@ dependencies = [
 
 [[package]]
 name = "unterm-cli"
-version = "0.60.2"
+version = "0.61.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5723,7 +5723,7 @@ dependencies = [
 
 [[package]]
 name = "unterm-profile"
-version = "0.60.2"
+version = "0.61.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5778,7 +5778,7 @@ dependencies = [
 
 [[package]]
 name = "unterm-settings"
-version = "0.60.2"
+version = "0.61.0"
 dependencies = [
  "anyhow",
  "chrono",

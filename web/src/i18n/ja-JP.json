@@ -1,6 +1,8 @@
 {
   "meta.title": "Unterm — a terminal AI agents can control",
   "meta.desc": "AIエージェントが操れるターミナル、そしてエージェントを操るコックピット。各ペインに Claude Code / Codex / Gemini のライブ状態、あなたの対応待ちエージェントの受信トレイ、隔離された git worktree での並列フリート、そして変更すべての diff 単位レビュー。MCP + CLI、ローカルファースト、MIT。",
+  "cap.stat.startup": "起動→MCP 応答",
+  "cap.stat.kernel": "カーネルのソース行数",
   "nav.features": "Features",
   "nav.principles": "Principles",
   "nav.compare": "Compare",

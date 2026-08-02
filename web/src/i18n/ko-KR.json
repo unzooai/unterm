@@ -1,6 +1,8 @@
 {
   "meta.title": "Unterm — a terminal AI agents can control",
   "meta.desc": "AI 에이전트가 조종할 수 있는 터미널, 그리고 에이전트를 조종하는 콕핏. 모든 pane에서 Claude Code / Codex / Gemini의 실시간 상태, 당신의 응답을 기다리는 에이전트 인박스, 격리된 git worktree에서의 병렬 플릿, 에이전트가 바꾼 모든 것의 diff 단위 리뷰까지. MCP + CLI, 로컬 우선, MIT.",
+  "cap.stat.startup": "시작 → MCP 응답",
+  "cap.stat.kernel": "커널 소스 라인",
   "nav.features": "Features",
   "nav.principles": "Principles",
   "nav.compare": "Compare",

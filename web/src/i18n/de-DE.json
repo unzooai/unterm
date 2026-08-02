@@ -1,6 +1,8 @@
 {
   "meta.title": "Unterm — a terminal AI agents can control",
   "meta.desc": "Das Terminal, das KI-Agenten steuern können — und das Cockpit, das sie steuert. Live-Status für Claude Code / Codex / Gemini in jedem Panel, eine Inbox für Agenten, die dich brauchen, parallele Fleets in isolierten git worktrees und Review jeder ihrer Änderungen auf Diff-Ebene. MCP + CLI, local-first, MIT.",
+  "cap.stat.startup": "Start → MCP bereit",
+  "cap.stat.kernel": "Kernel-Quellzeilen",
   "nav.features": "Features",
   "nav.principles": "Principles",
   "nav.compare": "Compare",

@@ -1,6 +1,8 @@
 {
   "meta.title": "Unterm — AI 可控制的終端",
   "meta.desc": "AI agent 可駕馭的終端，也是駕馭它們的座艙。Claude Code / Codex / Gemini 在每個 pane 的即時狀態、等你處理的 agent 收件匣、隔離 git worktree 裡的並行編隊，以及 agent 每筆改動的逐行審閱。MCP + CLI，本地優先，MIT。",
+  "cap.stat.startup": "啟動到 MCP 可用",
+  "cap.stat.kernel": "核心原始碼行數",
   "nav.features": "Features",
   "nav.principles": "Principles",
   "nav.compare": "Compare",

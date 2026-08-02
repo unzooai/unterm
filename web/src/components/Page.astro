@@ -235,6 +235,8 @@ const capStats = [
   { n: "21", label: "cap.stat.namespaces" },
   { n: "32", label: "cap.stat.cli" },
   { n: "4",  label: "cap.stat.surfaces" },
+  { n: "22ms", label: "cap.stat.startup" },
+  { n: "~12k", label: "cap.stat.kernel" },
 ];
 const capabilities = [
   { icon: "🛩️", title: "cap.cockpit.title", body: "cap.cockpit.body", meta: "cockpit · fleet.* · review.* · 13", items: "agent.status · cockpit.inbox · fleet.launch · fleet.retry · review.verify · review.diff · review.merge · review.rollback", wide: true },
@@ -924,7 +926,7 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 
     <!-- Headline stat strip — the numbers a skeptic can verify with
          `unterm-cli reference` or one `meta.surface` MCP call. -->
-    <div class="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
       {capStats.map((s) => (
         <div class="rounded-xl border border-notion-border bg-notion-surface/40 px-4 py-5 text-center">
           <div class="text-3xl font-bold text-notion-teal tabular-nums">{s.n}</div>

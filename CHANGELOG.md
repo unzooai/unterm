@@ -1,5 +1,63 @@
 # Changelog
 
+## v0.61.0 — 2026-08-02
+
+The first release in which the kernel replacement is *finished*: feature
+parity with the WezTerm-based 0.57.4 closed item by item against a
+159-requirement ledger and a 29-item interaction audit, on the platform
+people actually run it on.
+
+### Performance
+
+- **22ms from launch to a live MCP surface** on macOS, against 7.1s for the
+  old kernel on the same machine. Windows installs start in 761ms vs 1349ms.
+- **Throughput holds**: 200k lines through the PTY in 0.45s, identical to the
+  old kernel. Idle at a prompt stays at 6.6% of a core (was 80% pre-0.60).
+
+### macOS, natively
+
+- The window keeps its real frame: traffic lights, system corners and shadow
+  over the custom chrome (`titlebar_transparent` + fullsize content view).
+  No brand mark crowding the corner — the Dock already says whose window it is.
+- A point is a point: `font_size 13` is 13px, the same number Terminal, iTerm
+  and Warp mean. The default face is the bundled JetBrains Mono again, whose
+  generous line gap is what made 0.57.4's rows breathe.
+- CJK text is finally right, four fixes deep: the spacer cell after a wide
+  character no longer counts as a phantom column (TUI boxes aligned, links and
+  copy-mode columns correct past any hanzi); font collections are enumerated
+  face-by-face so PingFang Regular wins over Hiragino W0 hairline; the
+  on-demand font assets directory joins the scan; and glyphs sit centred in
+  their double cell at natural size. A macOS coverage curve gives strokes the
+  weight CoreText would.
+- Interactive screenshots (`screencapture -i`, hidden-window variant included)
+  and the system folder picker are real on macOS and Linux, not Windows-only
+  stubs. `capture.window` works headlessly via CGWindowList.
+
+### The agent surface
+
+- The MCP write-confirmation banner asks in the status row, wakes an idle
+  window to show itself, and answers to Enter — verified end-to-end:
+  park → banner → approve → write → audit.
+- `allowed_patterns` in the command policy is enforced (blocks always win;
+  an empty allowlist means no allowlist). `policy.check` previews exactly
+  what execution will decide. (#16)
+- The audit trail persists: redacted JSON lines in per-day user-only files,
+  thirty days kept, backfilled into `session.audit_log` on restart. (#18)
+
+### Fixed
+
+- Go-to-directory jumps again from every entry point, with the in-app palette
+  as the feature and the OS picker as its Ctrl+O row.
+- The command palette, tooltips and the quick menu render on their own top
+  tier: nothing bleeds through a modal card, file tree open or not.
+- Search reads through the same history path as `screen.text`, so a live PTY
+  can no longer report zero matches while text is visibly on screen.
+- The Git dock only swallows mouse presses; releasing a drag over it no
+  longer wedges the selection. A tree directory opens on one click and only
+  cds on a double, through POSIX-quoted paths.
+- Per-pane scrollbars and the pane close button are back to 0.57.4's exact
+  geometry; palette selection clamps instead of wrapping.
+
 ## v0.60.0 — 2026-07-30
 
 The version jumps from 0.57 because what is underneath it changed completely.

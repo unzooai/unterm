@@ -1,6 +1,8 @@
 {
   "meta.title": "Unterm — a terminal AI agents can control",
   "meta.desc": "वह टर्मिनल जिसे AI एजेंट चला सकते हैं — और वह कॉकपिट जो उन्हें चलाता है। हर पैन में Claude Code / Codex / Gemini की लाइव स्थिति, आपका इंतज़ार कर रहे एजेंटों के लिए इनबॉक्स, अलग-थलग git worktree में समानांतर फ़्लीट, और उनके हर बदलाव की diff-स्तर की समीक्षा। MCP + CLI, लोकल-फ़र्स्ट, MIT।",
+  "cap.stat.startup": "startup → live MCP",
+  "cap.stat.kernel": "kernel source lines",
   "nav.features": "Features",
   "nav.principles": "Principles",
   "nav.compare": "Compare",
