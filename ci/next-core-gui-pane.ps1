@@ -160,7 +160,7 @@ $Suites = @(
         Name = "config schema"
         Package = "unterm-engine"
         Filter = "next_core::config_schema::tests::"
-        ExpectedCount = 10
+        ExpectedCount = 14
         RequiredTests = @(
             "next_core::config_schema::tests::an_unknown_setting_is_rejected",
             "next_core::config_schema::tests::a_typo_outside_that_section_is_still_caught",
@@ -293,7 +293,7 @@ $Suites = @(
         Name = "app shell"
         Package = "unterm-app"
         Filter = "window::tests::"
-        ExpectedCount = 11
+        ExpectedCount = 13
         RequiredTests = @(
             @(
                 "window::tests::the_configured_shell_is_used",
@@ -318,7 +318,7 @@ $Suites = @(
         Name = "app search"
         Package = "unterm-app"
         Filter = "search::tests::"
-        ExpectedCount = 14
+        ExpectedCount = 17
         RequiredTests = @(
             "search::tests::stepping_past_the_last_match_wraps_to_the_first",
             "search::tests::stepping_with_no_matches_answers_rather_than_dividing_by_zero",
@@ -708,7 +708,7 @@ $Suites = @(
         Name = "key bindings"
         Package = "unterm-app"
         Filter = "keys::"
-        ExpectedCount = 14
+        ExpectedCount = 26
         RequiredTests = @(
             "keys::added_binding_tests::the_font_size_keys_exist",
             "keys::added_binding_tests::ctrl_and_a_digit_goes_to_that_tab",
@@ -878,7 +878,7 @@ $Suites = @(
         Name = "app command palette"
         Package = "unterm-app"
         Filter = "palette::tests::"
-        ExpectedCount = 13
+        ExpectedCount = 16
         RequiredTests = @(
             "palette::tests::initials_find_the_command_they_stand_for",
             "palette::tests::consecutive_letters_beat_scattered_ones",
@@ -894,7 +894,7 @@ $Suites = @(
         Name = "app palette rows"
         Package = "unterm-app"
         Filter = "window::palette_entry_tests::"
-        ExpectedCount = 3
+        ExpectedCount = 7
         RequiredTests = @(
             "window::palette_entry_tests::the_palette_lists_what_the_keys_do",
             "window::palette_entry_tests::the_launcher_offers_only_shells_that_exist",
@@ -934,7 +934,7 @@ $Suites = @(
         Name = "app links"
         Package = "unterm-app"
         Filter = "links::tests::"
-        ExpectedCount = 11
+        ExpectedCount = 21
         RequiredTests = @(
             "links::tests::a_printed_url_is_a_link",
             "links::tests::a_marked_link_wins_over_the_text_that_looks_like_one",
@@ -1205,7 +1205,7 @@ $Suites = @(
         Name = "top bar layout"
         Package = "unterm-app"
         Filter = "topbar::tests::"
-        ExpectedCount = 12
+        ExpectedCount = 13
         RequiredTests = @(
             "topbar::tests::the_window_buttons_survive_every_width",
             "topbar::tests::no_two_pieces_overlap",
@@ -1315,7 +1315,7 @@ $Suites = @(
         Name = "hint labels"
         Package = "unterm-app"
         Filter = "copy_mode::label_tests::"
-        ExpectedCount = 7
+        ExpectedCount = 8
         RequiredTests = @(
             "copy_mode::label_tests::no_label_is_the_beginning_of_another",
             "copy_mode::label_tests::exactly_the_number_asked_for",
@@ -1444,7 +1444,7 @@ $Suites = @(
         Name = "file tree"
         Package = "unterm-app"
         Filter = "tree::tests::"
-        ExpectedCount = 13
+        ExpectedCount = 15
         RequiredTests = @(
             "tree::tests::directories_come_first_and_dotfiles_come_last",
             "tree::tests::the_machines_own_directories_are_dimmed_only_at_the_root",
@@ -1463,7 +1463,7 @@ $Suites = @(
         Name = "character picker"
         Package = "unterm-app"
         Filter = "charselect::picker_tests::"
-        ExpectedCount = 11
+        ExpectedCount = 16
         RequiredTests = @(
             "charselect::picker_tests::a_name_finds_its_character",
             "charselect::picker_tests::matching_is_fuzzy_and_ignores_case",
@@ -1567,7 +1567,7 @@ $Suites = @(
         Name = "status bar segments"
         Package = "unterm-app"
         Filter = "statusbar::tests::"
-        ExpectedCount = 13
+        ExpectedCount = 14
         RequiredTests = @(
             "statusbar::tests::the_segments_come_in_the_order_they_did_before",
             "statusbar::tests::segments_appear_as_the_window_widens",
