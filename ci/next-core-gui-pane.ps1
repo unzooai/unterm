@@ -1567,7 +1567,7 @@ $Suites = @(
         Name = "status bar segments"
         Package = "unterm-app"
         Filter = "statusbar::tests::"
-        ExpectedCount = 14
+        ExpectedCount = 15
         RequiredTests = @(
             "statusbar::tests::the_segments_come_in_the_order_they_did_before",
             "statusbar::tests::segments_appear_as_the_window_widens",
