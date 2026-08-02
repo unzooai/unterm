@@ -19,7 +19,10 @@ use unterm_render::quads::{build_row, CellMetrics, FrameColors, FrameQuads, Quad
 /// of what "it still looks very different" was.
 pub fn pixels_for_points(points: f32, scale: f32) -> u32 {
     const POINTS_PER_INCH: f32 = 72.0;
-    const NOMINAL_DPI: f32 = 96.0;
+    // macOS speaks in its own points -- a 13pt font in Terminal, iTerm and
+    // 0.57.4 alike is 13 logical pixels. Everything else keeps the 96dpi
+    // convention the same number means on Windows.
+    const NOMINAL_DPI: f32 = if cfg!(target_os = "macos") { 72.0 } else { 96.0 };
     // Never zero: a face opened at no pixels rasterizes nothing, and the
     // window comes up blank with no error to explain it.
     (((points.max(1.0) * NOMINAL_DPI * scale.max(0.1)) / POINTS_PER_INCH).round() as u32).max(1)
@@ -396,16 +399,28 @@ impl TerminalFont {
         shape: Shape,
     ) -> anyhow::Result<Self> {
         let index = font_discovery::FontIndex::scan();
-        let entry = family
-            .and_then(|name| index.family(name).first())
-            .or_else(|| index.default_monospace())
-            .ok_or_else(|| anyhow::anyhow!("no monospace font found on this machine"))?;
         if let Some(name) = family {
             if index.family(name).is_empty() {
                 log::warn!("font {name:?} is not installed; using the default");
             }
         }
-        let face = FontFace::open_indexed(&entry.path, entry.face_index, pixel_size)?;
+        // A named family, at its regular weight -- `first()` here once handed
+        // out whatever weight happened to be filed first. With nothing named,
+        // the bundled JetBrains Mono is the default, as it was in 0.57.4: its
+        // generous line gap is most of what made the old rows breathe.
+        let entry = family.and_then(|name| index.best_in_family(name));
+        let face = match entry {
+            Some(entry) => FontFace::open_indexed(&entry.path, entry.face_index, pixel_size)?,
+            None => match crate::fonts::bundled_face("JetBrainsMono-Regular.ttf", pixel_size) {
+                Some(face) => face,
+                None => {
+                    let fallback = index
+                        .default_monospace()
+                        .ok_or_else(|| anyhow::anyhow!("no monospace font found on this machine"))?;
+                    FontFace::open_indexed(&fallback.path, fallback.face_index, pixel_size)?
+                }
+            },
+        };
         Ok(Self::from_face_shaped(face, fallbacks, pixel_size, shape))
     }
 
@@ -2261,22 +2276,33 @@ mod width_tests {
 mod dpi_tests {
     use super::*;
 
-    /// 13pt is 17px on an ordinary display -- not 13. Using the point size as
-    /// pixels is a third smaller than asked for, and half on a scaled panel.
+    /// What a point means is the platform's convention: on macOS 13pt IS
+    /// 13px, as Terminal and iTerm read the same number; everywhere else it
+    /// is the 96dpi kind, where using the point size as pixels comes out a
+    /// third smaller than asked for.
     #[test]
-    fn points_become_more_pixels_than_points() {
-        assert_eq!(pixels_for_points(13.0, 1.0), 17);
-        assert_eq!(pixels_for_points(12.0, 1.0), 16);
+    fn points_follow_the_platforms_convention() {
+        if cfg!(target_os = "macos") {
+            assert_eq!(pixels_for_points(13.0, 1.0), 13);
+            assert_eq!(pixels_for_points(12.0, 1.0), 12);
+        } else {
+            assert_eq!(pixels_for_points(13.0, 1.0), 17);
+            assert_eq!(pixels_for_points(12.0, 1.0), 16);
+        }
     }
 
     /// And the scale multiplies. This is the one that was missing entirely.
     #[test]
     fn a_scaled_display_gets_proportionally_more_pixels() {
-        assert_eq!(pixels_for_points(13.0, 2.0), 35);
-        assert_eq!(
-            pixels_for_points(13.0, 1.5),
-            26,
-            "a 1.5x panel at 13pt, which was being drawn at 13px"
+        // Within a pixel of proportional: the rounding happens after the
+        // scale is applied, not to the 1x answer first.
+        let one = pixels_for_points(13.0, 1.0) as f32;
+        let two = pixels_for_points(13.0, 2.0) as f32;
+        let one_and_a_half = pixels_for_points(13.0, 1.5) as f32;
+        assert!((two - one * 2.0).abs() <= 1.0, "{one} then {two}");
+        assert!(
+            (one_and_a_half - one * 1.5).abs() <= 1.0,
+            "a 1.5x panel at 13pt: {one} then {one_and_a_half}"
         );
     }
 

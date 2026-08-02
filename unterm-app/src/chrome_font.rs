@@ -58,7 +58,14 @@ pub fn open(fallbacks: &[String], scale: f32) -> anyhow::Result<TerminalFont> {
 /// Every token in `ui_tokens` is in points; this is what turns one into a
 /// distance on this display.
 pub fn point(scale: f32) -> f32 {
-    (scale.max(0.1) * 96.0 / 72.0).max(0.5)
+    // macOS points are logical pixels, as the platform and 0.57.4 both had
+    // it; elsewhere a point is the 96dpi kind the same tokens mean on
+    // Windows.
+    if cfg!(target_os = "macos") {
+        scale.max(0.1).max(0.5)
+    } else {
+        (scale.max(0.1) * 96.0 / 72.0).max(0.5)
+    }
 }
 
 #[cfg(test)]
@@ -105,7 +112,9 @@ mod tests {
     fn a_point_grows_with_the_display() {
         let one = point(1.0);
         let one_and_a_half = point(1.5);
-        assert!(one > 1.0, "a point is at least a pixel: {one}");
+        // On macOS a point IS the logical pixel; elsewhere it is a third
+        // bigger, the 96dpi kind.
+        assert!(one >= 1.0, "a point is at least a pixel: {one}");
         assert!(
             (one_and_a_half / one - 1.5).abs() < 0.01,
             "{one} then {one_and_a_half}"

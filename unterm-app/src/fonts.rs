@@ -114,6 +114,15 @@ fn bundled_font_dirs() -> Vec<std::path::PathBuf> {
     dirs
 }
 
+/// One bundled face by file name, if this build can find it.
+pub fn bundled_face(name: &str, pixel_size: u32) -> Option<FontFace> {
+    bundled_font_dirs()
+        .iter()
+        .map(|dir| dir.join(name))
+        .find(|path| path.is_file())
+        .and_then(|path| FontFace::open(&path, pixel_size).ok())
+}
+
 /// The bundled faces this build can actually find.
 fn bundled_faces(pixel_size: u32) -> Vec<FontFace> {
     let dirs = bundled_font_dirs();
