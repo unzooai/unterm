@@ -4,6 +4,7 @@
 //! instance registry, the agent cockpit, proxy control, command suggestion.
 //! None of them draw anything or know what a window is.
 
+pub mod audit_store;
 pub mod clash_api;
 pub mod cockpit;
 pub mod env_names;
