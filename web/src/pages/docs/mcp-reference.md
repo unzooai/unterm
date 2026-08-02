@@ -1168,7 +1168,7 @@ Server identity. Static, doesn't reach into the mux.
 
 **Params:** none.
 
-**Returns:** `{ name: "Unterm MCP Server", version, engine: "Unterm (WezTerm)", protocol: "json-rpc-2.0" }`
+**Returns:** `{ name: "Unterm MCP Server", version, engine: "next-core", protocol: "json-rpc-2.0" }`
 
 ### `server.health`
 
@@ -1214,7 +1214,7 @@ Process and platform metadata.
 
 **Params:** none.
 
-**Returns:** `{ name: "Unterm", version, engine: "Unterm (WezTerm)", platform, arch, active_sessions, hostname }`
+**Returns:** `{ name: "Unterm", version, engine: "next-core", platform, arch, active_sessions, hostname }`
 
 `platform` is `std::env::consts::OS` (`"macos"`, `"linux"`, `"windows"`); `arch` is `std::env::consts::ARCH` (`"x86_64"`, `"aarch64"`).
 

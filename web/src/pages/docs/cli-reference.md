@@ -45,7 +45,7 @@ These are accepted on every subcommand because they're declared `global = true` 
 | `-h`, `--help` | Print help for the current subcommand level. |
 | `-V`, `--version` | Print the binary version (matches the GUI build, e.g. `unterm-cli 20260503-201120-8ceb3f23`). |
 
-There are also a handful of inherited flags from the base `wezterm` CLI (`--skip-config`, `--config-file`, `--config name=value`) — these only matter for the GUI-launching subcommands (`start`, `ssh`, `connect`) and are no-ops for the MCP commands documented here.
+Historical note: builds before v0.61 also inherited a few flags from the WezTerm-era CLI (`--skip-config`, `--config-file`, `--config name=value`). Those are gone — since v0.61 `unterm-cli` is a standalone binary on the next-core kernel and ships only the flags documented here.
 
 The `--json` flag is the one to remember. Everything below has `--json` examples next to the human ones because that is how you should be driving the CLI from a script.
 
@@ -1157,7 +1157,7 @@ $ unterm-cli shell-completion --shell zsh > "${fpath[1]}/_unterm-cli"
 $ exec zsh
 ```
 
-This is the same generator the upstream `wezterm` binary uses (`clap_complete`), which means the completions cover everything in `unterm-cli --help`, including the MCP subcommands documented above.
+This uses the standard clap generator (`clap_complete`), which means the completions cover everything in `unterm-cli --help`, including the MCP subcommands documented above.
 
 ---
 
@@ -1369,7 +1369,7 @@ If `unterm-cli` isn't installed, the `eval` no-ops because there's no output. If
 
 `unterm-cli` follows the standard convention: `0` on success, `1` on any error. The one deliberate exception is `agent signal`, which exits `0` quietly when no Unterm is running, because it is designed to be called from other agents' notification hooks and must never break the agent it reports on.
 
-The Rust source is `wezterm/src/main.rs::run()`, which propagates an `anyhow::Error` from each subcommand up to `terminate_with_error()`, which calls `std::process::exit(1)`. There are no granular status codes today — every failure mode collapses to `1`. Distinguish them by message on stderr:
+The Rust source is `unterm-cli/src/main.rs::main()`, which propagates an `anyhow::Error` from each subcommand; a failed command exits the process with status `1`. There are no granular status codes today — every failure mode collapses to `1`. Distinguish them by message on stderr:
 
 ```sh
 $ unterm-cli proxy switch nonexistent-node
@@ -1403,4 +1403,4 @@ If you need machine-readable failure detail, use `--json` and inspect the result
 
 ---
 
-Source for everything described here lives at [github.com/zhitongblog/unterm](https://github.com/zhitongblog/unterm) under `wezterm/src/unterm_cli/`. Open issues / PRs there if a method exists on MCP that you'd like surfaced as a first-class CLI subcommand.
+Source for everything described here lives at [github.com/zhitongblog/unterm](https://github.com/zhitongblog/unterm) under `unterm-cli/src/`. Open issues / PRs there if a method exists on MCP that you'd like surfaced as a first-class CLI subcommand.

@@ -79,7 +79,7 @@ Either way, **the source file is never modified**. Your existing `gh auth` conti
 
 ## How env injection works
 
-When an Unterm window is bound to a profile, every pane spawned in it goes through `apply_unterm_profile_env` in `wezterm-gui/src/spawn.rs`:
+When an Unterm window is bound to a profile, every pane spawned in it goes through `apply_unterm_profile_env` in `unterm-services/src/launch_env.rs`:
 
 1. Read `~/.unterm/instances/<id>.json` for this instance.
 2. If `profile` field is set, load the profile registry from `~/.unterm/profiles/`.

@@ -6,6 +6,8 @@ kicker: Blog / Release
 date: 2026-08-02
 ---
 
+> 中文版:[Unterm v0.61:自研内核](/blog/next-core-v061-zh/)
+
 Unterm started as a fork of WezTerm. That was the right call for a two-person project that needed a working terminal on day one — WezTerm is an excellent, battle-tested codebase. But it's a codebase built for someone else's goals, and every release we shipped meant carrying tens of thousands of lines we didn't write, didn't need, and increasingly had to fight. The Agent Cockpit, screen reading, the three control surfaces — all of it was grafted onto an architecture that was never designed to be driven by external processes.
 
 v0.61 ends the graft. The fork is gone from the build entirely. Unterm now runs on **next-core**, a terminal kernel written in-house.

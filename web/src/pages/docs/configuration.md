@@ -279,7 +279,7 @@ The six built-ins:
 |---|---|---|---|---|
 | `lines` | usize | `10000` | `100` – `999999999` | Maximum scrollback lines retained per pane. Anything outside the range is ignored and the default is used. |
 
-The 10,000-line default is bigger than WezTerm upstream's 3,500 because Unterm users routinely run log-heavy commands (`cargo build`, `find /`, full CI tails) and hit the cap. Memory worst case is `lines × 80 cols × 96 bytes/cell` per pane — about 75 MiB at 10,000 lines.
+The 10,000-line default is bigger than WezTerm's 3,500 because Unterm users routinely run log-heavy commands (`cargo build`, `find /`, full CI tails) and hit the cap. Memory worst case is `lines × 80 cols × 96 bytes/cell` per pane — about 75 MiB at 10,000 lines.
 
 **When you'd edit by hand:** when you want a non-Web-Settings value, or want it set before the GUI starts. Existing panes keep their old buffer (capacity is locked at pane creation); only new panes pick up the change.
 
@@ -338,7 +338,7 @@ Controls per-pane session recording (the markdown transcript feature) and the re
 }
 ```
 
-The default redactor catches most real secrets — patterns are defined in `wezterm-gui/src/recording/redact.rs`. Custom patterns are applied on top, never instead.
+The default redactor catches most real secrets — patterns are defined in `unterm-services/src/recording/redact.rs`. Custom patterns are applied on top, never instead.
 
 ## Per-project files — `<cwd>/.unterm/sessions/…`
 

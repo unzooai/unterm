@@ -20,7 +20,7 @@ This page covers the discovery protocol, the four orchestration patterns we've a
 
 ## The NATO naming scheme
 
-The 26 names are: `alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu`. They live in `NATO_NAMES` in `wezterm-gui/src/server_info.rs` and that order is the assignment order — every newly launched Unterm tries `alpha` first, falls back to the next free one.
+The 26 names are: `alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu`. They live in `NATO_NAMES` in `unterm-services/src/server_info.rs` and that order is the assignment order — every newly launched Unterm tries `alpha` first, falls back to the next free one.
 
 Why a wordlist instead of UUIDs or Crockford Base32. The decision was made on 2026-05-02 and is locked: AI agents pronounce NATO names correctly when they read them aloud or write them into other prompts, humans can say them on a phone call ("could you look at bravo?"), and they fit cleanly into a window title. A base32 ID like `7H4K9N2P` is unique-but-mute — when an agent has to surface "switch to instance X" to a human, that human can't read X back into a different agent's input box without copy-paste. NATO names eliminate that friction.
 
@@ -221,7 +221,7 @@ Response:
 {"jsonrpc":"2.0","id":4,"result":{"ok":true,"note":"stub in v0.9..."}}
 ```
 
-The current implementation returns `ok: true` so agents can rely on the call shape, but the OS-level window-raise side effect is a stub. Scheduled for v0.14+. Workaround for now: the agent can spawn a pane via `session.create` in the target instance, which triggers WezTerm's existing focus behavior, or trip the user's `Cmd-` ` shortcut. Or just rely on the user to alt-tab when the title says it's the right one.
+The current implementation returns `ok: true` so agents can rely on the call shape, but the OS-level window-raise side effect is a stub. Scheduled for v0.14+. Workaround for now: the agent can spawn a pane via `session.create` in the target instance, which triggers the terminal's existing focus behavior, or trip the user's `Cmd-` ` shortcut. Or just rely on the user to alt-tab when the title says it's the right one.
 
 ## Four orchestration patterns
 
