@@ -1466,11 +1466,11 @@ $Suites = @(
         ExpectedCount = 11
         RequiredTests = @(
             "charselect::picker_tests::a_name_finds_its_character",
-            "charselect::picker_tests::separate_words_match_in_order",
-            "charselect::picker_tests::words_out_of_order_do_not_match",
-            "charselect::picker_tests::a_word_boundary_beats_the_middle_of_a_word",
+            "charselect::picker_tests::matching_is_fuzzy_and_ignores_case",
+            "charselect::picker_tests::a_query_that_matches_nothing_offers_nothing",
+            "charselect::picker_tests::an_exact_name_beats_a_name_that_contains_it",
             "charselect::picker_tests::the_characters_with_no_keys_are_all_there",
-            "charselect::picker_tests::emoji_are_offered_by_name_and_by_shortcode",
+            "charselect::picker_tests::a_query_reaches_across_every_group",
             "charselect::picker_tests::every_offer_types_something",
             "charselect::picker_tests::something_used_often_outranks_something_used_once"
         )
