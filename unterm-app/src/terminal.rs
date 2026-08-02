@@ -1014,9 +1014,19 @@ fn place_shaped_row(
             let cell = cells_at(cells, column);
             let (foreground, _) =
                 unterm_render::quads::resolve_style(cell.map(|cell| &cell.style), colors);
+            let mut pen = left_origin + column as f32 * metrics.width + glyph.x_offset as f32;
+            if *face != 0 {
+                // A fallback glyph sits centred in its columns: at natural
+                // size a hanzi leaves ~0.3 cell of air in its two cells, and
+                // left-flush placement piles all of it on the right -- the
+                // date read as characters each dragging a gap. Split, the
+                // air becomes even CJK letter-spacing.
+                let air = (span as f32 * metrics.width - slot.width as f32).max(0.0);
+                pen += air / 2.0 - slot.bearing_x as f32;
+            }
             quads.glyphs.push(unterm_render::quads::glyph_quad(
                 slot,
-                left_origin + column as f32 * metrics.width + glyph.x_offset as f32,
+                pen,
                 top + metrics.baseline - glyph.y_offset as f32,
                 foreground,
                 atlas,
