@@ -78,6 +78,8 @@ $fonts = Join-Path $stage "assets\fonts"
 New-Item -ItemType Directory -Path $fonts -Force | Out-Null
 Copy-Item "assets\fonts\SymbolsNerdFontMono-Regular.ttf" $fonts
 Copy-Item "assets\fonts\NotoColorEmoji.ttf" $fonts
+# The default terminal face, opened by file name at startup.
+Copy-Item "assets\fonts\JetBrainsMono-Regular.ttf" $fonts
 
 if (-not (Test-Path $WixPath)) {
   throw "WiX not found at $WixPath. Download wix.exe from https://github.com/wixtoolset/wix and place it there."
