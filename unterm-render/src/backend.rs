@@ -1653,15 +1653,6 @@ fn background_color_for_command(command: &EngineRenderBackendCommand) -> [f32; 4
     }
 }
 
-fn foreground_color_for_command(command: &EngineRenderBackendCommand) -> [f32; 4] {
-    match command {
-        EngineRenderBackendCommand::Text { style, .. } => {
-            styled_color_rgba(style.fg).unwrap_or([1.0, 1.0, 1.0, 1.0])
-        }
-        _ => [1.0, 1.0, 1.0, 1.0],
-    }
-}
-
 fn styled_color_rgba(color: Option<StyledColor>) -> Option<[f32; 4]> {
     match color? {
         StyledColor::Rgb(r, g, b) => {
@@ -1940,6 +1931,8 @@ fn placeholder_glyph_texture_bytes(
     bytes
 }
 
+// Exercised by the raster-region tests below; no production caller today.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn fit_glyph_rgba_to_atlas_region(
     source_rgba: &[u8],
     source_width_px: usize,

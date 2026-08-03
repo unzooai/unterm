@@ -608,7 +608,7 @@ fn api_profile_create(body: &[u8]) -> Response {
 
 fn api_profile_delete(id: &str) -> Response {
     use unterm_profile::SecretKey;
-    let mut registry = match unterm_profile::ProfileRegistry::load() {
+    let registry = match unterm_profile::ProfileRegistry::load() {
         Ok(r) => r,
         Err(e) => return Response::err(500, "Internal Error", &e.to_string()),
     };

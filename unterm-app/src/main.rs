@@ -49,10 +49,89 @@ mod window;
 mod window_buttons;
 mod workspaces;
 
-fn main() -> anyhow::Result<()> {
+/// Say something the user can see, on the platform where nobody sees stderr.
+///
+/// unterm.exe is a GUI-subsystem binary: its stderr goes nowhere unless a
+/// developer redirected it. v0.61.0 could die during startup -- a wgpu error
+/// is fatal by default -- and all the user saw was a double-click that did
+/// nothing. Everything fatal now goes through here: a message box on Windows,
+/// stderr elsewhere, and a line in ~/.unterm/panic.log either way.
+pub(crate) fn report_fatal(text: &str) {
+    log::error!("{text}");
+    if let Some(home) = dirs_next::home_dir() {
+        let dir = home.join(".unterm");
+        let _ = std::fs::create_dir_all(&dir);
+        let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+        let line = format!("[{stamp}] {text}\n");
+        use std::io::Write as _;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("panic.log"))
+        {
+            let _ = file.write_all(line.as_bytes());
+        }
+    }
+    #[cfg(windows)]
+    {
+        #[link(name = "user32")]
+        extern "system" {
+            fn MessageBoxW(hwnd: isize, text: *const u16, caption: *const u16, kind: u32) -> i32;
+        }
+        let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+        let text = wide(text);
+        let caption = wide("Unterm");
+        const MB_ICONERROR: u32 = 0x10;
+        unsafe {
+            MessageBoxW(0, text.as_ptr(), caption.as_ptr(), MB_ICONERROR);
+        }
+    }
+}
+
+/// Leave a trace of a panic where a user can find it.
+///
+/// The default hook prints to the invisible stderr and the process vanishes.
+/// This one writes the file first (a background thread's panic is worth a
+/// line too), and only interrupts with a dialog when the main thread -- and
+/// so the terminal itself -- is going down.
+fn install_panic_reporter() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let is_main = std::thread::current().name() == Some("main");
+        let text = format!("unterm panicked: {info}");
+        if is_main {
+            report_fatal(&text);
+        } else if let Some(home) = dirs_next::home_dir() {
+            let dir = home.join(".unterm");
+            let _ = std::fs::create_dir_all(&dir);
+            let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            use std::io::Write as _;
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(dir.join("panic.log"))
+            {
+                let _ = file.write_all(format!("[{stamp}] {text}\n").as_bytes());
+            }
+        }
+        default_hook(info);
+    }));
+}
+
+fn main() -> std::process::ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().filter_or("UNTERM_LOG", "info"))
         .init();
+    install_panic_reporter();
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(err) => {
+            report_fatal(&format!("Unterm could not start: {err:#}"));
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
 
+fn run() -> anyhow::Result<()> {
     let args = args::parse(std::env::args().skip(1));
     for argument in &args.unrecognised {
         log::warn!("ignoring unrecognised argument {argument:?}");
@@ -141,6 +220,8 @@ fn main() -> anyhow::Result<()> {
 /// makes shell discovery, agent discovery and the shells themselves see one
 /// identical PATH.
 fn apply_path_append(config: &unterm_engine::next_core::config::Config) {
+    // Only the Windows block below appends to it; other platforms read as-is.
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut additions: Vec<std::path::PathBuf> = config
         .list_of("path_append")
         .ok()

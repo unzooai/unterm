@@ -4,7 +4,7 @@
   <Package
     Name="Unterm"
     Manufacturer="Alex"
-    Version="0.61.0"
+    Version="0.61.1"
     UpgradeCode="2B17738E-D6E7-44BB-9B55-1D6AF31404A2"
     Scope="perMachine">
 
@@ -13,6 +13,14 @@
       Manufacturer="Alex" />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of Unterm is already installed." />
+    <!-- Force every file in the package onto disk, whatever is there already.
+         The WezTerm-era releases stamped unterm.exe as FILEVERSION 1.0.0.0;
+         next-core stamps the real 0.x. To Windows Installer 1.0.0.0 is the
+         NEWER file, so an upgrade from 0.57.4 skipped copying unterm.exe and
+         then removed the old one with the old product: an install with no
+         terminal in it. 'a' overrides that version comparison; without it any
+         upgrade across the kernel boundary ships a folder of DLLs and no exe. -->
+    <Property Id="REINSTALLMODE" Value="amus" />
     <MediaTemplate EmbedCab="yes" />
 
     <!-- WixUI_Minimal gives the user a small wizard: Welcome → License →
@@ -93,6 +101,11 @@
       </Component>
       <Component Id="UntermEmojiFont" Directory="BundledFontsFolder" Guid="C0C4F2E0-0A6C-4410-9CC0-1E59D628BFFD">
         <File Source="$(var.SourceDir)\assets\fonts\NotoColorEmoji.ttf" KeyPath="yes" />
+      </Component>
+      <!-- The default terminal font, opened by file name (terminal.rs); an
+           install without it silently degrades to the system monospace. -->
+      <Component Id="UntermDefaultFont" Directory="BundledFontsFolder" Guid="AB4845EF-3F42-48A6-868C-33FB1F840C11">
+        <File Source="$(var.SourceDir)\assets\fonts\JetBrainsMono-Regular.ttf" KeyPath="yes" />
       </Component>
       <!-- x64-only: arm64 has no Mesa software-GL fallback (ANGLE is primary). -->
       <?if $(sys.BUILDARCH) != "arm64" ?>

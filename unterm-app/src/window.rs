@@ -76,35 +76,137 @@ const FALLBACK_GPU_BACKEND: Option<wgpu::Backends> = None;
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 const FALLBACK_GPU_BACKEND: Option<wgpu::Backends> = Some(wgpu::Backends::GL);
 
-fn request_graphics(
-    window: Arc<Window>,
-) -> anyhow::Result<(wgpu::Surface<'static>, wgpu::Adapter)> {
+/// A graphics stack that has already produced one frame.
+struct Graphics {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    format: wgpu::TextureFormat,
+}
+
+fn request_graphics(window: Arc<Window>, width: u32, height: u32) -> anyhow::Result<Graphics> {
     let mut attempts = vec![PRIMARY_GPU_BACKEND];
     if let Some(fallback) = FALLBACK_GPU_BACKEND {
         attempts.push(fallback);
     }
     let mut failures = Vec::new();
     for backend in attempts {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: backend,
-            ..Default::default()
-        });
-        let surface = match instance.create_surface(window.clone()) {
-            Ok(surface) => surface,
-            Err(error) => {
-                failures.push(format!("{backend:?}: surface: {error}"));
-                continue;
+        match try_backend(backend, window.clone(), width, height) {
+            Ok(graphics) => {
+                if !failures.is_empty() {
+                    log::warn!(
+                        "fell back to {backend:?} after ({})",
+                        failures.join("; ")
+                    );
+                }
+                return Ok(graphics);
             }
-        };
-        match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            compatible_surface: Some(&surface),
-            ..Default::default()
-        })) {
-            Ok(adapter) => return Ok((surface, adapter)),
-            Err(error) => failures.push(format!("{backend:?}: adapter: {error}")),
+            Err(error) => failures.push(format!("{backend:?}: {error:#}")),
         }
     }
-    anyhow::bail!("no GPU adapter available ({})", failures.join("; "))
+    anyhow::bail!("no working GPU path ({})", failures.join("; "))
+}
+
+/// Bring one backend all the way up, or say why it cannot come up.
+///
+/// The old probe stopped at "an adapter exists", and v0.61.0 taught us how
+/// little that proves: on machines where DX12 enumerates but cannot make a
+/// swapchain, `Surface::configure` failed *after* the choice was made, wgpu
+/// treats an uncaptured error as fatal, and a GUI-subsystem process died
+/// without a word -- an installed terminal that never opens. So a backend
+/// only wins once it has configured the real surface and handed back a real
+/// first frame; anything less moves on to the next backend.
+fn try_backend(
+    backend: wgpu::Backends,
+    window: Arc<Window>,
+    width: u32,
+    height: u32,
+) -> anyhow::Result<Graphics> {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: backend,
+        ..Default::default()
+    });
+    let surface = instance
+        .create_surface(window)
+        .map_err(|error| anyhow::anyhow!("surface: {error}"))?;
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        compatible_surface: Some(&surface),
+        ..Default::default()
+    }))
+    .map_err(|error| anyhow::anyhow!("adapter: {error}"))?;
+
+    let mut required_limits = wgpu::Limits::default();
+    required_limits.max_non_sampler_bindings = MAX_GPU_VIEW_DESCRIPTORS;
+    let descriptor = wgpu::DeviceDescriptor {
+        label: Some("unterm-render device"),
+        required_limits,
+        memory_hints: wgpu::MemoryHints::MemoryUsage,
+        ..Default::default()
+    };
+    let device_result = pollster::block_on(adapter.request_device(&descriptor));
+    let (device, queue) = match device_result {
+        Ok(pair) => pair,
+        // A downlevel adapter (ANGLE over an old driver) can refuse the
+        // default limits while still being perfectly able to draw a terminal.
+        Err(_) => {
+            let mut limits = wgpu::Limits::downlevel_defaults();
+            limits.max_non_sampler_bindings = MAX_GPU_VIEW_DESCRIPTORS;
+            let descriptor = wgpu::DeviceDescriptor {
+                label: Some("unterm-render device"),
+                required_limits: limits,
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                ..Default::default()
+            };
+            pollster::block_on(adapter.request_device(&descriptor))
+                .map_err(|error| anyhow::anyhow!("device: {error}"))?
+        }
+    };
+    // From here on a wgpu error is a log line, not a process death.
+    device.on_uncaptured_error(Box::new(|error| {
+        log::error!("wgpu: {error}");
+    }));
+
+    let capabilities = surface.get_capabilities(&adapter);
+    // Prefer a non-sRGB format: the colours here are already the values the
+    // config asked for, and an sRGB target would convert them a second time.
+    let format = capabilities
+        .formats
+        .iter()
+        .copied()
+        .find(|format| !format.is_srgb())
+        .unwrap_or(capabilities.formats[0]);
+
+    // The part v0.61.0 never checked. The error scope turns a failed
+    // configure into a value; the first-frame request proves the swapchain
+    // is not just configured but usable.
+    device.push_error_scope(wgpu::ErrorFilter::Validation);
+    surface.configure(
+        &device,
+        &wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: width.max(1),
+            height: height.max(1),
+            present_mode: wgpu::PresentMode::AutoVsync,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        },
+    );
+    if let Some(error) = pollster::block_on(device.pop_error_scope()) {
+        anyhow::bail!("configure: {error}");
+    }
+    match surface.get_current_texture() {
+        Ok(frame) => drop(frame),
+        Err(error) => anyhow::bail!("first frame: {error}"),
+    }
+
+    Ok(Graphics {
+        surface,
+        device,
+        queue,
+        format,
+    })
 }
 
 /// How many rows of each pane the tracker is shown.
@@ -911,26 +1013,12 @@ impl App {
         window.set_ime_allowed(true);
 
         let size = window.inner_size();
-        let (surface, adapter) = request_graphics(window.clone())?;
-        let mut required_limits = wgpu::Limits::default();
-        required_limits.max_non_sampler_bindings = MAX_GPU_VIEW_DESCRIPTORS;
-        let device_descriptor = wgpu::DeviceDescriptor {
-            label: Some("unterm-render device"),
-            required_limits,
-            memory_hints: wgpu::MemoryHints::MemoryUsage,
-            ..Default::default()
-        };
-        let (device, queue) = pollster::block_on(adapter.request_device(&device_descriptor))?;
-
-        let capabilities = surface.get_capabilities(&adapter);
-        // Prefer a non-sRGB format: the colours here are already the values the
-        // config asked for, and an sRGB target would convert them a second time.
-        let format = capabilities
-            .formats
-            .iter()
-            .copied()
-            .find(|format| !format.is_srgb())
-            .unwrap_or(capabilities.formats[0]);
+        let Graphics {
+            surface,
+            device,
+            queue,
+            format,
+        } = request_graphics(window.clone(), size.width, size.height)?;
 
         let renderer = Renderer::new(device, queue, format);
         let atlas_texture = renderer.upload_atlas(&self.atlas);
@@ -1137,8 +1225,22 @@ impl App {
             live.atlas_uploaded_glyphs = self.atlas.len();
         }
 
-        let Ok(frame) = live.surface.get_current_texture() else {
-            return;
+        let frame = match live.surface.get_current_texture() {
+            Ok(frame) => frame,
+            // A lost or outdated swapchain (resize race, display sleep,
+            // driver reset) heals with one reconfigure. A second failure is
+            // this frame given up, not the process.
+            Err(error) => {
+                log::debug!("swapchain frame unavailable ({error}); reconfiguring");
+                live.configure(live.renderer.format());
+                match live.surface.get_current_texture() {
+                    Ok(frame) => frame,
+                    Err(error) => {
+                        log::warn!("swapchain unavailable after reconfigure: {error}");
+                        return;
+                    }
+                }
+            }
         };
         let view = frame
             .texture
@@ -8115,7 +8217,7 @@ impl ApplicationHandler for App {
                 self.restore_extra_tabs();
             }
             Err(err) => {
-                log::error!("could not start: {err:#}");
+                crate::report_fatal(&format!("Unterm could not start: {err:#}"));
                 event_loop.exit();
             }
         }

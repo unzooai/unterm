@@ -80,6 +80,15 @@ cp -r assets/shell-completion "$stagedir/Unterm.app/Contents/Resources"
 # the LOWEST-priority fallback, so installs get the out-of-box look while any
 # user config still wins. Without this, installs run on bare compiled defaults.
 cp assets/unterm.conf "$stagedir/Unterm.app/Contents/Resources/unterm.conf"
+# The bundled faces: the chrome's icon language (Symbols Nerd Font), emoji,
+# and the DEFAULT terminal font (JetBrains Mono Regular, opened by file name).
+# The v0.61.0 DMG shipped without any of these -- every icon in an installed
+# copy was an empty box and the rows fell back to the system monospace.
+mkdir -p "$stagedir/Unterm.app/Contents/Resources/assets/fonts"
+cp assets/fonts/SymbolsNerdFontMono-Regular.ttf \
+   assets/fonts/NotoColorEmoji.ttf \
+   assets/fonts/JetBrainsMono-Regular.ttf \
+   "$stagedir/Unterm.app/Contents/Resources/assets/fonts/"
 tic -xe wezterm -o "$stagedir/Unterm.app/Contents/Resources/terminfo" termwiz/data/wezterm.terminfo
 
 # Stamp CFBundleShortVersionString on the main app from the tag, so Finder

@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.61.1 — 2026-08-02
+
+A hotfix for Windows installs. If v0.61.0 would not open after upgrading,
+this is the release that fixes it — install it directly over the broken one.
+
+### Windows
+
+- **Upgrading from 0.57.4 left an install with no terminal in it.** The old
+  WezTerm-era `unterm.exe` was stamped file version 1.0.0.0; the next-core one
+  is stamped 0.61.x, which Windows Installer reads as *older*, so the upgrade
+  skipped copying the new exe and then deleted the old one with the old
+  product. The installer now forces every packaged file onto disk
+  (`REINSTALLMODE=amus`), which also repairs installs already in that state.
+- **Startup failures are no longer silent.** unterm.exe is a GUI-subsystem
+  binary; a fatal error used to vanish with the process. Fatal startup errors
+  and panics now show a message box and are appended to `~/.unterm/panic.log`.
+- **A backend only wins after proving it can present.** Graphics bring-up now
+  configures the real surface and takes a first frame before committing to
+  DX12; on failure it falls back to GL (ANGLE), and a wgpu error at runtime is
+  a logged frame skip — plus a one-shot swapchain reconfigure — instead of a
+  process death.
+
+### Packaging, all platforms
+
+- JetBrains Mono Regular — the default terminal font, opened by file name —
+  now actually ships in the MSI, the Windows zip, and the macOS DMG. The
+  macOS DMG also gains the Symbols Nerd Font and emoji faces it had been
+  missing entirely: an installed 0.61.0 drew every chrome icon as an empty box.
+
 ## v0.61.0 — 2026-08-02
 
 The first release in which the kernel replacement is *finished*: feature

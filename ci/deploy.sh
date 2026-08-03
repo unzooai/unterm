@@ -40,6 +40,7 @@ case ${OSTYPE:-} in
     cp assets/unterm.conf "$zipdir/Unterm.app/Contents/Resources/unterm.conf"
     cp assets/fonts/SymbolsNerdFontMono-Regular.ttf \
        assets/fonts/NotoColorEmoji.ttf \
+       assets/fonts/JetBrainsMono-Regular.ttf \
        "$zipdir/Unterm.app/Contents/Resources/assets/fonts/"
     tic -xe wezterm -o "$zipdir/Unterm.app/Contents/Resources/terminfo" termwiz/data/wezterm.terminfo
 
@@ -116,8 +117,12 @@ case ${OSTYPE:-} in
     mkdir -p "$stagedir/defaults"
     cp assets/unterm.conf "$stagedir/defaults/unterm.conf"
     mkdir -p "$stagedir/assets/fonts"
+    # JetBrains Mono Regular is the DEFAULT font (terminal.rs opens it by
+    # file name); a package without it silently falls back to the system
+    # monospace and the rows lose the line gap the whole look is built on.
     cp assets/fonts/SymbolsNerdFontMono-Regular.ttf \
        assets/fonts/NotoColorEmoji.ttf \
+       assets/fonts/JetBrainsMono-Regular.ttf \
        "$stagedir/assets/fonts/"
     # Mesa software-GL fallback is x64-only — no maintained Windows-arm64
     # prebuilt; arm64 relies on ANGLE (D3D-backed). The MSI drops its Mesa
