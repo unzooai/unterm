@@ -5,6 +5,7 @@
 //! None of them draw anything or know what a window is.
 
 pub mod audit_store;
+pub mod bridge_registry;
 pub mod clash_api;
 pub mod cockpit;
 pub mod env_names;
@@ -62,6 +63,6 @@ pub mod window_capture;
 /// What this build calls itself, stamped into recordings and reported to
 /// agents. Read from the crate rather than from a config, which is where it
 /// used to live for no reason other than history.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = unterm_protocol::PRODUCT_VERSION;
 pub mod process_stats;
 pub mod system_proxy;

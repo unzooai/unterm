@@ -119,6 +119,13 @@ fn install_panic_reporter() {
 }
 
 fn main() -> std::process::ExitCode {
+    // This path must remain before logging, config migration, instance
+    // registration, server creation and winit initialization. Release and
+    // supervisor probes can therefore identify a binary without launching it.
+    if version_requested(std::env::args_os().skip(1)) {
+        println!("unterm {}", unterm_protocol::PRODUCT_VERSION);
+        return std::process::ExitCode::SUCCESS;
+    }
     env_logger::Builder::from_env(env_logger::Env::default().filter_or("UNTERM_LOG", "info"))
         .init();
     install_panic_reporter();
@@ -129,6 +136,14 @@ fn main() -> std::process::ExitCode {
             std::process::ExitCode::FAILURE
         }
     }
+}
+
+fn version_requested(arguments: impl IntoIterator<Item = std::ffi::OsString>) -> bool {
+    let mut arguments = arguments.into_iter();
+    matches!(
+        (arguments.next(), arguments.next()),
+        (Some(argument), None) if argument == "--version" || argument == "-V"
+    )
 }
 
 fn run() -> anyhow::Result<()> {
@@ -179,8 +194,13 @@ fn run() -> anyhow::Result<()> {
     // early finds a working surface rather than a half-built one.
     unterm_engine::install_next_core_provider();
     mcp_host::install();
-    let (port, token) = unterm_mcp::start_mcp_server_with_version(env!("CARGO_PKG_VERSION"));
+    let (port, token) = unterm_mcp::start_mcp_server_with_version(unterm_protocol::PRODUCT_VERSION);
     log::info!("MCP server listening on 127.0.0.1:{port}");
+    match unterm_services::bridge_registry::request_incompatible_drains() {
+        Ok(0) => {}
+        Ok(count) => log::info!("requested drain for {count} incompatible MCP bridge(s)"),
+        Err(error) => log::warn!("could not inspect MCP bridge lifecycle records: {error:#}"),
+    }
 
     // The settings UI, on the same token. `unterm-cli settings` opens it.
     let settings_port = unterm_settings::start_web_settings_server(token);

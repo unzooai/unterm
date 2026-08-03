@@ -24,7 +24,7 @@ static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 /// accepting clients on a background thread. Returns the bound port and the
 /// generated auth token.
 pub fn start_mcp_server() -> (u16, String) {
-    start_mcp_server_with_version(env!("CARGO_PKG_VERSION"))
+    start_mcp_server_with_version(unterm_protocol::PRODUCT_VERSION)
 }
 
 /// Start the MCP server and publish the owning product binary's version in the
@@ -93,7 +93,7 @@ fn maybe_register_ai_agents() {
         .name("setup-ai-register".into())
         .spawn(move || {
             let stamp = home.join(".unterm").join("setup-ai.stamp");
-            let current = env!("CARGO_PKG_VERSION");
+            let current = unterm_protocol::PRODUCT_VERSION;
             if std::fs::read_to_string(&stamp)
                 .map(|s| s.trim() == current)
                 .unwrap_or(false)

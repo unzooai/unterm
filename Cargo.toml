@@ -15,12 +15,16 @@ members = [
   "unterm-engine",
   "unterm-profile",
   "unterm-agents",
+  "unterm-protocol",
 ]
 resolver = "2"
 exclude = [
   "termwiz/codegen",
   "wezterm-char-props/codegen",
 ]
+
+[workspace.package]
+version = "0.61.1"
 
 [profile.release]
 opt-level = 3
@@ -282,6 +286,7 @@ wezterm-input-types = { version="0.1", path = "wezterm-input-types", default-fea
 wezterm-mux-server-impl = { path = "wezterm-mux-server-impl" }
 wezterm-open-url = { path = "wezterm-open-url" }
 unterm-mcp = { path = "unterm-mcp" }
+unterm-protocol = { path = "unterm-protocol" }
 unterm-render = { path = "unterm-render" }
 unterm-services = { path = "unterm-services" }
 unterm-settings = { path = "unterm-settings" }

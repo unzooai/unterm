@@ -29,6 +29,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use unterm_protocol::{BuildHandshake, ProcessRole};
 
 pub const MCP_PREFERRED_PORT: u16 = 19876;
 pub const HTTP_PREFERRED_PORT: u16 = 19877;
@@ -91,11 +92,49 @@ pub struct InstanceInfo {
     pub profile: Option<String>,
     #[serde(default)]
     pub version: String,
+    /// Complete build/protocol identity. The legacy `version` field above is
+    /// retained until pre-M0 clients have aged out.
+    #[serde(default)]
+    pub product_version: String,
+    #[serde(default)]
+    pub build_commit: String,
+    #[serde(default)]
+    pub protocol_version: String,
+    #[serde(default)]
+    pub data_schema_version: u32,
+    #[serde(default)]
+    pub process_role: ProcessRole,
     #[serde(default)]
     pub platform: String,
     /// Serializable Cockpit snapshot for cross-instance Inbox aggregation.
     #[serde(default)]
     pub agents: Vec<InstanceAgentInfo>,
+}
+
+impl InstanceInfo {
+    pub fn build_handshake(&self) -> BuildHandshake {
+        BuildHandshake {
+            product_version: if self.product_version.is_empty() {
+                self.version.clone()
+            } else {
+                self.product_version.clone()
+            },
+            build_commit: if self.build_commit.is_empty() {
+                "unknown".to_string()
+            } else {
+                self.build_commit.clone()
+            },
+            protocol_version: if self.protocol_version.is_empty() {
+                "legacy".to_string()
+            } else {
+                self.protocol_version.clone()
+            },
+            data_schema_version: self.data_schema_version,
+            process_role: self.process_role,
+            pid: self.pid,
+            started_at: self.started_at.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -664,7 +703,7 @@ pub fn read_current() -> InstanceInfo {
 /// Also seeds active.json (if there's no live active currently) and
 /// keeps server.json + auth_token in sync for legacy clients.
 pub fn write_initial(mcp_port: u16) -> Result<InstanceInfo> {
-    write_initial_with_version(mcp_port, env!("CARGO_PKG_VERSION"))
+    write_initial_with_version(mcp_port, unterm_protocol::PRODUCT_VERSION)
 }
 
 /// Register a process while reporting the version of the product binary that
@@ -694,6 +733,11 @@ pub fn write_initial_with_version(mcp_port: u16, product_version: &str) -> Resul
         // `profile.spawn` call that names a profile up front.
         profile: None,
         version: product_version.to_string(),
+        product_version: product_version.to_string(),
+        build_commit: unterm_protocol::BUILD_COMMIT.to_string(),
+        protocol_version: unterm_protocol::PROTOCOL_VERSION.to_string(),
+        data_schema_version: unterm_protocol::DATA_SCHEMA_VERSION,
+        process_role: ProcessRole::Gui,
         platform: std::env::consts::OS.to_string(),
         agents: Vec::new(),
     };
@@ -757,7 +801,19 @@ pub fn set_cwd(cwd: Option<String>) -> Result<()> {
         info.started_at = chrono::Local::now().to_rfc3339();
     }
     if info.version.is_empty() {
-        info.version = env!("CARGO_PKG_VERSION").to_string();
+        info.version = unterm_protocol::PRODUCT_VERSION.to_string();
+    }
+    if info.product_version.is_empty() {
+        info.product_version = info.version.clone();
+    }
+    if info.build_commit.is_empty() {
+        info.build_commit = unterm_protocol::BUILD_COMMIT.to_string();
+    }
+    if info.protocol_version.is_empty() {
+        info.protocol_version = unterm_protocol::PROTOCOL_VERSION.to_string();
+    }
+    if info.data_schema_version == 0 {
+        info.data_schema_version = unterm_protocol::DATA_SCHEMA_VERSION;
     }
     if info.platform.is_empty() {
         info.platform = std::env::consts::OS.to_string();

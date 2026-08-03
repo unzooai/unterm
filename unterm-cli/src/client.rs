@@ -14,6 +14,7 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
+use unterm_protocol::{BuildHandshake, ProcessRole};
 
 const MCP_HOST: &str = "127.0.0.1";
 const LEGACY_MCP_PORT: u16 = 19876;
@@ -39,7 +40,15 @@ impl McpClient {
     /// fallback to the legacy `~/.unterm/auth_token` + 19876), dial the
     /// MCP server, and complete the `auth.login` handshake.
     pub fn connect() -> Result<Self> {
+        Self::connect_as(ProcessRole::Cli)
+    }
+
+    /// Connect while identifying the caller's process role. The MCP bridge
+    /// uses this path so the server can distinguish it from an interactive
+    /// CLI during drain and future supervisor accounting.
+    pub fn connect_as(process_role: ProcessRole) -> Result<Self> {
         let info = ServerEndpoint::resolve()?;
+        validate_peer_identity(info.identity.as_ref())?;
 
         let stream = TcpStream::connect_timeout(
             &format!("{}:{}", MCP_HOST, info.port)
@@ -65,11 +74,30 @@ impl McpClient {
             next_id: 1,
         };
 
+        let caller = BuildHandshake::current(
+            process_role,
+            std::process::id(),
+            chrono::Utc::now().to_rfc3339(),
+        );
         let resp = client
-            .call("auth.login", json!({ "token": info.token }))
+            .call(
+                "auth.login",
+                json!({ "token": info.token, "client": caller }),
+            )
             .context("MCP auth.login")?;
         if resp.get("status").and_then(|v| v.as_str()) != Some("ok") {
             return Err(anyhow!("MCP auth.login rejected: {}", resp));
+        }
+        // Validate the process actually reached, not only the registry record
+        // used to discover it. A replacement can occur between file read and
+        // TCP connect. Pre-M0 servers have no `build` object and remain usable
+        // when their legacy registry version already matched.
+        if let Ok(live) = client.call("server.info", json!({})) {
+            if let Some(build) = live.get("build") {
+                if let Ok(identity) = serde_json::from_value::<BuildHandshake>(build.clone()) {
+                    validate_peer_identity(Some(&identity))?;
+                }
+            }
         }
         Ok(client)
     }
@@ -124,6 +152,7 @@ pub struct ServerEndpoint {
     pub token: String,
     pub port: u16,
     pub http_port: u16,
+    pub identity: Option<BuildHandshake>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -135,6 +164,70 @@ struct InstanceRecord {
     pub pid: u32,
     #[serde(default)]
     pub started_at: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub product_version: String,
+    #[serde(default)]
+    pub build_commit: String,
+    #[serde(default)]
+    pub protocol_version: String,
+    #[serde(default)]
+    pub data_schema_version: u32,
+    #[serde(default)]
+    pub process_role: ProcessRole,
+}
+
+impl InstanceRecord {
+    fn build_handshake(&self) -> Option<BuildHandshake> {
+        let product_version = if self.product_version.is_empty() {
+            self.version.clone()
+        } else {
+            self.product_version.clone()
+        };
+        if product_version.is_empty() {
+            return None;
+        }
+        Some(BuildHandshake {
+            product_version,
+            build_commit: if self.build_commit.is_empty() {
+                "unknown".into()
+            } else {
+                self.build_commit.clone()
+            },
+            protocol_version: if self.protocol_version.is_empty() {
+                "legacy".into()
+            } else {
+                self.protocol_version.clone()
+            },
+            data_schema_version: self.data_schema_version,
+            process_role: self.process_role,
+            pid: self.pid,
+            started_at: self.started_at.clone(),
+        })
+    }
+}
+
+fn validate_peer_identity(identity: Option<&BuildHandshake>) -> Result<()> {
+    let Some(identity) = identity else {
+        return Ok(());
+    };
+    let compatibility = identity.compatibility();
+    if compatibility.is_usable() {
+        return Ok(());
+    }
+    let code = compatibility
+        .error_code()
+        .unwrap_or("protocol_incompatible");
+    Err(anyhow!(
+        "{code}: running Unterm {} (protocol {}, schema {}) is incompatible with bridge {} (protocol {}, schema {}); drain this bridge and let the MCP client restart it from the installed unterm-cli",
+        identity.product_version,
+        identity.protocol_version,
+        identity.data_schema_version,
+        unterm_protocol::PRODUCT_VERSION,
+        unterm_protocol::PROTOCOL_VERSION,
+        unterm_protocol::DATA_SCHEMA_VERSION,
+    ))
 }
 
 impl ServerEndpoint {
@@ -150,18 +243,22 @@ impl ServerEndpoint {
                     dir.join("instances").display()
                 ));
             };
+            let identity = info.build_handshake();
             return Ok(Self {
                 token: info.auth_token,
                 port: info.mcp_port,
                 http_port: info.http_port,
+                identity,
             });
         }
 
         if let Some(info) = resolve_live_instance(&dir)? {
+            let identity = info.build_handshake();
             return Ok(Self {
                 token: info.auth_token,
                 port: info.mcp_port,
                 http_port: info.http_port,
+                identity,
             });
         }
 
@@ -184,6 +281,7 @@ impl ServerEndpoint {
                         token,
                         port,
                         http_port,
+                        identity: identity_from_value(&info),
                     });
                 }
             }
@@ -205,8 +303,41 @@ impl ServerEndpoint {
             token,
             port: LEGACY_MCP_PORT,
             http_port: 0,
+            identity: None,
         })
     }
+}
+
+fn identity_from_value(value: &Value) -> Option<BuildHandshake> {
+    let version = value
+        .get("product_version")
+        .or_else(|| value.get("version"))?
+        .as_str()?
+        .to_string();
+    Some(BuildHandshake {
+        product_version: version,
+        build_commit: value
+            .get("build_commit")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string(),
+        protocol_version: value
+            .get("protocol_version")
+            .and_then(Value::as_str)
+            .unwrap_or("legacy")
+            .to_string(),
+        data_schema_version: value
+            .get("data_schema_version")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32,
+        process_role: ProcessRole::Gui,
+        pid: value.get("pid").and_then(Value::as_u64).unwrap_or(0) as u32,
+        started_at: value
+            .get("started_at")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    })
 }
 
 pub fn http_post_json(path: &str, body: Value) -> Result<Value> {
@@ -378,7 +509,57 @@ fn pid_alive(pid: u32) -> bool {
 }
 
 fn unterm_dir() -> Result<PathBuf> {
+    if let Some(path) = std::env::var_os("UNTERM_STATE_DIR") {
+        if !path.is_empty() {
+            return Ok(PathBuf::from(path));
+        }
+    }
     Ok(dirs_next::home_dir()
         .ok_or_else(|| anyhow!("could not resolve home directory"))?
         .join(".unterm"))
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn same_version_legacy_instance_is_allowed() {
+        let record: InstanceRecord = serde_json::from_value(json!({
+            "mcp_port": 19876,
+            "http_port": 19877,
+            "auth_token": "secret",
+            "pid": 42,
+            "started_at": "now",
+            "version": unterm_protocol::PRODUCT_VERSION,
+        }))
+        .unwrap();
+        let identity = record.build_handshake().unwrap();
+        assert_eq!(
+            identity.compatibility(),
+            unterm_protocol::Compatibility::Legacy
+        );
+        validate_peer_identity(Some(&identity)).unwrap();
+    }
+
+    #[test]
+    fn stale_product_version_has_a_machine_readable_error() {
+        let mut identity = BuildHandshake::current(ProcessRole::Gui, 42, "now");
+        identity.product_version = "0.57.4".into();
+        let error = validate_peer_identity(Some(&identity))
+            .unwrap_err()
+            .to_string();
+        assert!(error.starts_with("product_version_mismatch:"), "{error}");
+        assert!(error.contains("drain this bridge"), "{error}");
+    }
+
+    #[test]
+    fn newer_schema_is_rejected_before_connecting() {
+        let mut identity = BuildHandshake::current(ProcessRole::Gui, 42, "now");
+        identity.data_schema_version = unterm_protocol::DATA_SCHEMA_VERSION + 1;
+        let error = validate_peer_identity(Some(&identity))
+            .unwrap_err()
+            .to_string();
+        assert!(error.starts_with("data_schema_incompatible:"), "{error}");
+    }
 }

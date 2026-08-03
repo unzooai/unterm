@@ -1,6 +1,6 @@
 [package]
 name = "unterm-cli"
-version = "0.61.1"
+version.workspace = true
 edition = "2021"
 publish = false
 
@@ -33,6 +33,7 @@ toml.workspace = true
 unterm-agents.workspace = true
 unterm-profile.workspace = true
 unterm-services.workspace = true
+unterm-protocol.workspace = true
 
 # Asking whether a pid is still alive is a raw syscall on Unix.
 [target.'cfg(unix)'.dependencies]

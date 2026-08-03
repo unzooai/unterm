@@ -5065,7 +5065,8 @@ impl McpHandler {
         let window = unterm_engine::window_identity();
         Ok(json!({
             "name": "Unterm MCP Server",
-            "version": "2.0.0",
+            "version": instance.build_handshake().product_version,
+            "build": instance.build_handshake(),
             "engine": self.engine_label(),
             "window_engine": window.engine,
             "uses_host_window": window.uses_host_window,
@@ -8322,7 +8323,7 @@ impl McpHandler {
         Ok(json!({
             "name": "Unterm",
             "version": if instance.version.is_empty() {
-                env!("CARGO_PKG_VERSION")
+                unterm_protocol::PRODUCT_VERSION
             } else {
                 instance.version.as_str()
             },

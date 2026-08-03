@@ -165,7 +165,7 @@ pub fn surface(_params: &Value) -> Result<Value> {
         .map(|provider| provider().name())
         .unwrap_or("next-core");
     Ok(json!({
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": unterm_protocol::PRODUCT_VERSION,
         "engine": engine,
         "engine_capabilities": engine_capabilities(engine),
         "mcp_methods": MCP_METHODS,

@@ -39,6 +39,14 @@ const GUI_NOT_RUNNING: &str = "Unterm GUI is not running — open Unterm.app (or
 will be available once it's up.";
 
 pub fn run() -> Result<()> {
+    let bridge_started_at = chrono::Utc::now().to_rfc3339();
+    let bridge_build = unterm_protocol::BuildHandshake::current(
+        unterm_protocol::ProcessRole::McpBridge,
+        std::process::id(),
+        bridge_started_at.clone(),
+    );
+    let bridge_registration = unterm_services::bridge_registry::register(bridge_build.clone())
+        .map_err(|error| anyhow!("registering MCP bridge lifecycle: {error}"))?;
     // Connect to the running Unterm instance up front — but if the GUI isn't
     // running, come up anyway and keep speaking MCP: serve `initialize` and
     // `tools/list` from the static surface tables baked into this binary,
@@ -46,16 +54,22 @@ pub fn run() -> Result<()> {
     // when the GUI appears. Exiting here used to break (a) registry health
     // checks that introspect the server headlessly and (b) agents that start
     // before the terminal does.
-    let mut client: Option<McpClient> = match McpClient::connect() {
-        Ok(c) => Some(c),
-        Err(e) => {
-            eprintln!(
-                "unterm mcp-stdio: Unterm control server not reachable ({e}); \
+    let (mut client, drain_reason): (Option<McpClient>, Option<String>) =
+        match McpClient::connect_as(unterm_protocol::ProcessRole::McpBridge) {
+            Ok(c) => (Some(c), None),
+            Err(e) if requires_bridge_replacement(&e.to_string()) => {
+                let reason = e.to_string();
+                eprintln!("unterm mcp-stdio: entering drain: {reason}");
+                (None, Some(reason))
+            }
+            Err(e) => {
+                eprintln!(
+                    "unterm mcp-stdio: Unterm control server not reachable ({e}); \
                  serving static tool list, will reconnect on demand"
-            );
-            None
-        }
-    };
+                );
+                (None, None)
+            }
+        };
 
     // Tool inventory: prefer the live server's meta.surface (never drifts
     // from dispatch); fall back to the compiled-in tables.
@@ -105,6 +119,24 @@ pub fn run() -> Result<()> {
         let id = req.get("id").cloned();
         let is_notification = id.is_none();
 
+        if let Some(reason) = bridge_registration.drain_reason() {
+            if !is_notification {
+                respond_err(&mut stdout, id, -32010, &reason)?;
+            }
+            return Ok(());
+        }
+
+        // A bridge compiled from a different product/protocol must not keep
+        // serving a stale tool surface. Reject one request with a stable code,
+        // flush it, and exit cleanly; the owning MCP client then respawns the
+        // command path from its config, loading the installed replacement.
+        if let Some(reason) = drain_reason.as_deref() {
+            if !is_notification {
+                respond_err(&mut stdout, id, -32010, reason)?;
+            }
+            return Ok(());
+        }
+
         match method {
             "initialize" => {
                 respond(
@@ -113,7 +145,11 @@ pub fn run() -> Result<()> {
                     json!({
                         "protocolVersion": PROTOCOL_VERSION,
                         "capabilities": { "tools": { "listChanged": false } },
-                        "serverInfo": { "name": "unterm", "version": env!("CARGO_PKG_VERSION") },
+                        "serverInfo": {
+                            "name": "unterm",
+                            "version": unterm_protocol::PRODUCT_VERSION,
+                            "build": bridge_build,
+                        },
                         // Injected into the connecting agent's context by most
                         // MCP clients — this is where we teach it what Unterm
                         // is and which tools drive it. Shared with the text
@@ -145,7 +181,21 @@ pub fn run() -> Result<()> {
                     .unwrap_or_else(|| json!({}));
                 // Lazy reconnect: the GUI may have started after us.
                 if client.is_none() {
-                    client = McpClient::connect().ok();
+                    match McpClient::connect_as(unterm_protocol::ProcessRole::McpBridge) {
+                        Ok(connected) => client = Some(connected),
+                        Err(error) if requires_bridge_replacement(&error.to_string()) => {
+                            respond(
+                                &mut stdout,
+                                id,
+                                json!({
+                                    "content": [ { "type": "text", "text": error.to_string() } ],
+                                    "isError": true,
+                                }),
+                            )?;
+                            return Ok(());
+                        }
+                        Err(_) => {}
+                    }
                 }
                 let Some(live) = client.as_mut() else {
                     respond(
@@ -183,6 +233,10 @@ pub fn run() -> Result<()> {
                                 "isError": true,
                             }),
                         )?;
+                        // A server can be replaced while this bridge is alive.
+                        // Drop the dead connection so the next request performs
+                        // discovery and either reconnects or enters drain.
+                        client = None;
                     }
                 }
             }
@@ -200,6 +254,16 @@ pub fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn requires_bridge_replacement(message: &str) -> bool {
+    [
+        "product_version_mismatch:",
+        "protocol_incompatible:",
+        "data_schema_incompatible:",
+    ]
+    .iter()
+    .any(|prefix| message.starts_with(prefix))
 }
 
 /// Convert `meta.surface`'s mcp_methods array into MCP tool descriptors with
@@ -290,4 +354,38 @@ fn write_msg(out: &mut impl Write, msg: &Value) -> Result<()> {
     out.write_all(s.as_bytes())?;
     out.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_compatibility_failures_trigger_bridge_replacement() {
+        for message in [
+            "product_version_mismatch: old bridge",
+            "protocol_incompatible: major changed",
+            "data_schema_incompatible: newer store",
+        ] {
+            assert!(requires_bridge_replacement(message), "{message}");
+        }
+        assert!(!requires_bridge_replacement(GUI_NOT_RUNNING));
+        assert!(!requires_bridge_replacement("MCP read failed"));
+    }
+
+    #[test]
+    fn drain_response_uses_a_stable_json_rpc_code() {
+        let mut output = Vec::new();
+        respond_err(
+            &mut output,
+            Some(json!(7)),
+            -32010,
+            "protocol_incompatible: restart",
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(&output).unwrap();
+        assert_eq!(value["id"], 7);
+        assert_eq!(value["error"]["code"], -32010);
+        assert_eq!(value["error"]["message"], "protocol_incompatible: restart");
+    }
 }

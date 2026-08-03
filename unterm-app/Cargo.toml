@@ -1,6 +1,6 @@
 [package]
 name = "unterm-app"
-version = "0.61.1"
+version.workspace = true
 edition = "2021"
 publish = false
 
@@ -36,6 +36,7 @@ unterm-services.workspace = true
 unterm-profile.workspace = true
 unterm-settings.workspace = true
 unterm-render = { path = "../unterm-render" }
+unterm-protocol.workspace = true
 wgpu.workspace = true
 winit = "0.30"
 arboard = "3"

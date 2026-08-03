@@ -5638,6 +5638,7 @@ dependencies = [
  "unterm-engine",
  "unterm-mcp",
  "unterm-profile",
+ "unterm-protocol",
  "unterm-render",
  "unterm-services",
  "unterm-settings",
@@ -5669,6 +5670,7 @@ dependencies = [
  "toml 0.8.23",
  "unterm-agents",
  "unterm-profile",
+ "unterm-protocol",
  "unterm-services",
  "winapi",
 ]
@@ -5714,6 +5716,7 @@ dependencies = [
  "unterm-agents",
  "unterm-engine",
  "unterm-profile",
+ "unterm-protocol",
  "unterm-services",
  "url",
  "uuid",
@@ -5734,6 +5737,15 @@ dependencies = [
  "thiserror 1.0.69",
  "toml 0.8.23",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "unterm-protocol"
+version = "0.61.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml 0.8.23",
 ]
 
 [[package]]
@@ -5770,6 +5782,7 @@ dependencies = [
  "tempfile",
  "unterm-engine",
  "unterm-profile",
+ "unterm-protocol",
  "uuid",
  "winapi",
  "winreg",
