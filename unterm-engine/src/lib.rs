@@ -7,13 +7,13 @@ pub mod next_core;
 
 use anyhow::Result;
 use portable_pty::CommandBuilder;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub fn next_core() -> next_core::NextCoreEngine {
     next_core::NextCoreEngine
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CursorSnapshot {
     pub x: usize,
     pub y: isize,
@@ -24,7 +24,7 @@ pub struct CursorSnapshot {
 /// Terminal modes a GUI pane has to expose without reaching into the engine's
 /// internals: whether the application grabbed the mouse, and whether the
 /// alternate screen is up.
-#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PaneModesSnapshot {
     pub mouse_grabbed: bool,
     pub alt_screen_active: bool,
@@ -32,14 +32,14 @@ pub struct PaneModesSnapshot {
     pub application_cursor_keys: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PaneDimensions {
     pub cols: usize,
     pub viewport_rows: usize,
     pub scrollback_rows: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ShellSnapshot {
     pub shell_type: String,
     pub process_name: String,
@@ -48,7 +48,7 @@ pub struct ShellSnapshot {
     pub launch_context: LaunchContextSnapshot,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct LaunchContextSnapshot {
     pub profile: Option<String>,
     pub proxy_env_keys: Vec<String>,
@@ -56,7 +56,7 @@ pub struct LaunchContextSnapshot {
     pub policy: LaunchPolicySnapshot,
 }
 
-#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum LaunchEnvSource {
     Proxy,
     Profile,
@@ -66,13 +66,13 @@ pub enum LaunchEnvSource {
     Unknown,
 }
 
-#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LaunchEnvBinding {
     pub key: String,
     pub source: LaunchEnvSource,
 }
 
-#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LaunchPolicyDecision {
     #[default]
@@ -82,7 +82,7 @@ pub enum LaunchPolicyDecision {
     Unsupported,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LaunchPolicyDecisionSnapshot {
     pub decision: LaunchPolicyDecision,
     pub supported: bool,
@@ -109,7 +109,7 @@ impl LaunchPolicyDecisionSnapshot {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LaunchPolicySnapshot {
     pub profile: Option<String>,
     pub env: Vec<LaunchEnvBinding>,
@@ -120,7 +120,7 @@ pub struct LaunchPolicySnapshot {
     pub restart: LaunchPolicyDecisionSnapshot,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionSnapshot {
     pub id: usize,
     /// The pane this one was split off from, if it was.
@@ -142,28 +142,28 @@ pub struct SessionSnapshot {
     pub shell: ShellSnapshot,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ScreenLine {
     pub row: i64,
     pub text: String,
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum StyledColor {
     Palette(u8),
     Rgb(u8, u8, u8),
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum StyledBlink {
     Slow,
     Rapid,
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum StyledUnderline {
     Single,
     Double,
@@ -173,14 +173,14 @@ pub enum StyledUnderline {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum StyledVerticalAlign {
     SuperScript,
     SubScript,
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CellStyle {
     pub bold: bool,
     pub faint: bool,
@@ -200,7 +200,7 @@ pub struct CellStyle {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StyledCell {
     pub ch: char,
     pub style: CellStyle,
@@ -208,7 +208,7 @@ pub struct StyledCell {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StyledScreenLine {
     pub row: i64,
     pub cells: Vec<StyledCell>,
@@ -221,14 +221,14 @@ pub struct StyledScreenLine {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DirtyRows {
     pub start: usize,
     pub end: usize,
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StyledScreenSnapshot {
     /// Text a program asked to be put on the system clipboard.
     ///
@@ -272,7 +272,7 @@ pub struct StyledScreenSnapshot {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RenderFrameSnapshot {
     pub lines: Vec<StyledScreenLine>,
     pub cursor: CursorSnapshot,
@@ -285,7 +285,7 @@ pub struct RenderFrameSnapshot {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderGlyphRun {
     pub row: usize,
     pub col: usize,
@@ -295,7 +295,7 @@ pub struct RenderGlyphRun {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderCellRun {
     pub row: usize,
     pub col: usize,
@@ -304,7 +304,7 @@ pub struct RenderCellRun {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderCursorDraw {
     pub row: usize,
     pub col: usize,
@@ -313,7 +313,7 @@ pub struct RenderCursorDraw {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderDrawPlan {
     pub revision: u64,
     pub cols: usize,
@@ -327,14 +327,14 @@ pub struct RenderDrawPlan {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderCellMetrics {
     pub cell_width_px: usize,
     pub cell_height_px: usize,
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderRect {
     pub x: usize,
     pub y: usize,
@@ -343,7 +343,7 @@ pub struct RenderRect {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderGlyphRunGeometry {
     pub row: usize,
     pub col: usize,
@@ -354,7 +354,7 @@ pub struct RenderGlyphRunGeometry {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderCellRunGeometry {
     pub row: usize,
     pub col: usize,
@@ -363,7 +363,7 @@ pub struct RenderCellRunGeometry {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderCursorGeometry {
     pub row: usize,
     pub col: usize,
@@ -373,7 +373,7 @@ pub struct RenderCursorGeometry {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderGeometryPlan {
     pub revision: u64,
     pub cols: usize,
@@ -388,14 +388,14 @@ pub struct RenderGeometryPlan {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderBackgroundQuad {
     pub rect: RenderRect,
     pub style: CellStyle,
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderTextRun {
     pub row: usize,
     pub col: usize,
@@ -406,7 +406,7 @@ pub struct RenderTextRun {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderCursorQuad {
     pub rect: RenderRect,
     pub visible: bool,
@@ -414,7 +414,7 @@ pub struct RenderCursorQuad {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderSubmissionPlan {
     pub revision: u64,
     pub cols: usize,
@@ -429,14 +429,14 @@ pub struct RenderSubmissionPlan {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderConsumerState {
     submitted_revision: Option<u64>,
     viewport: Option<RenderRect>,
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderCommitPlan {
     pub submit: bool,
     pub previous_revision: Option<u64>,
@@ -753,7 +753,7 @@ fn push_cell_run(
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StyledScrollbackSnapshot {
     pub lines: Vec<StyledScreenLine>,
     pub first_row: i64,
@@ -764,7 +764,7 @@ pub struct StyledScrollbackSnapshot {
     pub viewport_rows: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ScreenSearchMatch {
     pub row: i64,
     pub col: usize,
@@ -775,14 +775,14 @@ pub struct ScreenSearchMatch {
 ///
 /// Ignore-case is the default because it is the friendlier one for a person
 /// typing into a search bar; exact and regex matching are a cycle away.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchMode {
     CaseSensitive,
     #[default]
     CaseInsensitive,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ScreenSnapshot {
     /// Text a program asked to be put on the system clipboard.
     ///
@@ -826,7 +826,7 @@ pub struct ScreenSnapshot {
     pub dirty_rows: Option<DirtyRows>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ScrollbackTextRequest {
     pub start_line: Option<i64>,
     pub end_line: Option<i64>,
@@ -834,7 +834,7 @@ pub struct ScrollbackTextRequest {
     pub escapes: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ScrollbackTextSnapshot {
     pub text: String,
     pub lines: Vec<String>,
@@ -847,7 +847,7 @@ pub struct ScrollbackTextSnapshot {
     pub viewport_rows: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InputActivitySnapshot {
     pub total_writes: u64,
     pub total_bytes: u64,
@@ -855,7 +855,7 @@ pub struct InputActivitySnapshot {
     pub last_duration_ms: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OutputActivitySnapshot {
     pub total_chunks: u64,
     pub total_bytes: u64,
@@ -867,7 +867,7 @@ pub struct OutputActivitySnapshot {
     pub last_duration_ms: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PasteActivitySnapshot {
     pub total_pastes: u64,
     pub total_text_bytes: u64,
@@ -879,7 +879,7 @@ pub struct PasteActivitySnapshot {
     pub last_duration_ms: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ScreenActivitySnapshot {
     pub total_reads: u64,
     pub total_viewport_scrolls: u64,
@@ -887,7 +887,7 @@ pub struct ScreenActivitySnapshot {
     pub last_scroll_duration_ms: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProcessTreeSnapshot {
     pub root_pid: Option<u32>,
     pub root_process: String,
@@ -900,7 +900,7 @@ pub struct ProcessTreeSnapshot {
     pub detected_agent: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionActivitySnapshot {
     pub idle: bool,
     pub foreground_process: String,
@@ -911,14 +911,14 @@ pub struct SessionActivitySnapshot {
     pub screen: Option<ScreenActivitySnapshot>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecordingStartResult {
     pub session_id: String,
     pub log_path: String,
     pub md_path: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecordingStopResult {
     pub session_id: String,
     pub ended_at: String,
@@ -927,7 +927,7 @@ pub struct RecordingStopResult {
     pub md_path: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecordingExportResult {
     pub session_id: String,
     pub path: String,
@@ -935,7 +935,7 @@ pub struct RecordingExportResult {
     pub block_count: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecordingStatusSnapshot {
     pub enabled: bool,
     pub session_id: Option<String>,
@@ -944,7 +944,7 @@ pub struct RecordingStatusSnapshot {
     pub bytes: Option<u64>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EngineIoHealthSnapshot {
     pub input_writes: u64,
     pub input_bytes: u64,
@@ -956,7 +956,7 @@ pub struct EngineIoHealthSnapshot {
     pub viewport_scrolls: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EngineLifecycleHealthSnapshot {
     pub live_sessions: u64,
     pub dead_sessions: u64,
@@ -966,7 +966,7 @@ pub struct EngineLifecycleHealthSnapshot {
     pub last_dead_reason: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EngineRuntimeQueueHealthSnapshot {
     pub pending_commands: usize,
     pub pending_input_bytes: usize,
@@ -979,7 +979,7 @@ pub struct EngineRuntimeQueueHealthSnapshot {
     pub rejected_input_bytes: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EngineRuntimePumpHealthSnapshot {
     pub drain_calls: u64,
     pub dispatched_commands: u64,
@@ -996,7 +996,7 @@ pub struct EngineRuntimePumpHealthSnapshot {
     pub max_drain_elapsed_micros: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EngineHealthSnapshot {
     pub engine: String,
     pub ready: bool,
@@ -1009,7 +1009,7 @@ pub struct EngineHealthSnapshot {
     pub runtime_pump: Option<EngineRuntimePumpHealthSnapshot>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum SplitDirection {
     Right,
     Left,

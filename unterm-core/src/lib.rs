@@ -15,7 +15,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use unterm_engine::{
-    CreateSessionRequest, InputEngine, ScreenEngine, SessionEngine,
+    CreateSessionRequest, CursorSnapshot, InputEngine, LaunchPolicySnapshot,
+    PaneModesSnapshot, RenderFrameSnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch,
+    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SearchMode,
+    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
+    SplitDirection, SplitSessionRequest, StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use unterm_protocol::{BuildHandshake, ProcessRole};
 
@@ -283,7 +287,9 @@ fn handle_stream(
             continue;
         }
         let should_stop = request.method == "core.shutdown";
-        if request.method == "session.create" && draining.load(Ordering::Acquire) {
+        let creates_session =
+            matches!(request.method.as_str(), "session.create" | "session.split");
+        if creates_session && draining.load(Ordering::Acquire) {
             writeln!(
                 stream,
                 "{}",
@@ -351,42 +357,155 @@ fn dispatch_inner(
             serde_json::json!({"status":"stopping"}),
         ))?,
         "session.create" => {
-            let cols = request
-                .params
-                .get("cols")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(120) as usize;
-            let rows = request
-                .params
-                .get("rows")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(30) as usize;
-            let command_dir = request
-                .params
-                .get("cwd")
-                .and_then(|v| v.as_str())
-                .filter(|dir| !dir.is_empty())
-                .map(str::to_owned);
-            let command = request
-                .params
-                .get("argv")
-                .and_then(|v| v.as_array())
-                .map(|argv| {
-                    argv.iter()
-                        .filter_map(|item| item.as_str().map(std::ffi::OsString::from))
-                        .collect::<Vec<_>>()
-                })
-                .filter(|argv| !argv.is_empty())
-                .map(CommandBuilder::from_argv);
+            let (cols, rows) = parse_dimensions(&request.params);
             let session = engine.create_session(CreateSessionRequest {
                 cols,
                 rows,
-                command_dir,
-                command,
-                env: Vec::new(),
-                launch_policy: Default::default(),
+                command_dir: parse_cwd(&request.params),
+                command: parse_argv(&request.params),
+                env: parse_env(&request.params),
+                launch_policy: parse_launch_policy(&request.params),
             })?;
             serde_json::to_string(&response_ok(id, session))?
+        }
+        "session.split" => {
+            let source_pane_id = required_pane_id(request)?;
+            let direction = match request
+                .params
+                .get("direction")
+                .and_then(|v| v.as_str())
+                .unwrap_or("right")
+            {
+                "left" => SplitDirection::Left,
+                "down" => SplitDirection::Down,
+                "up" => SplitDirection::Up,
+                _ => SplitDirection::Right,
+            };
+            let size_percent = request
+                .params
+                .get("size_percent")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(50) as u8;
+            let session = engine.split_session(SplitSessionRequest {
+                source_pane_id,
+                direction,
+                size_percent,
+                command_dir: parse_cwd(&request.params),
+                command: parse_argv(&request.params),
+                env: parse_env(&request.params),
+                launch_policy: parse_launch_policy(&request.params),
+            })?;
+            serde_json::to_string(&response_ok(id, session))?
+        }
+        "session.get" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(id, engine.get_session(pane_id)?))?
+        }
+        "session.focus" => {
+            engine.focus_session(required_pane_id(request)?)?;
+            serde_json::to_string(&response_ok(id, serde_json::json!({"focused": true})))?
+        }
+        "session.shell" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(id, engine.shell(pane_id)?))?
+        }
+        "session.activity" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(id, engine.activity(pane_id)?))?
+        }
+        "session.modes" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(id, engine.pane_modes(pane_id)?))?
+        }
+        "session.styled_screen" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(id, engine.read_styled_screen(pane_id)?))?
+        }
+        "session.visible_text" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(id, engine.read_visible_text(pane_id)?))?
+        }
+        "session.lines" => {
+            let pane_id = required_pane_id(request)?;
+            let start = request
+                .params
+                .get("start")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let count = request
+                .params
+                .get("count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(100) as usize;
+            serde_json::to_string(&response_ok(id, engine.read_lines(pane_id, start, count)?))?
+        }
+        "session.scrollback" => {
+            let pane_id = required_pane_id(request)?;
+            let limit = request
+                .params
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1000) as usize;
+            serde_json::to_string(&response_ok(id, engine.read_scrollback(pane_id, limit)?))?
+        }
+        "session.scrollback_text" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(
+                id,
+                engine.read_scrollback_text(pane_id, parse_scrollback_request(&request.params))?,
+            ))?
+        }
+        "session.styled_scrollback" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(
+                id,
+                engine.read_styled_scrollback(pane_id, parse_scrollback_request(&request.params))?,
+            ))?
+        }
+        "session.search" => {
+            let pane_id = required_pane_id(request)?;
+            let pattern = request
+                .params
+                .get("pattern")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("pattern is required"))?;
+            let mode = match request.params.get("mode").and_then(|v| v.as_str()) {
+                Some("case_sensitive") => SearchMode::CaseSensitive,
+                _ => SearchMode::CaseInsensitive,
+            };
+            let max_results = request
+                .params
+                .get("max_results")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(100) as usize;
+            serde_json::to_string(&response_ok(
+                id,
+                engine.search(pane_id, pattern, mode, max_results)?,
+            ))?
+        }
+        "session.cursor" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(id, engine.cursor(pane_id)?))?
+        }
+        "session.erase_scrollback" => {
+            let pane_id = required_pane_id(request)?;
+            let include_viewport = request
+                .params
+                .get("include_viewport")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            engine.erase_scrollback(pane_id, include_viewport)?;
+            serde_json::to_string(&response_ok(id, serde_json::json!({"erased": true})))?
+        }
+        "session.paste" => {
+            let pane_id = required_pane_id(request)?;
+            let data = request
+                .params
+                .get("data")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            engine.paste_input(pane_id, data)?;
+            serde_json::to_string(&response_ok(id, serde_json::json!({"pasted": true})))?
         }
         "session.list" => {
             serde_json::to_string(&response_ok(id, engine.list_sessions()?))?
@@ -463,6 +582,61 @@ fn required_pane_id(request: &Request) -> Result<usize> {
         .ok_or_else(|| anyhow::anyhow!("pane_id is required"))
 }
 
+fn parse_dimensions(params: &serde_json::Value) -> (usize, usize) {
+    let cols = params.get("cols").and_then(|v| v.as_u64()).unwrap_or(120) as usize;
+    let rows = params.get("rows").and_then(|v| v.as_u64()).unwrap_or(30) as usize;
+    (cols, rows)
+}
+
+fn parse_cwd(params: &serde_json::Value) -> Option<String> {
+    params
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .filter(|dir| !dir.is_empty())
+        .map(str::to_owned)
+}
+
+fn parse_argv(params: &serde_json::Value) -> Option<CommandBuilder> {
+    params
+        .get("argv")
+        .and_then(|v| v.as_array())
+        .map(|argv| {
+            argv.iter()
+                .filter_map(|item| item.as_str().map(std::ffi::OsString::from))
+                .collect::<Vec<_>>()
+        })
+        .filter(|argv| !argv.is_empty())
+        .map(CommandBuilder::from_argv)
+}
+
+fn parse_env(params: &serde_json::Value) -> Vec<(String, String)> {
+    params
+        .get("env")
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
+fn parse_launch_policy(params: &serde_json::Value) -> LaunchPolicySnapshot {
+    params
+        .get("launch_policy")
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
+fn parse_scrollback_request(params: &serde_json::Value) -> ScrollbackTextRequest {
+    ScrollbackTextRequest {
+        start_line: params.get("start_line").and_then(|v| v.as_i64()),
+        end_line: params.get("end_line").and_then(|v| v.as_i64()),
+        tail_lines: params.get("tail_lines").and_then(|v| v.as_i64()),
+        escapes: params
+            .get("escapes")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    }
+}
+
 pub struct CoreClient {
     stream: TcpStream,
     token: String,
@@ -521,6 +695,267 @@ impl CoreClient {
         }
         Ok(info)
     }
+}
+
+/// The Core-backed engine a GUI or CLI holds in place of a local
+/// `NextCoreEngine`. Implements the same engine traits, but every call
+/// crosses the authenticated IPC boundary, so sessions live in the Core
+/// process and survive this process exiting.
+///
+/// One TCP connection serves all callers; the mutex makes each
+/// request/response pair atomic, so concurrent threads can never
+/// interleave one request's frame with another's reply.
+pub struct CoreEngineClient {
+    inner: std::sync::Mutex<CoreClient>,
+}
+
+impl CoreEngineClient {
+    /// Connect and complete the version handshake. Version skew is a
+    /// hard error here for the same reason it is in `ensure_running`.
+    pub fn connect<A: ToSocketAddrs>(address: A, token: impl Into<String>) -> Result<Self> {
+        let mut client = CoreClient::connect(address, token)?;
+        client.handshake()?;
+        Ok(Self {
+            inner: std::sync::Mutex::new(client),
+        })
+    }
+
+    fn call<T: for<'de> Deserialize<'de>>(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<T> {
+        let mut client = self
+            .inner
+            .lock()
+            .map_err(|_| anyhow::anyhow!("unterm-core client lock poisoned"))?;
+        let response: Response<T> = client.request_with_params(method, params)?;
+        if let Some(error) = response.error {
+            anyhow::bail!("unterm-core {method} failed ({}): {}", error.code, error.message);
+        }
+        response
+            .result
+            .ok_or_else(|| anyhow::anyhow!("unterm-core {method} returned no result"))
+    }
+
+    fn call_unit(&self, method: &str, params: serde_json::Value) -> Result<()> {
+        let _: serde_json::Value = self.call(method, params)?;
+        Ok(())
+    }
+
+    /// Mirror of `NextCoreEngine::pane_modes`, which the GUI needs per
+    /// frame to decide who owns a mouse click.
+    pub fn pane_modes(&self, pane_id: usize) -> Result<PaneModesSnapshot> {
+        self.call("session.modes", serde_json::json!({"pane_id": pane_id}))
+    }
+}
+
+fn command_argv(command: &Option<CommandBuilder>) -> Option<Vec<String>> {
+    command.as_ref().map(|command| {
+        command
+            .get_argv()
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    })
+}
+
+impl SessionEngine for CoreEngineClient {
+    fn list_sessions(&self) -> Result<Vec<SessionSnapshot>> {
+        self.call("session.list", serde_json::Value::Null)
+    }
+
+    fn get_session(&self, pane_id: usize) -> Result<SessionSnapshot> {
+        self.call("session.get", serde_json::json!({"pane_id": pane_id}))
+    }
+
+    fn create_session(&self, request: CreateSessionRequest) -> Result<SessionSnapshot> {
+        let cwd = request.command_dir.clone().or_else(|| {
+            request
+                .command
+                .as_ref()
+                .and_then(|command| command.get_cwd())
+                .map(|dir| dir.to_string_lossy().into_owned())
+        });
+        self.call(
+            "session.create",
+            serde_json::json!({
+                "cols": request.cols,
+                "rows": request.rows,
+                "cwd": cwd,
+                "argv": command_argv(&request.command),
+                "env": request.env,
+                "launch_policy": request.launch_policy,
+            }),
+        )
+    }
+
+    fn split_session(&self, request: SplitSessionRequest) -> Result<SessionSnapshot> {
+        let direction = match request.direction {
+            SplitDirection::Right => "right",
+            SplitDirection::Left => "left",
+            SplitDirection::Down => "down",
+            SplitDirection::Up => "up",
+        };
+        self.call(
+            "session.split",
+            serde_json::json!({
+                "pane_id": request.source_pane_id,
+                "direction": direction,
+                "size_percent": request.size_percent,
+                "cwd": request.command_dir,
+                "argv": command_argv(&request.command),
+                "env": request.env,
+                "launch_policy": request.launch_policy,
+            }),
+        )
+    }
+
+    fn focus_session(&self, pane_id: usize) -> Result<()> {
+        self.call_unit("session.focus", serde_json::json!({"pane_id": pane_id}))
+    }
+
+    fn shell(&self, pane_id: usize) -> Result<ShellSnapshot> {
+        self.call("session.shell", serde_json::json!({"pane_id": pane_id}))
+    }
+
+    fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot> {
+        self.call("session.activity", serde_json::json!({"pane_id": pane_id}))
+    }
+
+    fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()> {
+        self.call_unit(
+            "session.resize",
+            serde_json::json!({"pane_id": pane_id, "cols": cols, "rows": rows}),
+        )
+    }
+
+    fn destroy_session(&self, pane_id: usize) -> Result<()> {
+        self.call_unit("session.close", serde_json::json!({"pane_id": pane_id}))
+    }
+}
+
+impl ScreenEngine for CoreEngineClient {
+    fn read_screen(&self, pane_id: usize) -> Result<ScreenSnapshot> {
+        self.call("session.screen", serde_json::json!({"pane_id": pane_id}))
+    }
+
+    fn erase_scrollback(&self, pane_id: usize, include_viewport: bool) -> Result<()> {
+        self.call_unit(
+            "session.erase_scrollback",
+            serde_json::json!({"pane_id": pane_id, "include_viewport": include_viewport}),
+        )
+    }
+
+    fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot> {
+        self.call("session.styled_screen", serde_json::json!({"pane_id": pane_id}))
+    }
+
+    fn read_render_frame(
+        &self,
+        pane_id: usize,
+        since_revision: Option<u64>,
+    ) -> Result<RenderFrameSnapshot> {
+        self.call(
+            "session.frame",
+            serde_json::json!({"pane_id": pane_id, "since_revision": since_revision}),
+        )
+    }
+
+    fn read_visible_text(&self, pane_id: usize) -> Result<String> {
+        self.call("session.visible_text", serde_json::json!({"pane_id": pane_id}))
+    }
+
+    fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>> {
+        self.call(
+            "session.lines",
+            serde_json::json!({"pane_id": pane_id, "start": start, "count": count}),
+        )
+    }
+
+    fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>> {
+        self.call(
+            "session.scrollback",
+            serde_json::json!({"pane_id": pane_id, "limit": limit}),
+        )
+    }
+
+    fn read_scrollback_text(
+        &self,
+        pane_id: usize,
+        request: ScrollbackTextRequest,
+    ) -> Result<ScrollbackTextSnapshot> {
+        self.call(
+            "session.scrollback_text",
+            scrollback_request_params(pane_id, &request),
+        )
+    }
+
+    fn read_styled_scrollback(
+        &self,
+        pane_id: usize,
+        request: ScrollbackTextRequest,
+    ) -> Result<StyledScrollbackSnapshot> {
+        self.call(
+            "session.styled_scrollback",
+            scrollback_request_params(pane_id, &request),
+        )
+    }
+
+    fn search(
+        &self,
+        pane_id: usize,
+        pattern: &str,
+        mode: SearchMode,
+        max_results: usize,
+    ) -> Result<Vec<ScreenSearchMatch>> {
+        let mode = match mode {
+            SearchMode::CaseSensitive => "case_sensitive",
+            SearchMode::CaseInsensitive => "case_insensitive",
+        };
+        self.call(
+            "session.search",
+            serde_json::json!({
+                "pane_id": pane_id,
+                "pattern": pattern,
+                "mode": mode,
+                "max_results": max_results,
+            }),
+        )
+    }
+
+    fn cursor(&self, pane_id: usize) -> Result<CursorSnapshot> {
+        self.call("session.cursor", serde_json::json!({"pane_id": pane_id}))
+    }
+}
+
+impl InputEngine for CoreEngineClient {
+    fn write_input(&self, pane_id: usize, input: &str) -> Result<()> {
+        self.call_unit(
+            "session.write",
+            serde_json::json!({"pane_id": pane_id, "data": input}),
+        )
+    }
+
+    fn paste_input(&self, pane_id: usize, text: &str) -> Result<()> {
+        self.call_unit(
+            "session.paste",
+            serde_json::json!({"pane_id": pane_id, "data": text}),
+        )
+    }
+}
+
+fn scrollback_request_params(
+    pane_id: usize,
+    request: &ScrollbackTextRequest,
+) -> serde_json::Value {
+    serde_json::json!({
+        "pane_id": pane_id,
+        "start_line": request.start_line,
+        "end_line": request.end_line,
+        "tail_lines": request.tail_lines,
+        "escapes": request.escapes,
+    })
 }
 
 /// Ensure the per-user Core process is available and return its
@@ -702,6 +1137,146 @@ mod tests {
         assert!(closed.ok);
 
         let _: Response<serde_json::Value> = client.request("core.shutdown").unwrap();
+        worker.join().unwrap();
+    }
+
+    fn shell_argv() -> Vec<std::ffi::OsString> {
+        if cfg!(windows) {
+            vec!["cmd.exe".into()]
+        } else {
+            vec!["sh".into()]
+        }
+    }
+
+    fn styled_screen_text(snapshot: &StyledScreenSnapshot) -> String {
+        snapshot
+            .lines
+            .iter()
+            .map(|line| line.cells.iter().map(|cell| cell.ch).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn facade_drives_sessions_over_ipc() {
+        let (endpoint, worker) = start_server("facade-token");
+        let facade = CoreEngineClient::connect(endpoint, "facade-token").unwrap();
+
+        let session = facade
+            .create_session(CreateSessionRequest {
+                cols: 80,
+                rows: 24,
+                command_dir: None,
+                command: Some(CommandBuilder::from_argv(shell_argv())),
+                env: Vec::new(),
+                launch_policy: Default::default(),
+            })
+            .unwrap();
+        let pane_id = session.id;
+
+        facade
+            .write_input(pane_id, "echo facade-ready\r\n")
+            .unwrap();
+
+        let mut styled = None;
+        for _ in 0..50 {
+            let snapshot = facade.read_styled_screen(pane_id).unwrap();
+            if styled_screen_text(&snapshot).contains("facade-ready") {
+                styled = Some(snapshot);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let styled = styled.expect("styled screen never showed the echoed text");
+        assert!(styled.revision > 0);
+
+        // The incremental path a renderer relies on: an up-to-date
+        // revision must come back empty instead of resending the frame.
+        let unchanged = facade
+            .read_render_frame(pane_id, Some(styled.revision))
+            .unwrap();
+        assert!(!unchanged.full);
+        assert!(unchanged.lines.is_empty());
+
+        assert!(facade
+            .read_visible_text(pane_id)
+            .unwrap()
+            .contains("facade-ready"));
+        let matches = facade
+            .search(pane_id, "facade-ready", SearchMode::CaseInsensitive, 10)
+            .unwrap();
+        assert!(!matches.is_empty());
+
+        let cursor = facade.cursor(pane_id).unwrap();
+        assert!(!cursor.shape.is_empty());
+        let modes = facade.pane_modes(pane_id).unwrap();
+        assert!(!modes.alt_screen_active);
+        let shell = facade.shell(pane_id).unwrap();
+        assert!(!shell.process_name.is_empty());
+        facade.activity(pane_id).unwrap();
+
+        let listed = facade.list_sessions().unwrap();
+        assert!(listed.iter().any(|s| s.id == pane_id));
+        assert_eq!(facade.get_session(pane_id).unwrap().id, pane_id);
+
+        facade.resize_session(pane_id, 100, 30).unwrap();
+        assert_eq!(facade.get_session(pane_id).unwrap().cols, 100);
+
+        facade.destroy_session(pane_id).unwrap();
+
+        let mut owner = CoreClient::connect(endpoint, "facade-token").unwrap();
+        let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn facade_split_creates_adjacent_session_and_drain_blocks_it() {
+        let (endpoint, worker) = start_server("split-token");
+        let facade = CoreEngineClient::connect(endpoint, "split-token").unwrap();
+
+        let source = facade
+            .create_session(CreateSessionRequest {
+                cols: 120,
+                rows: 40,
+                command_dir: None,
+                command: Some(CommandBuilder::from_argv(shell_argv())),
+                env: Vec::new(),
+                launch_policy: Default::default(),
+            })
+            .unwrap();
+
+        let split = facade
+            .split_session(SplitSessionRequest {
+                source_pane_id: source.id,
+                direction: SplitDirection::Right,
+                size_percent: 50,
+                command_dir: None,
+                command: Some(CommandBuilder::from_argv(shell_argv())),
+                env: Vec::new(),
+                launch_policy: Default::default(),
+            })
+            .unwrap();
+        assert_ne!(split.id, source.id);
+        assert_eq!(split.split_from, Some(source.id));
+
+        let mut owner = CoreClient::connect(endpoint, "split-token").unwrap();
+        let _: Response<serde_json::Value> = owner.request("core.drain").unwrap();
+
+        let blocked = facade.split_session(SplitSessionRequest {
+            source_pane_id: source.id,
+            direction: SplitDirection::Down,
+            size_percent: 50,
+            command_dir: None,
+            command: Some(CommandBuilder::from_argv(shell_argv())),
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        });
+        let err = blocked.expect_err("split must be refused while draining");
+        assert!(err.to_string().contains("draining"), "got: {err:#}");
+
+        facade.destroy_session(split.id).unwrap();
+        facade.destroy_session(source.id).unwrap();
+        let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
         worker.join().unwrap();
     }
 

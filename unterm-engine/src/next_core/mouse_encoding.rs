@@ -13,7 +13,7 @@
 use termwiz::input::Modifiers;
 
 /// Which mouse events the application asked for.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MouseTracking {
     /// No reporting. The terminal keeps the mouse for itself.
     #[default]
@@ -29,7 +29,7 @@ pub enum MouseTracking {
 }
 
 /// The mouse-related modes of a session, as the encoder needs to see them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MouseModes {
     pub tracking: MouseTracking,
     /// `CSI ? 1006 h` — SGR encoding. Takes precedence; it is the only format

@@ -152,10 +152,16 @@ M7 门禁：不启动 UI 仍可工作；进程独立健康；升级失败恢复�
 | M0-01 | 已完成（源码切片） | Protocol 4、Services 116、MCP 66、CLI 23、GUI probe 1；release build 与真实握手通过 | CI/签名安装制品随发布验收 |
 | M0-02 | 开发中 | product/protocol/schema 判定、CLI/Bridge 双向身份、持久 Bridge registry、GUI drain 请求、`-32010` 进程测试 | pre-registry 旧进程扫描、owner 自动重启 E2E、超时强退 |
 | M0-03 | 未开始 | 0.61.1 Windows 本机安装记录 | 12 项跨平台台账与回滚矩阵 |
-| M1–M7 | 未开始 | 现有 next-core/MCP/Audit 是迁移输入 | 按上述冻结点推进 |
+| M1-01/02 | 已完成（源码切片，`1148e8d7`） | unterm-core 进程：认证 IPC、discovery、single-instance 锁、drain、session.* 驱动 next-core；5 项测试含真实 PTY 往返 | `core.events` 订阅流尚未提供；服务化安装（LaunchAgent/后台进程）随 M7 |
+| M1-03 | 开发中 | IPC 面扩至 22 个 session 方法（styled/增量帧/scrollback/search/split 等）；`CoreEngineClient` 实现 SessionEngine+ScreenEngine+InputEngine 门面；7 项测试通过 | MCP server 迁入 Core 进程；GUI 换用门面（M1-04）；`core.events` 推送替代 GUI 轮询 |
+| M2–M7 | 未开始 | 现有 next-core/MCP/Audit 是迁移输入 | 按上述冻结点推进 |
 
 ## 7. 下一切片入口条件
 
-M0-01 已通过。M0-02 的协议判定和协作式 drain 已通过，下一步补齐没有 registry 记录的
-pre-M0 Bridge 进程扫描、owner 重启 E2E 和超时强退。M0-02 不应提前创建 Task Store 或
-Provider Registry，以免在 F0/F1 冻结前形成第二套协议。
+M0-01 已通过。M0-02 的协议判定和协作式 drain 已通过，剩余 pre-registry 旧进程扫描、
+owner 重启 E2E 和超时强退作为独立小切片补齐。M1-01/02 已随 `1148e8d7` 落地
+（unterm-core 进程从冻结的 wezterm 线原型移植，绑定层按 next-core 引擎重写）。
+
+当前活跃切片为 **M1-03**：将 Terminal Engine 与 MCP 生命周期从 GUI 迁入 Core，
+GUI/CLI 转为 Core Client（M1-04）。M1 期间不应提前创建 Task Store 或
+Provider Registry，以免在 F1/F2 冻结前形成第二套协议。
