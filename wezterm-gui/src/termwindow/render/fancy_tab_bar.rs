@@ -559,10 +559,6 @@ impl crate::TermWindow {
                 }))
         };
         {
-            use crate::termwindow::QuickAction as QA;
-            let logical_width =
-                self.dimensions.pixel_width as f32 * 96. / self.dimensions.dpi.max(1) as f32;
-            let density = top_bar_density(logical_width);
             // Per-pane stats text rides on the same row as the quick
             // actions — vertically centered with the icons, sitting
             // just to the left of the action cluster. Rendering it
@@ -640,7 +636,9 @@ impl crate::TermWindow {
                     right_eles.push(
                         Element::new(&chip_font, ElementContent::Text(chip))
                             .vertical_align(VerticalAlign::Middle)
-                            .item_type(UIItemType::QuickAction(QA::Inbox))
+                            .item_type(UIItemType::QuickAction(
+                                crate::termwindow::QuickAction::Inbox,
+                            ))
                             .margin(BoxDimension {
                                 left: Dimension::Cells(QUICK_BTN_GAP_CELLS),
                                 right: Dimension::Cells(0.),
@@ -670,37 +668,47 @@ impl crate::TermWindow {
             // Codicons — VS Code's single-weight icon family. Same visual
             // language as Warp's SF Symbols, but bundled cross-platform via
             // SymbolsNerdFontMono so Win/Linux look identical.
-            right_eles.push(quick_button(
-                quick_action_text(
-                    "\u{eb6a}",
-                    &crate::i18n::t("menu.command_palette"),
-                    density.show_labels,
-                ),
-                QA::CommandPalette,
-            )); // cod_three_bars
-            right_eles.push(quick_button(
-                quick_action_text(
-                    "\u{ebf3}",
-                    &crate::i18n::t("web.nav.project"),
-                    density.show_labels,
-                ),
-                QA::TreeSidebar,
-            )); // cod_layout_sidebar_left
-            if density.show_split {
-                // cod_split_horizontal
-                right_eles.push(quick_button("\u{eb56}".to_string(), QA::SplitRight));
+            if self.config.cockpit_enabled {
+                right_eles.push(quick_button(
+                    quick_action_text("\u{eb6a}", &crate::i18n::t("menu.command_palette"), false),
+                    crate::termwindow::QuickAction::CommandPalette,
+                )); // cod_three_bars
+                right_eles.push(quick_button(
+                    quick_action_text("\u{ebf3}", &crate::i18n::t("web.nav.project"), false),
+                    crate::termwindow::QuickAction::TreeSidebar,
+                )); // cod_layout_sidebar_left
             }
-            if density.show_navigation {
-                right_eles.push(quick_button("\u{ea83}".to_string(), QA::DirJump)); // cod_folder
-                // cod_search
-                right_eles.push(quick_button("\u{ea6d}".to_string(), QA::Search));
+            if false {
+                // cod_split_horizontal
+                right_eles.push(quick_button(
+                    "\u{eb56}".to_string(),
+                    crate::termwindow::QuickAction::SplitRight,
+                ));
+            }
+            if false {
+                right_eles.push(quick_button(
+                    "\u{ea83}".to_string(),
+                    crate::termwindow::QuickAction::DirJump,
+                )); // cod_folder
+                    // cod_search
+                right_eles.push(quick_button(
+                    "\u{ea6d}".to_string(),
+                    crate::termwindow::QuickAction::Search,
+                ));
             }
             // cod_settings_gear
-            right_eles.push(quick_button("\u{eb51}".to_string(), QA::Settings));
+            if false {
+                right_eles.push(quick_button(
+                    "\u{eb51}".to_string(),
+                    crate::termwindow::QuickAction::Settings,
+                ));
+            }
             // The ▾ menu sits at the far right after the quick actions —
             // the design doc's "右侧一排动作 + 一个菜单". The menu still
             // routes through TabBarItem::MenuButton → show_settings_menu.
-            right_eles.push(menu_button());
+            if false {
+                right_eles.push(menu_button());
+            }
         }
 
         // With the left vertical tab bar active, tabs and the + button
@@ -856,6 +864,26 @@ impl crate::TermWindow {
                         bottom: Dimension::Cells(0.),
                     }),
             );
+        }
+
+        if let Some(pane) = self.get_active_pane_no_overlay() {
+            if let Some(cwd) = crate::termwindow::pane_cwd_path(&pane) {
+                let project = cwd
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("workspace");
+                let path = cwd.to_string_lossy().to_string();
+                left_eles.push(
+                    Element::new(&font, ElementContent::Text(format!("{project}  /  {path}")))
+                        .vertical_align(VerticalAlign::Middle)
+                        .max_width(Some(Dimension::Cells(52.)))
+                        .colors(ElementColors {
+                            border: BorderColor::default(),
+                            bg: window::color::LinearRgba::TRANSPARENT.into(),
+                            text: bar_fg.mul_alpha(0.78).into(),
+                        }),
+                );
+            }
         }
 
         children.push(

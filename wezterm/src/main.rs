@@ -28,7 +28,7 @@ mod unterm_cli;
     version = wezterm_version()
 )]
 pub struct Opt {
-    /// Skip loading wezterm.lua
+    /// Skip loading unterm.lua
     #[arg(long, short = 'n')]
     skip_config: bool,
 
@@ -124,7 +124,7 @@ enum SubCommand {
     #[command(name = "serial", hide = true, about = "Open a serial port")]
     Serial(SerialCommand),
 
-    #[command(name = "connect", about = "Connect to wezterm multiplexer")]
+    #[command(name = "connect", about = "Connect to Unterm multiplexer")]
     Connect(ConnectCommand),
 
     #[command(name = "ls-fonts", about = "Display information about fonts")]
@@ -366,7 +366,7 @@ struct ImgCatCommand {
     /// Set the maximum number of pixels per image frame.
     /// Images will be scaled down so that they do not exceed this size,
     /// unless `--no-resample` is also used.
-    /// The default value matches the limit set by wezterm.
+    /// The default value matches the limit set by Unterm.
     /// Note that resampling the image here will reduce any animated
     /// images to a single frame.
     #[arg(long, default_value = "25000000")]
@@ -375,7 +375,7 @@ struct ImgCatCommand {
     /// Do not resample images whose frames are larger than the
     /// max-pixels value.
     /// Note that this will typically result in the image refusing
-    /// to display in wezterm.
+    /// to display in Unterm.
     #[arg(long)]
     no_resample: bool,
 
@@ -923,13 +923,13 @@ fn run() -> anyhow::Result<()> {
         .cloned()
         .unwrap_or_else(|| SubCommand::Start(StartCommand::default()))
     {
-        SubCommand::Start(_)
-        | SubCommand::BlockingStart(_)
+        SubCommand::Start(_) => delegate_to_gui(saver, false),
+        SubCommand::BlockingStart(_)
         | SubCommand::LsFonts(_)
         | SubCommand::ShowKeys(_)
         | SubCommand::Ssh(_)
         | SubCommand::Serial(_)
-        | SubCommand::Connect(_) => delegate_to_gui(saver),
+        | SubCommand::Connect(_) => delegate_to_gui(saver, true),
         SubCommand::ImageCat(cmd) => cmd.run(),
         SubCommand::SetCwd(cmd) => cmd.run(),
         SubCommand::Cli(cli) => cli::run_cli(&opts, cli),
@@ -995,7 +995,7 @@ fn run() -> anyhow::Result<()> {
     }
 }
 
-fn delegate_to_gui(saver: UmaskSaver) -> anyhow::Result<()> {
+fn delegate_to_gui(saver: UmaskSaver, blocking: bool) -> anyhow::Result<()> {
     use std::process::Command;
 
     // Restore the original umask
@@ -1013,7 +1013,7 @@ fn delegate_to_gui(saver: UmaskSaver) -> anyhow::Result<()> {
         .join(exe_name);
 
     let mut cmd = Command::new(exe);
-    if cfg!(windows) {
+    if cfg!(windows) && blocking {
         cmd.arg("--attach-parent-console");
     }
 
@@ -1035,6 +1035,14 @@ fn delegate_to_gui(saver: UmaskSaver) -> anyhow::Result<()> {
 
     #[cfg(windows)]
     {
+        if !blocking {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.spawn()?;
+            return Ok(());
+        }
+
         let mut child = cmd.spawn()?;
         let status = child.wait()?;
         let code = status.code().unwrap_or(1);

@@ -272,7 +272,9 @@ pub fn for_fleet(fleet_id: &str) -> Vec<VerificationRecord> {
 /// Require a successful latest verification before a normal merge.
 pub fn ensure_passed(fleet_id: &str, member: &str) -> Result<VerificationRecord> {
     let record = latest_for_member(fleet_id, member).ok_or_else(|| {
-        anyhow!("member has not been verified; run review.verify first or explicitly force the merge")
+        anyhow!(
+            "member has not been verified; run review.verify first or explicitly force the merge"
+        )
     })?;
     if record.status != VerificationStatus::Passed {
         bail!(
@@ -311,10 +313,14 @@ pub fn enrich_overview(mut overview: Value) -> Value {
                 Some(VerificationStatus::Failed | VerificationStatus::TimedOut) => 0,
                 None => 100,
             };
-            let changed = member.get("changed_files").and_then(Value::as_u64).unwrap_or(0);
+            let changed = member
+                .get("changed_files")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
             let churn = member.get("additions").and_then(Value::as_u64).unwrap_or(0)
                 + member.get("deletions").and_then(Value::as_u64).unwrap_or(0);
-            let score = (base - (changed.min(100) as i64 * 2) - (churn.min(5000) as i64 / 100)).max(0);
+            let score =
+                (base - (changed.min(100) as i64 * 2) - (churn.min(5000) as i64 / 100)).max(0);
             if let Some(object) = member.as_object_mut() {
                 object.insert("score".into(), score.into());
                 object.insert(

@@ -1,9 +1,9 @@
-use crate::domain::{DomainId, WriterWrapper};
-use crate::localpane::LocalPane;
+use crate::domain::DomainId;
+use crate::corepane::CorePane;
 use crate::pane::{alloc_pane_id, PaneId};
 use crate::tab::{SplitDirection, SplitRequest, SplitSize, Tab, TabId};
 use crate::tmux::{AttachState, TmuxDomain, TmuxDomainState, TmuxRemotePane, TmuxTab};
-use crate::tmux_pty::{TmuxChild, TmuxPty};
+use crate::tmux_pty::TmuxPty;
 use crate::{Mux, MuxNotification, Pane};
 use anyhow::{anyhow, Context};
 use parking_lot::{Condvar, Mutex};
@@ -197,8 +197,6 @@ impl TmuxDomainState {
             master_pane: ref_pane,
         };
 
-        let writer = WriterWrapper::new(pane_pty.take_writer()?);
-
         let size = TerminalSize {
             rows: pane.pane_height as usize,
             cols: pane.pane_width as usize,
@@ -207,27 +205,57 @@ impl TmuxDomainState {
             dpi: 0,
         };
 
-        let child = TmuxChild {
-            active_lock: active_lock.clone(),
+        let Some(pane) = CorePane::try_attach_external(
+            local_pane_id,
+            self.domain_id,
+            size,
+            "tmux-control",
+        )? else {
+            anyhow::bail!("unterm-core is not available")
         };
 
-        let terminal = wezterm_term::Terminal::new(
-            size,
-            std::sync::Arc::new(config::TermConfig::new()),
-            "Unterm",
-            config::wezterm_version(),
-            Box::new(writer.clone()),
-        );
-
-        Ok(Arc::new(LocalPane::new(
-            local_pane_id,
-            terminal,
-            Box::new(child),
-            Box::new(pane_pty),
-            Box::new(writer),
-            self.domain_id,
-            "tmux pane".to_string(),
-        )))
+        // The tmux control parser remains an external protocol adapter.  Its
+        // byte streams are bridged into the Core-owned session so rendering,
+        // scrollback, cursor state and input all use CorePane.
+        let Some(info) = unterm_core::read_discovery()? else {
+            anyhow::bail!("unterm-core discovery disappeared")
+        };
+        let session_id = pane
+            .downcast_ref::<CorePane>()
+            .ok_or_else(|| anyhow::anyhow!("created pane is not CorePane"))?
+            .core_session_id()
+            .to_owned();
+        let endpoint = info.endpoint.clone();
+        let token = info.token.clone();
+        let output_id = session_id.clone();
+        let mut output_read = pane_pty.reader.try_clone()?;
+        std::thread::spawn(move || {
+            let Ok(mut client) = unterm_core::CoreClient::connect(&endpoint, &token) else { return; };
+            let mut buf = [0u8; 4096];
+            loop {
+                match std::io::Read::read(&mut output_read, &mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let data = String::from_utf8_lossy(&buf[..n]).into_owned();
+                        let _ = client.request_with_params::<serde_json::Value>("session.feed", serde_json::json!({"id": output_id, "data": data}));
+                    }
+                }
+            }
+        });
+        let input_endpoint = info.endpoint;
+        let input_token = info.token;
+        let input_id = session_id;
+        let mut command_writer = pane_pty.take_writer()?;
+        std::thread::spawn(move || {
+            let Ok(mut client) = unterm_core::CoreClient::connect(&input_endpoint, &input_token) else { return; };
+            loop {
+                let value = client.request_with_params::<serde_json::Value>("session.input", serde_json::json!({"id": input_id, "max_bytes": 4096}));
+                let data = value.ok().and_then(|v| v.result).and_then(|v| v.get("data").and_then(|v| v.as_str()).map(str::to_owned)).unwrap_or_default();
+                if !data.is_empty() { let _ = command_writer.write_all(data.as_bytes()); let _ = command_writer.flush(); }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        });
+        Ok(pane)
     }
 
     pub fn split_pane(

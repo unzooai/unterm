@@ -21,7 +21,7 @@
 //! not just commands), but it's local, free, and improves
 //! immediately as the user works.
 
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -277,8 +277,10 @@ fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {
     fn first_prefix_match<'a>(
         prefix: &str,
         candidates: impl Iterator<Item = &'a String>,
+        remaining: &mut usize,
     ) -> Option<String> {
-        for candidate in candidates.take(MAX_CANDIDATES_SCANNED) {
+        for candidate in candidates.take(*remaining) {
+            *remaining = (*remaining).saturating_sub(1);
             if candidate.len() <= prefix.len() {
                 continue;
             }
@@ -294,17 +296,18 @@ fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {
         None
     }
 
+    let mut remaining = MAX_CANDIDATES_SCANNED;
     // Priority: pane-local > cross-pane global > caller-supplied
     // external pool. Pane-local wins because the user has just been
     // working in this pane; their last commands are the strongest
     // signal of what they're about to retype.
-    let mut best = first_prefix_match(prefix, state.commits.iter().rev());
-    if best.is_none() {
+    let mut best = first_prefix_match(prefix, state.commits.iter().rev(), &mut remaining);
+    if best.is_none() && remaining > 0 {
         let global = global_commits().lock();
-        best = first_prefix_match(prefix, global.iter().rev());
+        best = first_prefix_match(prefix, global.iter().rev(), &mut remaining);
     }
-    if best.is_none() {
-        best = first_prefix_match(prefix, external.iter().rev());
+    if best.is_none() && remaining > 0 {
+        best = first_prefix_match(prefix, external.iter().rev(), &mut remaining);
     }
     // Fallback: if shell history didn't predict anything and the user is
     // typing a known AI coding-CLI, offer a flag completion from that CLI's
@@ -323,11 +326,10 @@ fn recompute_ghost(state: &mut PaneGhostState, external: &[String]) {
     state.ghost = best;
 }
 
-/// Map of agent exec name → flag completion tokens. Keep this fully in-memory:
-/// the key-event path calls it while the user types, so even an offline
-/// manifest disk read is too expensive here.
-fn agent_flag_tokens() -> &'static HashMap<String, Vec<String>> {
-    static MAP: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
+/// Map of agent exec name → flag completion tokens. Built-ins initialize
+/// synchronously; signed manifest additions are merged asynchronously.
+fn agent_flag_tokens() -> &'static RwLock<HashMap<String, Vec<String>>> {
+    static MAP: OnceLock<RwLock<HashMap<String, Vec<String>>>> = OnceLock::new();
     MAP.get_or_init(|| {
         let mut m: HashMap<String, Vec<String>> = HashMap::new();
         for (exec, args) in BUILTIN_AGENT_FLAGS {
@@ -339,8 +341,38 @@ fn agent_flag_tokens() -> &'static HashMap<String, Vec<String>> {
                 }
             }
         }
-        m
+        RwLock::new(m)
     })
+}
+
+/// Merge the signed on-disk manifest catalog once, off the key-event path.
+/// Built-ins remain immediately available while this worker is running.
+fn ensure_manifest_flags_loading() {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    STARTED.get_or_init(|| {
+        std::thread::Builder::new()
+            .name("ghost-manifest-flags".to_string())
+            .spawn(|| {
+                let Ok(set) = unterm_agents::fetch_manifests_offline() else {
+                    return;
+                };
+                // Build the merged catalog without holding the write lock.
+                // Key handling only needs a shared read lock, so the final
+                // whole-map swap keeps the input-path pause effectively O(1).
+                let mut merged = agent_flag_tokens().read().clone();
+                for manifest in set.for_current_platform() {
+                    let bucket = merged.entry(manifest.launch.exec.clone()).or_default();
+                    for flag in &manifest.launch.flag_catalog {
+                        let token = flag_completion_token(&flag.arg);
+                        if !bucket.contains(&token) {
+                            bucket.push(token);
+                        }
+                    }
+                }
+                *agent_flag_tokens().write() = merged;
+            })
+            .ok();
+    });
 }
 
 /// Built-in flag templates per AI coding-CLI, kept current with the tools'
@@ -488,7 +520,8 @@ fn agent_exec_ghost(input: &str) -> Option<String> {
     if input.is_empty() || input.contains(' ') {
         return None;
     }
-    let map = agent_flag_tokens();
+    ensure_manifest_flags_loading();
+    let map = agent_flag_tokens().read();
     let mut best: Option<&str> = None;
     for exec in map.keys() {
         if exec.len() > input.len() && exec.starts_with(input) {
@@ -509,7 +542,8 @@ fn agent_flag_ghost(input: &str) -> Option<String> {
     if exec.is_empty() {
         return None;
     }
-    let map = agent_flag_tokens();
+    ensure_manifest_flags_loading();
+    let map = agent_flag_tokens().read();
     let flags = map.get(exec)?;
     let last_space = input.rfind(' ')?;
     let current = &input[last_space + 1..];
@@ -579,6 +613,18 @@ mod tests {
         let (typed, ghost) = current_ghost(b).expect("cross-pane prediction should land");
         assert_eq!(typed, "git fe");
         assert_eq!(ghost, "tch --prune-tags");
+    }
+
+    #[test]
+    fn external_candidates_remain_available_after_the_hot_path_optimization() {
+        let pane = 2001u64;
+        let external = vec!["zz_external_only_command --flag".to_string()];
+        for c in "zz_external_only_".chars() {
+            observe(pane, InputEvent::Char(c), &external);
+        }
+        let (typed, ghost) = current_ghost(pane).expect("external prediction should land");
+        assert_eq!(typed, "zz_external_only_");
+        assert_eq!(ghost, "command --flag");
     }
 
     #[test]

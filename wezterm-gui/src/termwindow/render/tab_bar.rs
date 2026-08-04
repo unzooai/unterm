@@ -146,5 +146,4 @@ impl crate::TermWindow {
         // bar. No extra height contribution from the stats bar.
         Self::tab_bar_pixel_height_impl(&self.config, &self.fonts, &self.render_metrics)
     }
-
 }

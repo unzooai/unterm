@@ -9,7 +9,7 @@
 use clap::*;
 use config::configuration;
 use mux::activity::Activity;
-use mux::domain::{Domain, LocalDomain};
+use mux::domain::{CoreDomain, Domain};
 use mux::Mux;
 use portable_pty::cmdbuilder::CommandBuilder;
 use std::ffi::OsString;
@@ -232,7 +232,8 @@ fn run() -> anyhow::Result<()> {
         None
     };
 
-    let domain: Arc<dyn Domain> = Arc::new(LocalDomain::new("local")?);
+    unterm_core::ensure_running()?;
+    let domain: Arc<dyn Domain> = Arc::new(CoreDomain::new("local"));
     let mux = Arc::new(mux::Mux::new(Some(domain.clone())));
     Mux::set_mux(&mux);
 

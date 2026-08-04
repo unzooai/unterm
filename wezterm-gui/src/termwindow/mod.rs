@@ -74,10 +74,11 @@ pub mod box_model;
 pub mod charselect;
 pub mod chrome_colors;
 pub mod clipboard;
-pub mod composer;
 pub mod cockpit_inbox;
-pub mod fleet_palette;
+pub mod composer;
 pub mod dir_jump;
+pub mod fleet_palette;
+pub mod git_panel;
 pub mod keyevent;
 pub mod left_tab_bar;
 pub mod modal;
@@ -89,7 +90,6 @@ mod prevcursor;
 pub mod render;
 pub mod resize;
 mod selection;
-pub mod git_panel;
 pub(crate) mod sidebar_text;
 pub mod spawn;
 pub mod top_stats_bar;
@@ -264,7 +264,7 @@ pub enum UIItemType {
         track_height: usize,
     },
     /// A tab row in the left vertical tab bar. Click activates; keep
-    /// dragging to reorder; right-click menus.
+    /// dragging to reorder; same-row double-click renames; right-click menus.
     LeftTabBarTab(usize),
     /// A project group header in the left vertical tab bar. Click toggles its
     /// collapsed state; the string is the normalized full project identity.
@@ -305,6 +305,61 @@ pub enum UIItemType {
     /// The popup menu card itself — swallows clicks that miss every row so
     /// they don't fall through to the pane below.
     PopupMenuCard,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct LeftTabBarClick {
+    tab_idx: usize,
+    button: MousePress,
+    x: isize,
+    y: isize,
+    time: Instant,
+    streak: usize,
+}
+
+impl LeftTabBarClick {
+    pub(crate) fn new(tab_idx: usize, button: MousePress, x: isize, y: isize) -> Self {
+        Self::new_at(tab_idx, button, x, y, Instant::now())
+    }
+
+    fn new_at(tab_idx: usize, button: MousePress, x: isize, y: isize, time: Instant) -> Self {
+        Self {
+            tab_idx,
+            button,
+            x,
+            y,
+            time,
+            streak: 1,
+        }
+    }
+
+    pub(crate) fn add(&self, tab_idx: usize, button: MousePress, x: isize, y: isize) -> Self {
+        self.add_at(tab_idx, button, x, y, Instant::now())
+    }
+
+    fn add_at(&self, tab_idx: usize, button: MousePress, x: isize, y: isize, now: Instant) -> Self {
+        const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(500);
+        const DOUBLE_CLICK_SLOP_PX: isize = 8;
+
+        let same_target = tab_idx == self.tab_idx
+            && button == self.button
+            && (x - self.x).abs() <= DOUBLE_CLICK_SLOP_PX
+            && (y - self.y).abs() <= DOUBLE_CLICK_SLOP_PX
+            && now.saturating_duration_since(self.time) <= DOUBLE_CLICK_INTERVAL;
+
+        Self {
+            tab_idx,
+            button,
+            x,
+            y,
+            time: now,
+            streak: if same_target { self.streak + 1 } else { 1 },
+        }
+    }
+
+    pub(crate) fn streak(&self) -> usize {
+        self.streak
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -579,6 +634,9 @@ pub struct TermWindow {
 
     /// Keeps track of double and triple clicks
     last_mouse_click: Option<LastMouseClick>,
+    /// Tracks clicks on a specific left-sidebar row independently from
+    /// terminal-pane clicks so only a true same-row double-click renames.
+    last_left_tab_bar_click: Option<LeftTabBarClick>,
 
     /// The URL over which we are currently hovering
     current_highlight: Option<Arc<Hyperlink>>,
@@ -695,7 +753,10 @@ fn cd_command_for_pane(pane: &Arc<dyn mux::pane::Pane>, path: &std::path::Path) 
             || shell == "pwsh.exe"
             || shell == "pwsh"
         {
-            return format!("Set-Location -LiteralPath {}\r", powershell_single_quote(&raw));
+            return format!(
+                "Set-Location -LiteralPath {}\r",
+                powershell_single_quote(&raw)
+            );
         }
 
         if shell == "nu.exe" || shell == "nu" {
@@ -1018,6 +1079,7 @@ impl TermWindow {
             current_mouse_buttons: vec![],
             current_mouse_capture: None,
             last_mouse_click: None,
+            last_left_tab_bar_click: None,
             current_highlight: None,
             quad_generation: 0,
             shape_generation: 0,
@@ -3178,6 +3240,28 @@ impl TermWindow {
         }
     }
 
+    /// Double-click on a left-bar row: inline rename prompt. An empty
+    /// accepted line resets to automatic titling.
+    pub(crate) fn show_left_tab_rename(&mut self, tab_idx: usize) {
+        let mux = Mux::get();
+        let tab = {
+            let Some(window) = mux.get_window(self.mux_window_id) else {
+                return;
+            };
+            let Some(tab) = window.get_by_idx(tab_idx) else {
+                return;
+            };
+            tab.clone()
+        };
+        let tab_id = tab.tab_id();
+        let initial = tab.get_title();
+        let (overlay, future) = start_overlay(self, &tab, move |_tab_id, term| {
+            crate::overlay::prompt::show_tab_rename_overlay(term, tab_id, initial)
+        });
+        self.assign_overlay(tab_id, overlay);
+        promise::spawn::spawn(future).detach();
+    }
+
     /// Toggle the directory-tree sidebar, rooted at the active pane's cwd.
     pub(crate) fn toggle_tree_sidebar(&mut self) {
         let is_open = self.tree_sidebar.borrow().is_some();
@@ -3212,9 +3296,7 @@ impl TermWindow {
         let window_pts = self.dimensions.pixel_width as f32 / pt;
         let max = (window_pts * config::ui_tokens::GIT_PANEL_MAX_RATIO)
             .max(config::ui_tokens::GIT_PANEL_MIN_WIDTH);
-        (config::ui_tokens::GIT_PANEL_WIDTH
-            .clamp(config::ui_tokens::GIT_PANEL_MIN_WIDTH, max)
-            * pt)
+        (config::ui_tokens::GIT_PANEL_WIDTH.clamp(config::ui_tokens::GIT_PANEL_MIN_WIDTH, max) * pt)
             .round()
     }
 
@@ -3475,8 +3557,7 @@ impl TermWindow {
                         if let Some(run) = c.run.as_mut() {
                             run.phase = RunPhase::AutoPaused { moved: false };
                         }
-                        c.status =
-                            Some("Paused — choose in the pane (auto-resumes)".to_string());
+                        c.status = Some("Paused — choose in the pane (auto-resumes)".to_string());
                     }
                     self.invalidate_composer();
                     // Keep polling so we notice the pane moving and re-inspect.
@@ -3677,10 +3758,7 @@ impl TermWindow {
                 None,
             );
         }
-        log::debug!(
-            "glyph prewarm ({text:?}) took {:?}",
-            start.elapsed()
-        );
+        log::debug!("glyph prewarm ({text:?}) took {:?}", start.elapsed());
     }
 
     fn prewarm_settings_menu(&mut self) {
@@ -5520,11 +5598,52 @@ impl Drop for TermWindow {
 
 #[cfg(test)]
 mod interaction_contract_tests {
-    use super::{right_click_action, RightClickAction};
+    use super::{right_click_action, LeftTabBarClick, RightClickAction};
+    use std::time::{Duration, Instant};
+    use window::MousePress;
 
     #[test]
     fn right_click_copies_only_when_a_selection_exists() {
         assert_eq!(right_click_action(true), RightClickAction::CopySelection);
         assert_eq!(right_click_action(false), RightClickAction::PasteClipboard);
+    }
+
+    #[test]
+    fn left_tab_double_click_requires_the_same_row_and_nearby_coordinates() {
+        let first = LeftTabBarClick::new(2, MousePress::Left, 40, 80);
+        assert_eq!(first.add(2, MousePress::Left, 44, 84).streak(), 2);
+        assert_eq!(first.add(3, MousePress::Left, 44, 84).streak(), 1);
+        assert_eq!(first.add(2, MousePress::Left, 60, 80).streak(), 1);
+        assert_eq!(first.add(2, MousePress::Right, 40, 80).streak(), 1);
+    }
+
+    #[test]
+    fn left_tab_double_click_respects_the_500ms_boundary() {
+        let start = Instant::now();
+        let first = LeftTabBarClick::new_at(2, MousePress::Left, 40, 80, start);
+        assert_eq!(
+            first
+                .add_at(
+                    2,
+                    MousePress::Left,
+                    40,
+                    80,
+                    start + Duration::from_millis(500),
+                )
+                .streak(),
+            2
+        );
+        assert_eq!(
+            first
+                .add_at(
+                    2,
+                    MousePress::Left,
+                    40,
+                    80,
+                    start + Duration::from_millis(501),
+                )
+                .streak(),
+            1
+        );
     }
 }

@@ -3695,6 +3695,7 @@ dependencies = [
  "promise",
  "rangeset",
  "serde",
+ "serde_json",
  "serial2",
  "shell-words",
  "smol",
@@ -3703,6 +3704,7 @@ dependencies = [
  "termwiz-funcs",
  "textwrap",
  "thiserror 1.0.69",
+ "unterm-core",
  "url",
  "wezterm-dynamic",
  "wezterm-ssh",
@@ -6602,6 +6604,7 @@ dependencies = [
  "unicode-normalization",
  "unicode-segmentation",
  "unterm-agents",
+ "unterm-core",
  "unterm-profile",
  "url",
  "url-funcs",
@@ -6698,6 +6701,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "unterm-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs-next",
+ "downcast-rs",
+ "libc",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "uuid",
+ "wezterm-term",
+]
+
+[[package]]
 name = "unterm-mux"
 version = "0.57.4"
 dependencies = [
@@ -6716,6 +6734,7 @@ dependencies = [
  "portable-pty",
  "promise",
  "umask",
+ "unterm-core",
  "wezterm-blob-leases",
  "wezterm-gui-subcommands",
  "wezterm-mux-server-impl",

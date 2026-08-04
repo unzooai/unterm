@@ -254,7 +254,8 @@ impl TabMenuState {
                     let is_selected = idx == self.active_idx;
                     let is_close = item.label == "Close Tab";
                     let left_part = format!(" {} {}", item.icon, item.label);
-                    let right_pad = card_w.saturating_sub(unicode_column_width(&left_part, None) + 4);
+                    let right_pad =
+                        card_w.saturating_sub(unicode_column_width(&left_part, None) + 4);
 
                     let (row_fg, row_bg) = if is_selected {
                         if is_close {

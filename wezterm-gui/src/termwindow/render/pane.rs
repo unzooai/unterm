@@ -1064,7 +1064,12 @@ impl crate::TermWindow {
             self.filled_rectangle(
                 layers,
                 2,
-                euclid::rect(cx - arm + dx - thick / 2.0, cy - arm * 0.2 + dy - thick / 2.0, thick, thick),
+                euclid::rect(
+                    cx - arm + dx - thick / 2.0,
+                    cy - arm * 0.2 + dy - thick / 2.0,
+                    thick,
+                    thick,
+                ),
                 mark,
             )
             .context("scroll-to-bottom chevron left")?;
@@ -1072,7 +1077,12 @@ impl crate::TermWindow {
             self.filled_rectangle(
                 layers,
                 2,
-                euclid::rect(cx + arm - dx - thick / 2.0, cy - arm * 0.2 + dy - thick / 2.0, thick, thick),
+                euclid::rect(
+                    cx + arm - dx - thick / 2.0,
+                    cy - arm * 0.2 + dy - thick / 2.0,
+                    thick,
+                    thick,
+                ),
                 mark,
             )
             .context("scroll-to-bottom chevron right")?;

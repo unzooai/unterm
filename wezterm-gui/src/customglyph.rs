@@ -6061,12 +6061,9 @@ mod window_button_glyph_tests {
     fn raster_rows(polys: &[Poly], size: usize, underline_height: f32) -> Vec<usize> {
         let mut buffer = Image::new(size, size);
         {
-            let mut pixmap = PixmapMut::from_bytes(
-                buffer.pixel_data_slice_mut(),
-                size as u32,
-                size as u32,
-            )
-            .unwrap();
+            let mut pixmap =
+                PixmapMut::from_bytes(buffer.pixel_data_slice_mut(), size as u32, size as u32)
+                    .unwrap();
             for Poly {
                 path,
                 intensity,
@@ -6105,9 +6102,7 @@ mod window_button_glyph_tests {
     #[test]
     fn windows_maximize_button_atlas_sprite_is_complete() {
         config::use_test_configuration();
-        let fonts = std::rc::Rc::new(
-            wezterm_font::FontConfiguration::new(None, 96).unwrap(),
-        );
+        let fonts = std::rc::Rc::new(wezterm_font::FontConfiguration::new(None, 96).unwrap());
         let mut cache = crate::glyphcache::GlyphCache::new_in_memory(&fonts, 128).unwrap();
         let metrics = RenderMetrics {
             descender: PixelLength::new(0.),

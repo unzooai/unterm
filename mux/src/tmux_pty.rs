@@ -2,8 +2,8 @@ use crate::tmux::{RefTmuxRemotePane, TmuxCmdQueue, TmuxDomainState};
 use crate::tmux_commands::{Resize, SendKeys};
 use crate::DomainId;
 use filedescriptor::FileDescriptor;
-use parking_lot::{Condvar, Mutex};
-use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty};
+use parking_lot::Mutex;
+use portable_pty::MasterPty;
 use std::io::{Read, Write};
 use std::sync::Arc;
 
@@ -61,64 +61,6 @@ impl Write for TmuxPty {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct TmuxChild {
-    pub active_lock: Arc<(Mutex<bool>, Condvar)>,
-}
-
-impl Child for TmuxChild {
-    fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
-        todo!()
-    }
-
-    fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
-        let &(ref lock, ref var) = &*self.active_lock;
-        let mut released = lock.lock();
-        while !*released {
-            var.wait(&mut released);
-        }
-        return Ok(ExitStatus::with_exit_code(0));
-    }
-
-    fn process_id(&self) -> Option<u32> {
-        None
-    }
-
-    #[cfg(windows)]
-    fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle> {
-        None
-    }
-}
-
-#[derive(Clone, Debug)]
-struct TmuxChildKiller {}
-
-impl ChildKiller for TmuxChildKiller {
-    fn kill(&mut self) -> std::io::Result<()> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "TmuxChildKiller: kill not implemented!",
-        ))
-    }
-
-    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
-        Box::new(self.clone())
-    }
-}
-
-impl ChildKiller for TmuxChild {
-    fn kill(&mut self) -> std::io::Result<()> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "TmuxPty: kill not implemented!",
-        ))
-    }
-
-    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
-        Box::new(TmuxChildKiller {})
     }
 }
 

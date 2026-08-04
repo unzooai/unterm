@@ -3,17 +3,20 @@
 
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
-use config::keyassignment::SpawnTabDomain;
 use mux::pane::Pane;
 use mux::Mux;
 use parking_lot::Mutex;
-use portable_pty::CommandBuilder;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
+use unterm_core::{read_discovery, CoreClient, Response, SessionInfo};
 use window::WindowOps;
+
+fn core_client() -> Result<CoreClient> {
+    let info = read_discovery()?.ok_or_else(|| anyhow!("unterm-core is not running"))?;
+    CoreClient::connect(&info.endpoint, &info.token)
+}
 
 /// Audit log entry
 #[derive(Clone, serde::Serialize)]
@@ -90,46 +93,6 @@ fn entry_agent_from_last_audit(state: &McpState) -> String {
         .last()
         .map(|e| e.agent.clone())
         .unwrap_or_else(|| "anonymous".to_string())
-}
-
-fn shell_command_builder(command: &str) -> CommandBuilder {
-    #[cfg(windows)]
-    {
-        let mut builder = CommandBuilder::new("cmd.exe");
-        builder.arg("/C");
-        builder.arg(command);
-        builder
-    }
-    #[cfg(not(windows))]
-    {
-        let shell = std::env::var_os("SHELL").unwrap_or_else(|| OsString::from("/bin/sh"));
-        let mut builder = CommandBuilder::new(shell);
-        builder.arg("-lc");
-        builder.arg(command);
-        builder
-    }
-}
-
-fn apply_profile_env_to_builder(
-    cmd_builder: &mut Option<CommandBuilder>,
-    profile: &str,
-) -> Result<String> {
-    let registry = unterm_profile::ProfileRegistry::load().context("load profile registry")?;
-    let (profile_id, _) = registry
-        .resolve(profile)
-        .ok_or_else(|| anyhow!("profile not found or ambiguous: {profile}"))?;
-    let profile_id = profile_id.to_string();
-    let store = unterm_profile::default_store().context("open profile secret store")?;
-    let env = registry
-        .resolve_env(store.as_ref(), &profile_id)
-        .with_context(|| format!("resolve profile env for {profile_id}"))?;
-    if !env.is_empty() {
-        let builder = cmd_builder.get_or_insert_with(CommandBuilder::new_default_prog);
-        for (key, value) in env {
-            builder.env(key, value);
-        }
-    }
-    Ok(profile_id)
 }
 
 fn cwd_url_to_path(raw: &str) -> Option<String> {
@@ -805,10 +768,12 @@ fn foreground_command_title(info: &procinfo::LocalProcessInfo) -> Option<String>
     Some(title)
 }
 
-const AGENT_CWD_TTL: std::time::Duration = std::time::Duration::from_millis(5000);
+// Match 0.57.4's visible status freshness. Concurrency remains bounded well
+// below the old 16-worker fan-out so busy multi-tab windows stay responsive.
+const AGENT_CWD_TTL: std::time::Duration = std::time::Duration::from_millis(2000);
 const AGENT_CWD_PRUNE_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 const AGENT_CWD_PRUNE_MIN_SIZE: usize = 128;
-const AGENT_CWD_MAX_INFLIGHT: usize = 2;
+const AGENT_CWD_MAX_INFLIGHT: usize = 4;
 
 fn agent_cwd_cache() -> &'static Mutex<HashMap<u64, (std::time::Instant, PaneAgentCwd)>> {
     static C: std::sync::OnceLock<Mutex<HashMap<u64, (std::time::Instant, PaneAgentCwd)>>> =
@@ -1660,50 +1625,16 @@ impl McpHandler {
     }
 
     fn session_list(&self) -> Result<Value> {
-        let mux = self.get_mux()?;
-        // iter_panes walks a HashMap, so impose a stable order: clients
-        // (unterm-cli among them) default to picking a pane from this
-        // list, and an unstable order turns "no --id given" into writes
-        // landing in a random pane.
-        let mut panes = mux.iter_panes();
-        panes.sort_by_key(|pane| pane.pane_id());
-
-        // The pane the user is actually looking at, so clients can
-        // default to it instead of guessing.
-        let active_pane_id = mux
-            .iter_windows()
-            .into_iter()
-            .find_map(|wid| mux.get_active_tab_for_window(wid))
-            .and_then(|tab| tab.get_active_pane())
-            .map(|pane| pane.pane_id());
-
-        let sessions: Vec<Value> = panes
-            .iter()
-            .map(|pane| {
-                let dims = pane.get_dimensions();
-                let cursor = pane.get_cursor_position();
-                let is_dead = pane.is_dead();
-                let shell = Self::detect_shell(pane);
-
-                json!({
-                    "id": pane.pane_id(),
-                    "title": pane.get_title(),
-                    "cols": dims.cols,
-                    "rows": dims.viewport_rows,
-                    "cursor": {
-                        "x": cursor.x,
-                        "y": cursor.y,
-                        "visible": cursor.visibility == termwiz::surface::CursorVisibility::Visible,
-                    },
-                    "is_dead": is_dead,
-                    "is_active": Some(pane.pane_id()) == active_pane_id,
-                    "domain_id": pane.domain_id(),
-                    "shell": shell,
-                })
-            })
-            .collect();
-
-        Ok(json!({ "sessions": sessions }))
+        let mut core = core_client().context("session.list requires unterm-core")?;
+        let result: Response<Vec<SessionInfo>> = core.request("session.list")?;
+        if !result.ok {
+            return Err(anyhow!("unterm-core rejected session.list"));
+        }
+        Ok(json!({
+            "sessions": result.result.unwrap_or_default(),
+            "active_pane_id": Value::Null,
+            "core": true
+        }))
     }
 
     fn session_get(&self, params: &Value) -> Result<Value> {
@@ -1742,6 +1673,29 @@ impl McpHandler {
     ///
     /// Returns the same shape as `session.create`.
     fn session_split(&self, params: &Value) -> Result<Value> {
+        if let Some(id) = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .and_then(Value::as_str)
+        {
+            if uuid::Uuid::parse_str(id).is_ok() {
+                let mut core = core_client()?;
+                let result: Response<SessionInfo> = core.request_with_params(
+                    "session.create",
+                    json!({
+                        "cwd": params.get("cwd").and_then(Value::as_str),
+                        "cols": params.get("cols").and_then(Value::as_u64).unwrap_or(60),
+                        "rows": params.get("rows").and_then(Value::as_u64).unwrap_or(30)
+                    }),
+                )?;
+                if let Some(session) = result.result {
+                    return Ok(
+                        json!({"id": session.id, "session_id": session.id, "title": session.shell, "cwd": session.cwd, "pid": session.pid, "status": session.status, "core": true}),
+                    );
+                }
+                return Err(anyhow!("unterm-core failed to create split session"));
+            }
+        }
         use config::keyassignment::SpawnTabDomain;
         use mux::domain::SplitSource;
         use mux::tab::{SplitDirection, SplitRequest, SplitSize};
@@ -1757,7 +1711,9 @@ impl McpHandler {
                     .map(|n| n as usize)
                     .or_else(|| v.as_str().and_then(|s| s.parse::<usize>().ok()))
             })
-            .ok_or_else(|| anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)"))?;
+            .ok_or_else(|| {
+                anyhow!("Missing 'id' / 'session_id' / 'pane_id' (source pane to split)")
+            })?;
 
         // Take an owned String here so the value can cross the async
         // closure boundary below — &str borrowed from `params` would
@@ -1870,102 +1826,53 @@ impl McpHandler {
     }
 
     fn session_create(&self, params: &Value) -> Result<Value> {
-        let cols = params.get("cols").and_then(|v| v.as_u64()).unwrap_or(120) as usize;
-        let rows = params.get("rows").and_then(|v| v.as_u64()).unwrap_or(30) as usize;
-        let command_dir = params
-            .get("cwd")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let command = params
-            .get("command")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-        let profile = params
-            .get("profile")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-
-        let mut cmd_builder = command.as_deref().map(shell_command_builder);
-        if let Some(cwd) = command_dir.as_deref() {
-            if let Some(builder) = cmd_builder.as_mut() {
-                builder.cwd(cwd);
+        // All new sessions are owned by unterm-core.
+        let mut core = core_client().context("session.create requires unterm-core")?;
+        {
+            let result: Response<SessionInfo> = core.request_with_params(
+                "session.create",
+                json!({
+                    "cwd": params.get("cwd").and_then(Value::as_str),
+                    "shell": params.get("profile").and_then(Value::as_str).unwrap_or("default"),
+                    "command": params.get("command").and_then(Value::as_str),
+                    "cols": params.get("cols").and_then(Value::as_u64).unwrap_or(120),
+                    "rows": params.get("rows").and_then(Value::as_u64).unwrap_or(30)
+                }),
+            )?;
+            if result.ok {
+                if let Some(session) = result.result {
+                    return Ok(
+                        json!({"id": session.id, "session_id": session.id, "title": session.shell, "cwd": session.cwd, "pid": session.pid, "status": session.status}),
+                    );
+                }
             }
         }
-        let resolved_profile = if let Some(profile) = profile.as_deref() {
-            Some(apply_profile_env_to_builder(&mut cmd_builder, profile)?)
-        } else {
-            None
-        };
-
-        let size = wezterm_term::TerminalSize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-            dpi: 0,
-        };
-
-        // Use a channel to get the async result back to this sync context.
-        // Two-level spawn pattern (same as wezterm-mux-server-impl) because
-        // domain.spawn() returns non-Send futures.
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        promise::spawn::spawn_into_main_thread(async move {
-            promise::spawn::spawn(async move {
-                let result = async {
-                    let mux = Mux::get();
-                    let window_id = mux
-                        .iter_windows()
-                        .into_iter()
-                        .next()
-                        .ok_or_else(|| anyhow!("No windows available"))?;
-
-                    let (_tab, pane, _wid) = mux
-                        .spawn_tab_or_window(
-                            Some(window_id),
-                            SpawnTabDomain::DefaultDomain,
-                            cmd_builder,
-                            command_dir,
-                            size,
-                            None,
-                            String::new(),
-                            None,
-                        )
-                        .await
-                        .context("spawn_tab_or_window")?;
-
-                    let dims = pane.get_dimensions();
-                    let pid = pane.pane_id();
-                    Ok::<Value, anyhow::Error>(json!({
-                        "id": pid,
-                        "session_id": pid.to_string(),
-                        "title": pane.get_title(),
-                        "cols": dims.cols,
-                        "rows": dims.viewport_rows,
-                        "profile": resolved_profile,
-                        "command": command,
-                    }))
-                }
-                .await;
-                tx.send(result).ok();
-            })
-            .detach();
-        })
-        .detach();
-
-        // Wait for the spawn to complete (up to 10 seconds)
-        let result = rx
-            .recv_timeout(std::time::Duration::from_secs(10))
-            .map_err(|_| anyhow!("Timeout waiting for session creation"))?;
-
-        result
+        Err(anyhow!("unterm-core failed to create session"))
     }
 
     fn session_input(&self, params: &Value) -> Result<Value> {
+        if let Some(id) = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .and_then(Value::as_str)
+        {
+            if uuid::Uuid::parse_str(id).is_ok() {
+                let input = params
+                    .get("input")
+                    .or_else(|| params.get("text"))
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        anyhow!("Missing 'input' (or compatibility alias 'text') parameter")
+                    })?;
+                let mut core = core_client()?;
+                let result: Response<Value> =
+                    core.request_with_params("session.write", json!({"id": id, "data": input}))?;
+                if !result.ok {
+                    return Err(anyhow!("unterm-core rejected session input"));
+                }
+                return Ok(json!({"status":"ok","core":true}));
+            }
+        }
         let pane = self.get_pane(params)?;
         let input = params
             .get("input")
@@ -2108,6 +2015,28 @@ impl McpHandler {
     }
 
     fn session_resize(&self, params: &Value) -> Result<Value> {
+        if let Some(id) = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .and_then(Value::as_str)
+        {
+            if uuid::Uuid::parse_str(id).is_ok() {
+                let cols = params
+                    .get("cols")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| anyhow!("Missing 'cols'"))?;
+                let rows = params
+                    .get("rows")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| anyhow!("Missing 'rows'"))?;
+                let mut core = core_client()?;
+                let result: Response<Value> = core.request_with_params(
+                    "session.resize",
+                    json!({"id": id, "cols": cols, "rows": rows}),
+                )?;
+                return Ok(result.result.unwrap_or_else(|| json!({"resized": false})));
+            }
+        }
         let pane = self.get_pane(params)?;
         let cols = params
             .get("cols")
@@ -2151,6 +2080,21 @@ impl McpHandler {
     }
 
     fn session_destroy(&self, params: &Value) -> Result<Value> {
+        if let Some(id) = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .and_then(Value::as_str)
+        {
+            if uuid::Uuid::parse_str(id).is_ok() {
+                let mut core = core_client()?;
+                let result: Response<Value> =
+                    core.request_with_params("session.close", json!({"id": id}))?;
+                if !result.ok {
+                    return Err(anyhow!("unterm-core rejected session close"));
+                }
+                return Ok(json!({"status":"ok","destroyed":true,"core":true}));
+            }
+        }
         let pane = self.get_pane(params)?;
         self.audit(
             "session.destroy",
@@ -2756,7 +2700,9 @@ impl McpHandler {
             .get("suggestion_id")
             .or_else(|| params.get("id"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter"))?;
+            .ok_or_else(|| {
+                anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter")
+            })?;
         let state = mcp_state().lock();
         let suggestion = state
             .suggestions
@@ -2770,7 +2716,9 @@ impl McpHandler {
             .get("suggestion_id")
             .or_else(|| params.get("id"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter"))?
+            .ok_or_else(|| {
+                anyhow!("Missing 'suggestion_id' (or compatibility alias 'id') parameter")
+            })?
             .to_string();
         let mut state = mcp_state().lock();
         let suggestion = state
@@ -3879,6 +3827,26 @@ impl McpHandler {
     // --- Capture ---
 
     fn capture_screen(&self, params: &Value) -> Result<Value> {
+        if let Ok(mut core) = core_client() {
+            let sessions: Response<Vec<SessionInfo>> = core.request("session.list")?;
+            if sessions.ok {
+                let mut captures = Vec::new();
+                for session in sessions.result.unwrap_or_default() {
+                    let output: Response<Value> = core.request_with_params(
+                        "session.read",
+                        json!({"id": &session.id, "max_bytes": 65536}),
+                    )?;
+                    let screen = output
+                        .result
+                        .and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_owned))
+                        .unwrap_or_default();
+                    captures.push(json!({"session_id": session.id, "title": session.shell, "screen": screen, "type": "text"}));
+                }
+                return Ok(
+                    json!({"captures": captures, "image": Value::Null, "type": "text/plain", "text_snapshot": true, "core": true}),
+                );
+            }
+        }
         let mux = self.get_mux()?;
         let panes = mux.iter_panes();
         let mut captures = Vec::new();
@@ -3907,6 +3875,24 @@ impl McpHandler {
     }
 
     fn capture_window(&self, params: &Value) -> Result<Value> {
+        if let Some(id) = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .and_then(Value::as_str)
+        {
+            if uuid::Uuid::parse_str(id).is_ok() {
+                let mut core = core_client()?;
+                let output: Response<Value> = core
+                    .request_with_params("session.read", json!({"id": id, "max_bytes": 65536}))?;
+                let screen = output
+                    .result
+                    .and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_owned))
+                    .unwrap_or_default();
+                return Ok(
+                    json!({"session_id": id, "screen": screen, "image": Value::Null, "type": "text/plain", "text_snapshot": true, "core": true}),
+                );
+            }
+        }
         let title_filter = params.get("title").and_then(|v| v.as_str());
         let pid_filter = params.get("pid").and_then(|v| v.as_u64()).map(|v| v as u32);
         let mux = self.get_mux()?;
@@ -3962,6 +3948,30 @@ impl McpHandler {
     /// occlusion constraints). `screen.scrollback_text` remains the
     /// AI-friendly text path; this is the human-shareable image path.
     fn capture_scrollback(&self, params: &Value) -> Result<Value> {
+        if let Some(id) = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .and_then(Value::as_str)
+        {
+            if uuid::Uuid::parse_str(id).is_ok() {
+                let mut core = core_client()?;
+                let output: Response<Value> = core
+                    .request_with_params("session.read", json!({"id": id, "max_bytes": 65536}))?;
+                let text = output
+                    .result
+                    .and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_owned))
+                    .unwrap_or_default();
+                let dir = capture_output_dir()?;
+                let path = dir.join(format!(
+                    "scrollback_{}.txt",
+                    chrono::Local::now().format("%Y%m%d_%H%M%S_%3f")
+                ));
+                std::fs::write(&path, &text)?;
+                return Ok(
+                    json!({"path": path.display().to_string(), "text": text, "type": "text/plain", "core": true}),
+                );
+            }
+        }
         let pane = match self.get_pane(params) {
             Ok(p) => p,
             Err(_) => {
@@ -4189,6 +4199,31 @@ impl McpHandler {
     }
 
     fn screen_read(&self, params: &Value) -> Result<Value> {
+        if let Some(id) = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .and_then(Value::as_str)
+        {
+            if uuid::Uuid::parse_str(id).is_ok() {
+                let mut core = core_client()?;
+                let result: Response<Value> =
+                    core.request_with_params("session.screen", json!({"id": id}))?;
+                let screen = result.result.unwrap_or_else(|| json!({"lines": []}));
+                let lines = screen
+                    .get("lines")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let cells = lines
+                    .into_iter()
+                    .enumerate()
+                    .map(|(row, line)| json!({"row": row, "text": line.as_str().unwrap_or("")}))
+                    .collect::<Vec<_>>();
+                return Ok(
+                    json!({"cells": cells, "cursor":screen.get("cursor").cloned().unwrap_or_else(|| json!({"x":0,"y":0,"visible":true})), "cols":screen.get("cols").and_then(Value::as_u64).unwrap_or(120), "rows":screen.get("rows").and_then(Value::as_u64).unwrap_or(30), "scrollback_rows":0, "core":true}),
+                );
+            }
+        }
         let pane = self.get_pane(params)?;
         let dims = pane.get_dimensions();
         let cursor = pane.get_cursor_position();
@@ -4225,6 +4260,21 @@ impl McpHandler {
     }
 
     fn screen_text(&self, params: &Value) -> Result<Value> {
+        if let Some(id) = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .and_then(Value::as_str)
+        {
+            if uuid::Uuid::parse_str(id).is_ok() {
+                let mut core = core_client()?;
+                let result: Response<Value> =
+                    core.request_with_params("session.screen", json!({"id": id}))?;
+                let screen = result.result.unwrap_or_else(|| json!({"lines": []}));
+                return Ok(
+                    json!({"lines": screen.get("lines").cloned().unwrap_or_else(|| json!([])), "cursor":screen.get("cursor").cloned().unwrap_or_else(|| json!({"x":0,"y":0})), "cols":screen.get("cols").and_then(Value::as_u64).unwrap_or(120), "rows":screen.get("rows").and_then(Value::as_u64).unwrap_or(30), "core":true}),
+                );
+            }
+        }
         let pane = self.get_pane(params)?;
         let dims = pane.get_dimensions();
         let cursor = pane.get_cursor_position();
@@ -4264,6 +4314,25 @@ impl McpHandler {
     ///   selected range. Useful for LLM hand-offs that need recent output
     ///   without fetching the entire scrollback.
     fn screen_scrollback_text(&self, params: &Value) -> Result<Value> {
+        if let Some(id) = params
+            .get("id")
+            .or_else(|| params.get("session_id"))
+            .and_then(Value::as_str)
+        {
+            if uuid::Uuid::parse_str(id).is_ok() {
+                let mut core = core_client()?;
+                let result: Response<Value> = core
+                    .request_with_params("session.read", json!({"id": id, "max_bytes": 65536}))?;
+                let text = result
+                    .result
+                    .and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_owned))
+                    .unwrap_or_default();
+                let end_line = text.lines().count();
+                return Ok(
+                    json!({"text": text, "start_line": 0, "end_line": end_line, "core": true}),
+                );
+            }
+        }
         // Unlike the other screen.* methods we let callers omit pane_id and
         // fall back to the active pane of the first window — the typical
         // agent intent is "dump *this* terminal," not "dump some specific
@@ -5347,10 +5416,7 @@ mod exec_wait_tests {
         let marker = "__UNTERM_DONE_0123456789abcdef__";
         let wrapped = "output\n__UNTERM_DONE_012345\n6789abcdef__\nPS>";
         assert!(contains_ignoring_line_breaks(wrapped, marker));
-        assert_eq!(
-            strip_ignoring_line_breaks(wrapped, marker),
-            "output\nPS>"
-        );
+        assert_eq!(strip_ignoring_line_breaks(wrapped, marker), "output\nPS>");
     }
 
     #[test]
@@ -5566,11 +5632,7 @@ fn clipboard_read_win32() -> Result<Value> {
                         *((ptr as *const u8).add(offset + 3)),
                     ])
                 };
-                let alpha_mask = if header_size >= 56 {
-                    read_mask(52)
-                } else {
-                    0
-                };
+                let alpha_mask = if header_size >= 56 { read_mask(52) } else { 0 };
                 channel_masks = Some((
                     read_mask(mask_offset),
                     read_mask(mask_offset + 4),

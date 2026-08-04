@@ -416,17 +416,14 @@ impl Composer {
         );
 
         children.push(
-            text_el(
-                "Enter: enqueue    Shift+Enter: newline".to_string(),
-                dim,
-            )
-            .display(DisplayType::Block)
-            .padding(BoxDimension {
-                left: Dimension::Pixels(14. * pt),
-                right: Dimension::Pixels(14. * pt),
-                top: Dimension::Pixels(0.),
-                bottom: Dimension::Pixels(4. * pt),
-            }),
+            text_el("Enter: enqueue    Shift+Enter: newline".to_string(), dim)
+                .display(DisplayType::Block)
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(14. * pt),
+                    right: Dimension::Pixels(14. * pt),
+                    top: Dimension::Pixels(0.),
+                    bottom: Dimension::Pixels(4. * pt),
+                }),
         );
 
         // Queue list.
@@ -460,29 +457,26 @@ impl Composer {
                     row_border.left = amber;
                 }
                 children.push(
-                    Element::new(
-                        &font,
-                        ElementContent::Text(label),
-                    )
-                    .colors(ElementColors {
-                        border: row_border,
-                        bg: row_bg,
-                        text: if is_current { amber.into() } else { row_fg },
-                    })
-                    .border(BoxDimension {
-                        left: Dimension::Pixels(2. * pt),
-                        right: Dimension::Pixels(0.),
-                        top: Dimension::Pixels(0.),
-                        bottom: Dimension::Pixels(0.),
-                    })
-                    .padding(BoxDimension {
-                        left: Dimension::Pixels(12. * pt),
-                        right: Dimension::Pixels(14. * pt),
-                        top: Dimension::Pixels(4. * pt),
-                        bottom: Dimension::Pixels(4. * pt),
-                    })
-                    .min_width(Some(Dimension::Percent(1.)))
-                    .display(DisplayType::Block),
+                    Element::new(&font, ElementContent::Text(label))
+                        .colors(ElementColors {
+                            border: row_border,
+                            bg: row_bg,
+                            text: if is_current { amber.into() } else { row_fg },
+                        })
+                        .border(BoxDimension {
+                            left: Dimension::Pixels(2. * pt),
+                            right: Dimension::Pixels(0.),
+                            top: Dimension::Pixels(0.),
+                            bottom: Dimension::Pixels(0.),
+                        })
+                        .padding(BoxDimension {
+                            left: Dimension::Pixels(12. * pt),
+                            right: Dimension::Pixels(14. * pt),
+                            top: Dimension::Pixels(4. * pt),
+                            bottom: Dimension::Pixels(4. * pt),
+                        })
+                        .min_width(Some(Dimension::Percent(1.)))
+                        .display(DisplayType::Block),
                 );
             }
         }

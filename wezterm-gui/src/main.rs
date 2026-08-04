@@ -11,11 +11,10 @@ use clap::{Parser, ValueHint};
 use config::keyassignment::{SpawnCommand, SpawnTabDomain};
 use config::{ConfigHandle, SerialDomain, SshDomain, SshMultiplexing};
 use mux::activity::Activity;
-use mux::domain::{Domain, LocalDomain};
+use mux::domain::{CoreDomain, Domain};
 use mux::Mux;
 use mux_lua::MuxDomain;
 use portable_pty::cmdbuilder::CommandBuilder;
-use promise::spawn::block_on;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env::current_dir;
@@ -26,6 +25,7 @@ use std::sync::Arc;
 use termwiz::cell::CellAttributes;
 use termwiz::surface::{Line, SEQ_ZERO};
 use unicode_normalization::UnicodeNormalization;
+use unterm_core::ensure_running as ensure_core_running;
 use wezterm_bidi::Direction;
 use wezterm_client::domain::ClientDomain;
 use wezterm_font::shaper::PresentationWidth;
@@ -199,13 +199,39 @@ async fn async_run_ssh(opts: SshCommand) -> anyhow::Result<()> {
         None
     };
 
-    let domain: Arc<dyn Domain> = Arc::new(mux::ssh::RemoteSshDomain::with_ssh_domain(&dom)?);
+    // Direct SSH sessions are ordinary Core PTY sessions.
+    let domain: Arc<dyn Domain> = Arc::new(CoreDomain::with_command(
+        &dom.name,
+        core_ssh_command(&dom),
+    ));
     let mux = Mux::get();
     mux.add_domain(&domain);
     mux.set_default_domain(&domain);
 
     let should_publish = false;
     async_run_terminal_gui(cmd, start_command, should_publish).await
+}
+
+fn core_ssh_command(domain: &SshDomain) -> CommandBuilder {
+    let mut command = CommandBuilder::new("ssh");
+    command.arg("-t");
+    for (key, value) in &domain.ssh_option {
+        command.arg("-o");
+        command.arg(format!("{key}={value}"));
+    }
+    if domain.no_agent_auth {
+        command.arg("-o");
+        command.arg("IdentitiesOnly=yes");
+    }
+    if let Some(username) = &domain.username {
+        command.arg(format!("{username}@{}", domain.remote_address));
+    } else {
+        command.arg(&domain.remote_address);
+    }
+    if let Some(default_prog) = &domain.default_prog {
+        command.args(default_prog);
+    }
+    command
 }
 
 fn run_ssh(opts: SshCommand) -> anyhow::Result<()> {
@@ -251,7 +277,15 @@ async fn async_run_serial(opts: SerialCommand) -> anyhow::Result<()> {
 
     let cmd = None;
 
-    let domain: Arc<dyn Domain> = Arc::new(LocalDomain::new_serial_domain(serial_domain)?);
+    let domain: Arc<dyn Domain> = Arc::new(CoreDomain::with_serial(
+        &serial_domain.name,
+        serial_domain
+            .port
+            .as_ref()
+            .unwrap_or(&serial_domain.name)
+            .clone(),
+        serial_domain.baud,
+    ));
     let mux = Mux::get();
     mux.add_domain(&domain);
 
@@ -575,17 +609,13 @@ fn start_gui_stall_watchdog() {
 async fn async_run_terminal_gui(
     cmd: Option<CommandBuilder>,
     opts: StartCommand,
-    should_publish: bool,
+    _should_publish: bool,
 ) -> anyhow::Result<()> {
-    let unix_socket_path =
-        config::RUNTIME_DIR.join(format!("gui-sock-{}", unsafe { libc::getpid() }));
-    std::env::set_var("WEZTERM_UNIX_SOCKET", unix_socket_path.clone());
+    ensure_unterm_core()?;
     wezterm_blob_leases::register_storage(Arc::new(
         wezterm_blob_leases::simple_tempdir::SimpleTempDir::new_in(&*config::CACHE_DIR)?,
     ))?;
-    if let Err(err) = spawn_mux_server(unix_socket_path, should_publish) {
-        log::warn!("{:#}", err);
-    }
+    log::info!("unterm-core is authoritative; legacy mux server startup is disabled");
 
     // Start Unterm MCP server for AI agent access. Token + bound port are
     // written to ~/.unterm/server.json; legacy ~/.unterm/auth_token is also
@@ -742,193 +772,18 @@ async fn async_run_terminal_gui(
     result
 }
 
+fn ensure_unterm_core() -> anyhow::Result<()> {
+    let info = ensure_core_running()?;
+    log::info!("unterm-core ready at {}", info.endpoint);
+    Ok(())
+}
+
 fn first_run_path() -> Option<std::path::PathBuf> {
     Some(
         dirs_next::home_dir()?
             .join(".unterm")
             .join("product_onboarding_v2.json"),
     )
-}
-
-#[derive(Debug)]
-enum Publish {
-    TryPathOrPublish(PathBuf),
-    NoConnectNoPublish,
-    NoConnectButPublish,
-}
-
-impl Publish {
-    pub fn resolve(mux: &Arc<Mux>, config: &ConfigHandle, always_new_process: bool) -> Self {
-        if mux.default_domain().domain_name() != config.default_domain.as_deref().unwrap_or("local")
-        {
-            return Self::NoConnectNoPublish;
-        }
-
-        if always_new_process {
-            return Self::NoConnectNoPublish;
-        }
-
-        if config::is_config_overridden() {
-            // They're using a specific config file: assume that it is
-            // different from the running gui
-            log::trace!("skip existing gui: config is different");
-            return Self::NoConnectNoPublish;
-        }
-
-        match wezterm_client::discovery::resolve_gui_sock_path(
-            &crate::termwindow::get_window_class(),
-        ) {
-            Ok(path) => Self::TryPathOrPublish(path),
-            Err(_) => Self::NoConnectButPublish,
-        }
-    }
-
-    pub fn should_publish(&self) -> bool {
-        match self {
-            Self::TryPathOrPublish(_) | Self::NoConnectButPublish => true,
-            Self::NoConnectNoPublish => false,
-        }
-    }
-
-    pub fn try_spawn(
-        &mut self,
-        cmd: Option<CommandBuilder>,
-        config: &ConfigHandle,
-        workspace: Option<&str>,
-        domain: SpawnTabDomain,
-        new_tab: bool,
-    ) -> anyhow::Result<bool> {
-        if let Publish::TryPathOrPublish(gui_sock) = &self {
-            let dom = config::UnixDomain {
-                socket_path: Some(gui_sock.clone()),
-                no_serve_automatically: true,
-                ..Default::default()
-            };
-            let mut ui = mux::connui::ConnectionUI::new_headless();
-            match wezterm_client::client::Client::new_unix_domain(None, &dom, false, &mut ui, true)
-            {
-                Ok(client) => {
-                    let executor = promise::spawn::ScopedExecutor::new();
-                    let command = cmd.clone();
-                    let res = block_on(executor.run(async move {
-                        let vers = client.verify_version_compat(&mut ui).await?;
-
-                        if vers.executable_path != std::env::current_exe().context("resolve executable path")? {
-                            *self = Publish::NoConnectNoPublish;
-                            anyhow::bail!(
-                                "Running GUI is a different executable from us, will start a new one");
-                        }
-                        if vers.config_file_path
-                            != std::env::var_os("WEZTERM_CONFIG_FILE").map(Into::into)
-                        {
-                            *self = Publish::NoConnectNoPublish;
-                            anyhow::bail!(
-                                "Running GUI has different config from us, will start a new one"
-                            );
-                        }
-
-                        let window_id = if new_tab || config.prefer_to_spawn_tabs {
-                            if let Ok(pane_id) = client.resolve_pane_id(None).await {
-                                let panes = client.list_panes().await?;
-
-                                let mut window_id = None;
-                                'outer: for tabroot in panes.tabs {
-                                    let mut cursor = tabroot.into_tree().cursor();
-
-                                    loop {
-                                        if let Some(entry) = cursor.leaf_mut() {
-                                            if entry.pane_id == pane_id {
-                                                window_id.replace(entry.window_id);
-                                                break 'outer;
-                                            }
-                                        }
-                                        match cursor.preorder_next() {
-                                            Ok(c) => cursor = c,
-                                            Err(_) => break,
-                                        }
-                                    }
-                                }
-                                window_id
-
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
-
-                        client
-                            .spawn_v2(codec::SpawnV2 {
-                                domain,
-                                window_id,
-                                command,
-                                command_dir: None,
-                                size: config.initial_size(0, None),
-                                workspace: workspace.unwrap_or(
-                                    config
-                                        .default_workspace
-                                        .as_deref()
-                                        .unwrap_or(mux::DEFAULT_WORKSPACE)
-                                ).to_string(),
-                            })
-                            .await
-                    }));
-
-                    match res {
-                        Ok(res) => {
-                            log::info!(
-                                "Spawned your command via the existing GUI instance. \
-                             Use unterm start --always-new-process if you do not want this behavior. \
-                             Result={:?}",
-                                res
-                            );
-                            Ok(true)
-                        }
-                        Err(err) => {
-                            log::trace!(
-                                "while attempting to ask existing instance to spawn: {:#}",
-                                err
-                            );
-                            Ok(false)
-                        }
-                    }
-                }
-                Err(err) => {
-                    // Couldn't connect: it's probably a stale symlink.
-                    // That's fine: we can continue with starting a fresh gui below.
-                    log::trace!("{:#}", err);
-                    Ok(false)
-                }
-            }
-        } else {
-            Ok(false)
-        }
-    }
-}
-
-fn spawn_mux_server(unix_socket_path: PathBuf, should_publish: bool) -> anyhow::Result<()> {
-    let mut listener =
-        wezterm_mux_server_impl::local::LocalListener::with_domain(&config::UnixDomain {
-            socket_path: Some(unix_socket_path.clone()),
-            ..Default::default()
-        })?;
-    std::thread::spawn(move || {
-        let name_holder;
-        if should_publish {
-            name_holder = wezterm_client::discovery::publish_gui_sock_path(
-                &unix_socket_path,
-                &crate::termwindow::get_window_class(),
-            );
-            if let Err(err) = &name_holder {
-                log::warn!("{:#}", err);
-            }
-        }
-
-        listener.run();
-        std::fs::remove_file(unix_socket_path).ok();
-    });
-
-    Ok(())
 }
 
 fn setup_mux(
@@ -971,7 +826,7 @@ fn build_initial_mux(
     default_domain_name: Option<&str>,
     default_workspace_name: Option<&str>,
 ) -> anyhow::Result<Arc<Mux>> {
-    let domain: Arc<dyn Domain> = Arc::new(LocalDomain::new("local")?);
+    let domain: Arc<dyn Domain> = Arc::new(CoreDomain::new("local"));
     setup_mux(domain, config, default_domain_name, default_workspace_name)
 }
 
@@ -1043,27 +898,10 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
     )?;
     crate::startup_timing::mark("initial mux built");
 
-    // First, let's see if we can ask an already running unterm to do this.
-    // We must do this before we start the gui frontend as the scheduler
-    // requirements are different.
-    let mut publish = Publish::resolve(
-        &mux,
-        &config,
-        opts.always_new_process || opts.position.is_some(),
-    );
-    log::trace!("{:?}", publish);
-    if publish.try_spawn(
-        cmd.clone(),
-        &config,
-        opts.workspace.as_deref(),
-        match &opts.domain {
-            Some(name) => SpawnTabDomain::DomainName(name.to_string()),
-            None => SpawnTabDomain::DefaultDomain,
-        },
-        opts.new_tab,
-    )? {
-        return Ok(());
-    }
+    // Core owns the process/session lifecycle. Do not connect to or publish
+    // the legacy GUI mux socket; doing so would silently route a new window
+    // back into the retired kernel.
+    let should_publish = false;
     crate::startup_timing::mark("publish resolved");
 
     let gui = crate::frontend::try_new()?;
@@ -1072,7 +910,7 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
     let activity = Activity::new();
 
     promise::spawn::spawn(async move {
-        if let Err(err) = async_run_terminal_gui(cmd, opts, publish.should_publish()).await {
+        if let Err(err) = async_run_terminal_gui(cmd, opts, should_publish).await {
             terminate_with_error(err);
         }
         drop(activity);

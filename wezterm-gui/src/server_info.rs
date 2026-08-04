@@ -188,12 +188,17 @@ pub fn pid_alive(pid: u32) -> bool {
     #[cfg(windows)]
     unsafe {
         use winapi::shared::minwindef::FALSE;
+        use winapi::shared::winerror::ERROR_ACCESS_DENIED;
+        use winapi::um::errhandlingapi::GetLastError;
         use winapi::um::handleapi::CloseHandle;
         use winapi::um::processthreadsapi::{GetExitCodeProcess, OpenProcess};
         use winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION;
         let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
         if h.is_null() {
-            return true;
+            // A protected process can deny access while still being alive.
+            // ERROR_INVALID_PARAMETER and other failures for a vanished PID
+            // must remain false so stale instance files are pruned.
+            return GetLastError() == ERROR_ACCESS_DENIED;
         }
         let mut code: u32 = 0;
         let ok = GetExitCodeProcess(h, &mut code) != 0;
@@ -558,4 +563,15 @@ fn claim_compat_files_if_needed(info: &InstanceInfo) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod windows_pid_tests {
+    use super::pid_alive;
+
+    #[test]
+    fn current_pid_is_alive_and_impossible_pid_is_not() {
+        assert!(pid_alive(std::process::id()));
+        assert!(!pid_alive(u32::MAX));
+    }
 }

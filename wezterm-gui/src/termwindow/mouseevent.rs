@@ -1,6 +1,7 @@
 use crate::tabbar::TabBarItem;
 use crate::termwindow::{
-    GuiWin, MouseCapture, PositionedSplit, ScrollHit, TermWindowNotif, UIItem, UIItemType, TMB,
+    GuiWin, LeftTabBarClick, MouseCapture, PositionedSplit, ScrollHit, TermWindowNotif, UIItem,
+    UIItemType, TMB,
 };
 use ::window::{
     MouseButtons as WMB, MouseCursor, MouseEvent, MouseEventKind as WMEK, MousePress,
@@ -384,8 +385,7 @@ impl super::TermWindow {
                 context.set_cursor(Some(MouseCursor::Arrow));
                 return;
             }
-            if let Some(fp) =
-                modal.downcast_ref::<crate::termwindow::fleet_palette::FleetPalette>()
+            if let Some(fp) = modal.downcast_ref::<crate::termwindow::fleet_palette::FleetPalette>()
             {
                 let item = self.resolve_ui_item(&event);
                 match (&event.kind, item.as_ref().map(|i| &i.item_type)) {
@@ -1065,15 +1065,34 @@ impl super::TermWindow {
                 self.left_tab_bar_scroll_by(-(n as isize));
             }
             WMEK::Press(MousePress::Left) => {
-                let _ = self.activate_tab(tab_idx as isize);
-                // Keep the press armed as a drag so moving the cursor
-                // reorders the (now active) tab live. The drag path has
-                // a small movement threshold so a normal click with
-                // device jitter does not repeatedly reorder tabs.
-                self.dragging.replace((item, event));
+                let click = match self.last_left_tab_bar_click.take() {
+                    Some(click) => {
+                        click.add(tab_idx, MousePress::Left, event.coords.x, event.coords.y)
+                    }
+                    None => LeftTabBarClick::new(
+                        tab_idx,
+                        MousePress::Left,
+                        event.coords.x,
+                        event.coords.y,
+                    ),
+                };
+                let double = click.streak() == 2 && event.modifiers == ::window::Modifiers::NONE;
+                self.last_left_tab_bar_click = Some(click);
+
+                if double {
+                    self.show_left_tab_rename(tab_idx);
+                } else {
+                    let _ = self.activate_tab(tab_idx as isize);
+                    // Keep the press armed as a drag so moving the cursor
+                    // reorders the (now active) tab live. The drag path has
+                    // a small movement threshold so normal click jitter does
+                    // not repeatedly reorder tabs.
+                    self.dragging.replace((item, event));
+                }
                 context.invalidate();
             }
             WMEK::Press(MousePress::Right) => {
+                self.last_left_tab_bar_click = None;
                 self.show_tab_context_menu(tab_idx);
             }
             _ => {}
@@ -1096,6 +1115,7 @@ impl super::TermWindow {
             self.dragging.replace((item, start_event));
             return;
         }
+        self.last_left_tab_bar_click = None;
         let y = event.coords.y;
         let target = self
             .ui_items
@@ -1500,6 +1520,12 @@ impl super::TermWindow {
         };
         let mut cmd = std::process::Command::new(&exe);
         cmd.arg("--profile").arg(&next);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
         match cmd.spawn() {
             Ok(_) => {
                 let display = registry
@@ -1888,10 +1914,8 @@ impl crate::TermWindow {
                         let target = {
                             let mut guard = self.tree_sidebar.borrow_mut();
                             if let Some(t) = guard.as_mut() {
-                                let target = t
-                                    .pending_double_path
-                                    .take()
-                                    .unwrap_or_else(|| path.clone());
+                                let target =
+                                    t.pending_double_path.take().unwrap_or_else(|| path.clone());
                                 t.toggle_dir(&target); // revert the first click's toggle
                                 target
                             } else {

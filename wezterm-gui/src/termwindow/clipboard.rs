@@ -49,19 +49,14 @@ impl TermWindow {
             ClipboardPasteSource::Clipboard => Clipboard::Clipboard,
             ClipboardPasteSource::PrimarySelection => Clipboard::PrimarySelection,
         };
-        // Read the clipboard on a dedicated background thread on platforms
-        // where the backend may block while talking to another process. macOS
-        // pasteboards are lazy; Windows clipboard ownership is process-global
-        // and transiently contended by clipboard managers/RDP/previous owners.
-        // Doing either read on the GUI event handler makes right-click paste
-        // and normal typing feel sticky.
-        #[cfg(any(target_os = "macos", windows))]
+        // Read the clipboard on a dedicated background thread on macOS.
+        // Pasteboards are lazy: `read()` makes a synchronous cross-process
+        // request to whichever app owns the clipboard. The macOS backend wraps
+        // that operation in an autorelease pool, so it is safe on this worker.
+        #[cfg(target_os = "macos")]
         {
             let window_for_read = window.clone();
             let reader = promise::spawn::spawn_into_new_thread(move || {
-                // get_clipboard resolves synchronously on this thread for the
-                // blocking backends; await drains the ready future without
-                // blocking the GUI event loop.
                 promise::spawn::block_on(window_for_read.get_clipboard(clipboard))
             });
             promise::spawn::spawn(async move {
@@ -77,9 +72,11 @@ impl TermWindow {
             })
             .detach();
         }
-        // Other Unix backends return an async future without the same short,
-        // synchronous retry loop in this call site.
-        #[cfg(all(not(target_os = "macos"), not(windows)))]
+        // Windows clipboard access must be initiated on the window event-loop
+        // thread. Moving it to an arbitrary worker makes right-click paste
+        // intermittently or silently stop working. The backend future remains
+        // asynchronous, so this does not block while waiting for the result.
+        #[cfg(not(target_os = "macos"))]
         {
             let future = window.get_clipboard(clipboard);
             promise::spawn::spawn(async move {

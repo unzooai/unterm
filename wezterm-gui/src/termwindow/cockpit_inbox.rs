@@ -23,8 +23,8 @@ use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use wezterm_term::{KeyCode, KeyModifiers};
-use window::WindowOps;
 use window::color::LinearRgba;
+use window::WindowOps;
 
 const MAX_ROWS: usize = 16;
 

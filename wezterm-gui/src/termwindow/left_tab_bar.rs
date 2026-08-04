@@ -110,6 +110,7 @@ struct LeftTabBarCacheKey {
     top_bits: u32,
     content_bottom_bits: u32,
     active_idx: usize,
+    tree_sidebar_open: bool,
     scroll_top: usize,
     row_count: usize,
     visible_rows: usize,
@@ -966,11 +967,31 @@ impl crate::TermWindow {
         };
         trace_mark("metadata");
 
-        // Keep working-agent indicators static. The previous breathing pulse
-        // scheduled periodic sidebar rebuilds while Claude was running, which
-        // made tab switching feel heavier when multiple agent panes were open.
-        let breath_step: u8 = 255;
-        let breath_alpha = 1.0;
+        // Preserve the 0.57.4 working-agent breathing cue, but keep the current
+        // metadata cache: animation repaints reuse pane/cwd/progress snapshots
+        // instead of repeating the expensive process inspection on each step.
+        let breath_step: u8 = if metas
+            .iter()
+            .any(|m| matches!(m.agent_state, Some(crate::cockpit::AgentState::Working)))
+        {
+            const CYCLE_MS: u64 = 3200;
+            const STEPS: u64 = 4;
+            const QUANTUM: u64 = CYCLE_MS / STEPS;
+            let ms = crate::cockpit::status::breath_epoch().elapsed().as_millis() as u64 % CYCLE_MS;
+            self.update_next_frame_time(Some(
+                std::time::Instant::now()
+                    + std::time::Duration::from_millis(QUANTUM - ms % QUANTUM),
+            ));
+            (ms / QUANTUM) as u8
+        } else {
+            255
+        };
+        let breath_alpha = if breath_step == 255 {
+            1.0
+        } else {
+            let phase = (breath_step as f32 + 0.5) / 4.0;
+            0.45 + 0.55 * (0.5 - 0.5 * (std::f32::consts::TAU * phase).cos())
+        };
 
         // Auto-group tabs by project (cwd basename), preserving the order in
         // which each project first appears. A tab with no known cwd falls
@@ -1094,8 +1115,12 @@ impl crate::TermWindow {
         // start of cwd). Reserve the footer so the container fits inside
         // content_bottom and meets the status bar flush instead of covering it.
         let footer_btn_pad_v = row_pad * 0.75;
-        let footer_row_h = metrics.cell_size.height as f32 + 2.0 * footer_btn_pad_v + 7.0 * pt;
-        let visible_rows = ((content_bottom - top - content_top_gap - footer_row_h) / row_h)
+        let action_btn_pad_v = row_pad * 0.55;
+        let footer_row_h = 0.0;
+        let action_rows_h =
+            1.0 * (metrics.cell_size.height as f32 + 2.0 * action_btn_pad_v + 4.0 * pt);
+        let fixed_rows_h = footer_row_h + action_rows_h + ui_tokens::CHROME_SECTION_GAP * pt;
+        let visible_rows = ((content_bottom - top - content_top_gap - fixed_rows_h) / row_h)
             .floor()
             .max(1.0) as usize;
         // Keep the active row inside the visible window. Otherwise a
@@ -1169,6 +1194,7 @@ impl crate::TermWindow {
             top_bits: top.to_bits(),
             content_bottom_bits: content_bottom.to_bits(),
             active_idx,
+            tree_sidebar_open: self.tree_sidebar.borrow().is_some(),
             scroll_top,
             row_count,
             visible_rows,
@@ -1242,6 +1268,193 @@ impl crate::TermWindow {
                         text: LinearRgba::TRANSPARENT.into(),
                     }),
             );
+
+            let compact_actions = width / pt <= 150.;
+            let action_pad_h = if compact_actions { 2.0 * pt } else { 4.0 * pt };
+            let action_min_w = if compact_actions {
+                18.0 * pt
+            } else {
+                22.0 * pt
+            };
+            let action_row = |items: Vec<Element>| {
+                Element::new(&font, ElementContent::Children(items))
+                    .display(DisplayType::Block)
+                    .min_width(Some(Dimension::Pixels(panel_content_width)))
+                    .max_width(Some(Dimension::Pixels(panel_content_width)))
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: dim.into(),
+                    })
+            };
+            let action_cell =
+                |glyph: &str, item_type: UIItemType, active: bool, float_right: bool| {
+                    let mut el = Element::new(&font, ElementContent::Text(glyph.to_string()))
+                        .item_type(item_type)
+                        .vertical_align(VerticalAlign::Middle)
+                        .min_width(Some(Dimension::Pixels(action_min_w)))
+                        .padding(BoxDimension {
+                            left: Dimension::Pixels(action_pad_h),
+                            right: Dimension::Pixels(action_pad_h),
+                            top: Dimension::Pixels(action_btn_pad_v),
+                            bottom: Dimension::Pixels(action_btn_pad_v),
+                        })
+                        .colors(ElementColors {
+                            border: if active {
+                                BorderColor::new(chrome.selected_outline)
+                            } else {
+                                BorderColor::default()
+                            },
+                            bg: if active {
+                                chrome.selected_bg.into()
+                            } else {
+                                LinearRgba::TRANSPARENT.into()
+                            },
+                            text: if active {
+                                chrome.focus_rail.into()
+                            } else {
+                                dim.into()
+                            },
+                        })
+                        .hover_colors(Some(ElementColors {
+                            border: if active {
+                                BorderColor::new(chrome.selected_outline)
+                            } else {
+                                BorderColor::default()
+                            },
+                            bg: hover_bg.into(),
+                            text: fg.into(),
+                        }));
+                    if float_right {
+                        el = el.float(Float::Right);
+                    }
+                    el
+                };
+            // The compact top rail exposes only the highest-frequency actions;
+            // split, jump, inbox and settings remain behind the menu button.
+            if false {
+                let tree_open = self.tree_sidebar.borrow().is_some();
+                children.push(
+                    action_row(vec![
+                        action_cell(
+                            "\u{eb6a}",
+                            UIItemType::QuickAction(crate::termwindow::QuickAction::CommandPalette),
+                            false,
+                            false,
+                        ),
+                        action_cell(
+                            "\u{ebf3}",
+                            UIItemType::QuickAction(crate::termwindow::QuickAction::TreeSidebar),
+                            tree_open,
+                            false,
+                        ),
+                        action_cell(
+                            "\u{eb56}",
+                            UIItemType::QuickAction(crate::termwindow::QuickAction::SplitRight),
+                            false,
+                            false,
+                        ),
+                        action_cell(
+                            "\u{ea83}",
+                            UIItemType::QuickAction(crate::termwindow::QuickAction::DirJump),
+                            false,
+                            true,
+                        ),
+                    ])
+                    .border(BoxDimension {
+                        left: Dimension::Pixels(0.),
+                        right: Dimension::Pixels(0.),
+                        top: Dimension::Pixels(1.),
+                        bottom: Dimension::Pixels(0.),
+                    })
+                    .colors(ElementColors {
+                        border: BorderColor {
+                            left: LinearRgba::TRANSPARENT,
+                            right: LinearRgba::TRANSPARENT,
+                            top: chrome.inner_highlight,
+                            bottom: LinearRgba::TRANSPARENT,
+                        },
+                        bg: chrome.footer_bg.into(),
+                        text: dim.into(),
+                    }),
+                );
+                children.push(action_row(vec![
+                    action_cell(
+                        "\u{ea6d}",
+                        UIItemType::QuickAction(crate::termwindow::QuickAction::Search),
+                        false,
+                        false,
+                    ),
+                    action_cell(
+                        "\u{eaa2}",
+                        UIItemType::QuickAction(crate::termwindow::QuickAction::Inbox),
+                        false,
+                        false,
+                    ),
+                    action_cell(
+                        "\u{eb51}",
+                        UIItemType::QuickAction(crate::termwindow::QuickAction::Settings),
+                        false,
+                        false,
+                    ),
+                    action_cell(
+                        "\u{eab4}",
+                        UIItemType::TabBar(crate::tabbar::TabBarItem::MenuButton),
+                        false,
+                        true,
+                    ),
+                ]));
+                children.push(action_row(vec![
+                    action_cell(
+                        "+",
+                        UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton),
+                        false,
+                        false,
+                    ),
+                    action_cell("⌄", UIItemType::NewTabShellSelector, false, false),
+                    action_cell("⌕", UIItemType::LeftTabBarSearch, false, false),
+                    action_cell(
+                        "⋯",
+                        UIItemType::TabBar(crate::tabbar::TabBarItem::MenuButton),
+                        false,
+                        true,
+                    ),
+                ]));
+            }
+            let tree_open = self.tree_sidebar.borrow().is_some();
+            children.push(action_row(vec![
+                action_cell(
+                    "+",
+                    UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton),
+                    false,
+                    false,
+                ),
+                action_cell("PS⌄", UIItemType::NewTabShellSelector, false, false),
+                action_cell(
+                    "⌘",
+                    UIItemType::QuickAction(crate::termwindow::QuickAction::CommandPalette),
+                    false,
+                    false,
+                ),
+                action_cell(
+                    "▱",
+                    UIItemType::QuickAction(crate::termwindow::QuickAction::TreeSidebar),
+                    tree_open,
+                    false,
+                ),
+                action_cell(
+                    "\u{ea6d}",
+                    UIItemType::QuickAction(crate::termwindow::QuickAction::Search),
+                    false,
+                    false,
+                ),
+                action_cell(
+                    "\u{eab4}",
+                    UIItemType::TabBar(crate::tabbar::TabBarItem::MenuButton),
+                    false,
+                    true,
+                ),
+            ]));
 
             for disp in visible.iter() {
                 // Project group header: a quiet uppercase caption with the tab
@@ -1684,110 +1897,112 @@ impl crate::TermWindow {
             // tight padding gave ~16-20px click areas, well under the
             // 32 px tap-target ergonomics target. Doubled vertical
             // padding + min_width so each half is a comfortable button.
-            let btn_pad_v = footer_btn_pad_v;
-            // The 112pt minimum sidebar leaves about 98pt inside the panel.
-            // Scale the dock down there so all three controls remain separate,
-            // centered, and at least ~37 logical pixels wide.
-            let compact_footer = width / pt <= 150.;
-            let btn_pad_h = if compact_footer { 4. * pt } else { 7. * pt };
-            let btn_min_w = if compact_footer { 22. * pt } else { 28. * pt };
-            let footer_bg = chrome.footer_bg;
-            let plus_cell = Element::new(&font, ElementContent::Text("+".to_string()))
-                .item_type(UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton))
-                .vertical_align(VerticalAlign::Middle)
-                .min_width(Some(Dimension::Pixels(btn_min_w)))
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(btn_pad_h),
-                    right: Dimension::Pixels(btn_pad_h),
-                    top: Dimension::Pixels(btn_pad_v),
-                    bottom: Dimension::Pixels(btn_pad_v),
-                })
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::TRANSPARENT.into(),
-                    text: dim.into(),
-                })
-                .hover_colors(Some(ElementColors {
-                    border: BorderColor::default(),
-                    bg: hover_bg.into(),
-                    text: fg.into(),
-                }));
-            let chevron_cell = Element::new(&font, ElementContent::Text("▾".to_string()))
-                .item_type(UIItemType::NewTabShellSelector)
-                .vertical_align(VerticalAlign::Middle)
-                .min_width(Some(Dimension::Pixels(btn_min_w)))
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(btn_pad_h),
-                    right: Dimension::Pixels(btn_pad_h),
-                    top: Dimension::Pixels(btn_pad_v),
-                    bottom: Dimension::Pixels(btn_pad_v),
-                })
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::TRANSPARENT.into(),
-                    text: dim.into(),
-                })
-                .hover_colors(Some(ElementColors {
-                    border: BorderColor::default(),
-                    bg: hover_bg.into(),
-                    text: fg.into(),
-                }));
-            // Always-visible fuzzy tab/project search. Keeping this in the
-            // fixed footer makes large restored workspaces navigable without
-            // first scrolling through the list.
-            let search_cell = Element::new(&font, ElementContent::Text("⌕".to_string()))
-                .item_type(UIItemType::LeftTabBarSearch)
-                .vertical_align(VerticalAlign::Middle)
-                .float(Float::Right)
-                .min_width(Some(Dimension::Pixels(btn_min_w)))
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(btn_pad_h),
-                    right: Dimension::Pixels(btn_pad_h),
-                    top: Dimension::Pixels(btn_pad_v),
-                    bottom: Dimension::Pixels(btn_pad_v),
-                })
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::TRANSPARENT.into(),
-                    text: dim.into(),
-                })
-                .hover_colors(Some(ElementColors {
-                    border: BorderColor::default(),
-                    bg: hover_bg.into(),
-                    text: fg.into(),
-                }));
-            children.push(
-                Element::new(
-                    &font,
-                    ElementContent::Children(vec![plus_cell, chevron_cell, search_cell]),
-                )
-                .display(DisplayType::Block)
-                .min_width(Some(Dimension::Pixels(panel_content_width)))
-                .max_width(Some(Dimension::Pixels(panel_content_width)))
-                .margin(BoxDimension {
-                    left: Dimension::Pixels(0.),
-                    right: Dimension::Pixels(0.),
-                    top: Dimension::Pixels(ui_tokens::CHROME_SECTION_GAP * 0.6 * pt),
-                    bottom: Dimension::Pixels(0.),
-                })
-                .border(BoxDimension {
-                    left: Dimension::Pixels(0.),
-                    right: Dimension::Pixels(0.),
-                    top: Dimension::Pixels(1.),
-                    bottom: Dimension::Pixels(0.),
-                })
-                .colors(ElementColors {
-                    border: BorderColor {
-                        left: LinearRgba::TRANSPARENT,
-                        right: LinearRgba::TRANSPARENT,
-                        top: chrome.inner_highlight,
-                        bottom: LinearRgba::TRANSPARENT,
-                    },
-                    bg: footer_bg.into(),
-                    text: dim.into(),
-                }),
-            );
-
+            // Legacy bottom actions are merged into the top action rail.
+            if false {
+                let btn_pad_v = footer_btn_pad_v;
+                // The 112pt minimum sidebar leaves about 98pt inside the panel.
+                // Scale the dock down there so all three controls remain separate,
+                // centered, and at least ~37 logical pixels wide.
+                let compact_footer = width / pt <= 150.;
+                let btn_pad_h = if compact_footer { 4. * pt } else { 7. * pt };
+                let btn_min_w = if compact_footer { 22. * pt } else { 28. * pt };
+                let footer_bg = chrome.footer_bg;
+                let plus_cell = Element::new(&font, ElementContent::Text("+".to_string()))
+                    .item_type(UIItemType::TabBar(crate::tabbar::TabBarItem::NewTabButton))
+                    .vertical_align(VerticalAlign::Middle)
+                    .min_width(Some(Dimension::Pixels(btn_min_w)))
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(btn_pad_h),
+                        right: Dimension::Pixels(btn_pad_h),
+                        top: Dimension::Pixels(btn_pad_v),
+                        bottom: Dimension::Pixels(btn_pad_v),
+                    })
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: dim.into(),
+                    })
+                    .hover_colors(Some(ElementColors {
+                        border: BorderColor::default(),
+                        bg: hover_bg.into(),
+                        text: fg.into(),
+                    }));
+                let chevron_cell = Element::new(&font, ElementContent::Text("▾".to_string()))
+                    .item_type(UIItemType::NewTabShellSelector)
+                    .vertical_align(VerticalAlign::Middle)
+                    .min_width(Some(Dimension::Pixels(btn_min_w)))
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(btn_pad_h),
+                        right: Dimension::Pixels(btn_pad_h),
+                        top: Dimension::Pixels(btn_pad_v),
+                        bottom: Dimension::Pixels(btn_pad_v),
+                    })
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: dim.into(),
+                    })
+                    .hover_colors(Some(ElementColors {
+                        border: BorderColor::default(),
+                        bg: hover_bg.into(),
+                        text: fg.into(),
+                    }));
+                // Always-visible fuzzy tab/project search. Keeping this in the
+                // fixed footer makes large restored workspaces navigable without
+                // first scrolling through the list.
+                let search_cell = Element::new(&font, ElementContent::Text("⌕".to_string()))
+                    .item_type(UIItemType::LeftTabBarSearch)
+                    .vertical_align(VerticalAlign::Middle)
+                    .float(Float::Right)
+                    .min_width(Some(Dimension::Pixels(btn_min_w)))
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(btn_pad_h),
+                        right: Dimension::Pixels(btn_pad_h),
+                        top: Dimension::Pixels(btn_pad_v),
+                        bottom: Dimension::Pixels(btn_pad_v),
+                    })
+                    .colors(ElementColors {
+                        border: BorderColor::default(),
+                        bg: LinearRgba::TRANSPARENT.into(),
+                        text: dim.into(),
+                    })
+                    .hover_colors(Some(ElementColors {
+                        border: BorderColor::default(),
+                        bg: hover_bg.into(),
+                        text: fg.into(),
+                    }));
+                children.push(
+                    Element::new(
+                        &font,
+                        ElementContent::Children(vec![plus_cell, chevron_cell, search_cell]),
+                    )
+                    .display(DisplayType::Block)
+                    .min_width(Some(Dimension::Pixels(panel_content_width)))
+                    .max_width(Some(Dimension::Pixels(panel_content_width)))
+                    .margin(BoxDimension {
+                        left: Dimension::Pixels(0.),
+                        right: Dimension::Pixels(0.),
+                        top: Dimension::Pixels(ui_tokens::CHROME_SECTION_GAP * 0.6 * pt),
+                        bottom: Dimension::Pixels(0.),
+                    })
+                    .border(BoxDimension {
+                        left: Dimension::Pixels(0.),
+                        right: Dimension::Pixels(0.),
+                        top: Dimension::Pixels(1.),
+                        bottom: Dimension::Pixels(0.),
+                    })
+                    .colors(ElementColors {
+                        border: BorderColor {
+                            left: LinearRgba::TRANSPARENT,
+                            right: LinearRgba::TRANSPARENT,
+                            top: chrome.inner_highlight,
+                            bottom: LinearRgba::TRANSPARENT,
+                        },
+                        bg: footer_bg.into(),
+                        text: dim.into(),
+                    }),
+                );
+            }
             let container = Element::new(&font, ElementContent::Children(children))
                 .item_type(UIItemType::LeftTabBarBg)
                 // Horizontal padding insets the rows from the panel edges so the

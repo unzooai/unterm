@@ -1,4 +1,4 @@
-use crate::client::{ClientId, ClientInfo};
+﻿use crate::client::{ClientId, ClientInfo};
 use crate::pane::{CachePolicy, Pane, PaneId};
 use crate::ssh_agent::AgentProxy;
 use crate::tab::{SplitRequest, Tab, TabId};
@@ -16,7 +16,7 @@ use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
 use percent_encoding::percent_decode_str;
-use portable_pty::{CommandBuilder, ExitStatus, PtySize};
+use portable_pty::{CommandBuilder, ExitStatus};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::io::{Read, Write};
@@ -35,9 +35,9 @@ use winapi::um::winsock2::{SOL_SOCKET, SO_RCVBUF, SO_SNDBUF};
 
 pub mod activity;
 pub mod client;
+pub mod corepane;
 pub mod connui;
 pub mod domain;
-pub mod localpane;
 pub mod pane;
 pub mod renderable;
 pub mod ssh;
@@ -316,13 +316,6 @@ fn read_from_pane_pty(
         Ok(pair) => pair,
         Err(err) => {
             log::error!("read_from_pane_pty: Unable to allocate a socketpair: {err:#}");
-            localpane::emit_output_for_pane(
-                pane_id,
-                &format!(
-                    "⚠️  wezterm: read_from_pane_pty: \
-                    Unable to allocate a socketpair: {err:#}"
-                ),
-            );
             return;
         }
     };
@@ -1446,15 +1439,6 @@ pub enum SessionTerminated {
     Error { err: Error },
     #[error("Window Closed")]
     WindowClosed,
-}
-
-pub(crate) fn terminal_size_to_pty_size(size: TerminalSize) -> anyhow::Result<PtySize> {
-    Ok(PtySize {
-        rows: size.rows.try_into()?,
-        cols: size.cols.try_into()?,
-        pixel_height: size.pixel_height.try_into()?,
-        pixel_width: size.pixel_width.try_into()?,
-    })
 }
 
 struct MuxClipboard {

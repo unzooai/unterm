@@ -441,9 +441,7 @@ impl Modal for FleetPalette {
             KeyAssignment::PasteFrom(source) => {
                 let clipboard = match source {
                     ClipboardPasteSource::Clipboard => window::Clipboard::Clipboard,
-                    ClipboardPasteSource::PrimarySelection => {
-                        window::Clipboard::PrimarySelection
-                    }
+                    ClipboardPasteSource::PrimarySelection => window::Clipboard::PrimarySelection,
                 };
                 let Some(win) = term_window.window.as_ref().cloned() else {
                     return true;

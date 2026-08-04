@@ -1,0 +1,18 @@
+[package]
+name = "unterm-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+portable-pty.workspace = true
+dirs-next.workspace = true
+wezterm-term = { workspace = true, features = ["use_serde"] }
+downcast-rs.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

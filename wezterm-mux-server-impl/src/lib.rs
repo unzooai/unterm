@@ -1,7 +1,7 @@
-use config::{ConfigHandle, SshMultiplexing};
-use mux::domain::{Domain, LocalDomain};
-use mux::ssh::RemoteSshDomain;
+use config::ConfigHandle;
+use mux::domain::{CoreDomain, Domain};
 use mux::Mux;
+use portable_pty::cmdbuilder::CommandBuilder;
 use std::sync::Arc;
 use wezterm_client::domain::{ClientDomain, ClientDomainConfig};
 
@@ -14,12 +14,6 @@ fn client_domains(config: &config::ConfigHandle) -> Vec<ClientDomainConfig> {
     let mut domains = vec![];
     for unix_dom in &config.unix_domains {
         domains.push(ClientDomainConfig::Unix(unix_dom.clone()));
-    }
-
-    for ssh_dom in config.ssh_domains().into_iter() {
-        if ssh_dom.multiplexing == SshMultiplexing::WezTerm {
-            domains.push(ClientDomainConfig::Ssh(ssh_dom.clone()));
-        }
     }
 
     for tls_client in &config.tls_clients {
@@ -48,16 +42,20 @@ fn update_mux_domains_impl(config: &ConfigHandle, is_standalone_mux: bool) -> an
         mux.add_domain(&domain);
     }
 
+    // SSH domains are terminal sessions owned by unterm-core.  Even domains
+    // that historically requested WezTerm multiplexing use the Core PTY
+    // boundary now; this removes the in-process ClientDomain/old mux runtime
+    // from the terminal path while retaining the configured host/user/options.
     for ssh_dom in config.ssh_domains().into_iter() {
-        if ssh_dom.multiplexing != SshMultiplexing::None {
-            continue;
-        }
 
         if mux.get_domain_by_name(&ssh_dom.name).is_some() {
             continue;
         }
 
-        let domain: Arc<dyn Domain> = Arc::new(RemoteSshDomain::with_ssh_domain(&ssh_dom)?);
+        let domain: Arc<dyn Domain> = Arc::new(CoreDomain::with_command(
+            &ssh_dom.name,
+            ssh_command(&ssh_dom),
+        ));
         mux.add_domain(&domain);
     }
 
@@ -66,7 +64,20 @@ fn update_mux_domains_impl(config: &ConfigHandle, is_standalone_mux: bool) -> an
             continue;
         }
 
-        let domain: Arc<dyn Domain> = Arc::new(LocalDomain::new_wsl(wsl_dom.clone())?);
+        let mut command = CommandBuilder::new("wsl.exe");
+        if let Some(distribution) = &wsl_dom.distribution {
+            command.arg("-d");
+            command.arg(distribution);
+        }
+        if let Some(username) = &wsl_dom.username {
+            command.arg("-u");
+            command.arg(username);
+        }
+        command.arg("--");
+        if let Some(default_prog) = &wsl_dom.default_prog {
+            command.args(default_prog);
+        }
+        let domain: Arc<dyn Domain> = Arc::new(CoreDomain::with_command(&wsl_dom.name, command));
         mux.add_domain(&domain);
     }
 
@@ -75,7 +86,7 @@ fn update_mux_domains_impl(config: &ConfigHandle, is_standalone_mux: bool) -> an
             continue;
         }
 
-        let domain: Arc<dyn Domain> = Arc::new(LocalDomain::new_exec_domain(exec_dom.clone())?);
+        let domain: Arc<dyn Domain> = Arc::new(CoreDomain::with_exec_domain(exec_dom.clone()));
         mux.add_domain(&domain);
     }
 
@@ -84,7 +95,9 @@ fn update_mux_domains_impl(config: &ConfigHandle, is_standalone_mux: bool) -> an
             continue;
         }
 
-        let domain: Arc<dyn Domain> = Arc::new(LocalDomain::new_serial_domain(serial.clone())?);
+        let port = serial.port.as_ref().unwrap_or(&serial.name).clone();
+        let domain: Arc<dyn Domain> =
+            Arc::new(CoreDomain::with_serial(&serial.name, port, serial.baud));
         mux.add_domain(&domain);
     }
 
@@ -106,6 +119,36 @@ fn update_mux_domains_impl(config: &ConfigHandle, is_standalone_mux: bool) -> an
     }
 
     Ok(())
+}
+
+fn ssh_command(domain: &config::SshDomain) -> CommandBuilder {
+    let mut command = CommandBuilder::new("ssh");
+    command.arg("-t");
+    for (key, value) in &domain.ssh_option {
+        command.arg("-o");
+        command.arg(format!("{key}={value}"));
+    }
+    if domain.no_agent_auth {
+        command.arg("-o");
+        command.arg("IdentitiesOnly=yes");
+    }
+    let (host, port) = domain
+        .remote_address
+        .rsplit_once(':')
+        .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, Some(port))))
+        .unwrap_or((domain.remote_address.as_str(), None));
+    if let Some(port) = port {
+        command.arg("-p");
+        command.arg(port.to_string());
+    }
+    command.arg(match &domain.username {
+        Some(user) => format!("{user}@{host}"),
+        None => host.to_string(),
+    });
+    if let Some(default_prog) = &domain.default_prog {
+        command.args(default_prog);
+    }
+    command
 }
 
 lazy_static::lazy_static! {

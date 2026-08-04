@@ -387,8 +387,7 @@ mod tests {
 
     #[test]
     fn parses_rename_line() {
-        let text =
-            "2 R. N... 100644 100644 100644 aa bb R100 new/name.rs\told/name.rs\n";
+        let text = "2 R. N... 100644 100644 100644 aa bb R100 new/name.rs\told/name.rs\n";
         let d = parse_porcelain_v2(text);
         assert_eq!(d.files.len(), 1);
         assert_eq!(d.files[0].path, "new/name.rs");

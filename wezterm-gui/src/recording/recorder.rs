@@ -497,17 +497,13 @@ pub fn start_recording(pane_id: PaneId) -> Result<StartResult> {
         }),
     });
 
-    // Register in the LocalPane via downcast.
-    let any = pane.clone();
-    let local = any
-        .downcast_arc::<mux::localpane::LocalPane>()
-        .map_err(|_| {
-            anyhow!(
-                "Pane {} is not a LocalPane (recording is only supported for local panes)",
-                pane_id
-            )
-        })?;
-    local.set_record_sink(Some(recorder.clone() as Arc<dyn RecordSink>));
+    // Recording is a CorePane capability; legacy panes are no longer supported.
+    let sink = Some(recorder.clone() as Arc<dyn RecordSink>);
+    if let Ok(core) = pane.clone().downcast_arc::<mux::corepane::CorePane>() {
+        core.set_record_sink(sink);
+    } else {
+        return Err(anyhow!("Pane {} does not support recording", pane_id));
+    }
 
     registry().lock().insert(pane_id, recorder.clone());
 
@@ -551,11 +547,11 @@ pub fn stop_recording(pane_id: PaneId) -> Result<StopResult> {
             .ok_or_else(|| anyhow!("No active recording for pane {}", pane_id))?
     };
 
-    // Detach sink from the LocalPane.
+    // Detach sink from the active pane.
     if let Some(mux) = mux::Mux::try_get() {
         if let Some(pane) = mux.get_pane(pane_id) {
-            if let Ok(local) = pane.downcast_arc::<mux::localpane::LocalPane>() {
-                local.set_record_sink(None);
+            if let Ok(core) = pane.clone().downcast_arc::<mux::corepane::CorePane>() {
+                core.set_record_sink(None);
             }
         }
     }

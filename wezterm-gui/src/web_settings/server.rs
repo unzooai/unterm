@@ -351,11 +351,11 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
             api_session_markdown(handler, p)
         }
         // Agent Cockpit — the Review page.
-        ("GET", "/api/review/overview") => Response::ok_json(
-            crate::cockpit::verification::enrich_overview(
+        ("GET", "/api/review/overview") => {
+            Response::ok_json(crate::cockpit::verification::enrich_overview(
                 crate::cockpit::observability::enrich_overview(crate::cockpit::review::overview()),
-            ),
-        ),
+            ))
+        }
         ("GET", "/api/review/inbox") => api_review_inbox(),
         ("GET", "/api/review/diff") => api_review_diff(&req.query),
         ("POST", "/api/review/rollback") => api_review_rollback(&req.body),

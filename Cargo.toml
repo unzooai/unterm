@@ -17,6 +17,7 @@ members = [
   "wezterm-uds",
   "unterm-profile",
   "unterm-agents",
+  "unterm-core",
 ]
 resolver = "2"
 exclude = [
@@ -270,6 +271,7 @@ unicode-normalization = "0.1.24"
 unicode-segmentation = "1.12"
 unterm-profile = { path = "unterm-profile" }
 unterm-agents = { path = "unterm-agents" }
+unterm-core = { path = "unterm-core" }
 url = "2"
 url-funcs = { path = "lua-api-crates/url-funcs" }
 utf8parse = "0.2"

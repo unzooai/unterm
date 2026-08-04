@@ -155,7 +155,9 @@ impl SelectorState {
             let left_part = format!("  {} {} {}", indicator, entry.icon, entry.label);
             let right_part = format!("{}  ", shortcut_str);
             let middle_pad = card_w.saturating_sub(
-                unicode_column_width(&left_part, None) + unicode_column_width(&right_part, None) + 4,
+                unicode_column_width(&left_part, None)
+                    + unicode_column_width(&right_part, None)
+                    + 4,
             );
 
             let (row_fg, row_bg, shortcut_fg) = if is_selected {
