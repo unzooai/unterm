@@ -17,6 +17,7 @@ mod confirm;
 mod copy_mode;
 mod dir_jump;
 mod directory;
+mod engine_backend;
 mod fleet;
 mod fonts;
 mod ghost;

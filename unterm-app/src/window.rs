@@ -216,7 +216,7 @@ fn try_backend(
 const COCKPIT_TAIL_ROWS: usize = 8;
 
 use std::sync::Arc;
-use unterm_engine::next_core::{config, key_encoding, NextCoreEngine};
+use unterm_engine::next_core::{config, key_encoding};
 use unterm_engine::{
     CreateSessionRequest, InputEngine, LaunchPolicySnapshot, ScreenEngine, SessionEngine,
 };
@@ -465,7 +465,7 @@ fn configured_color(config: &config::Config, key: &str) -> Option<[f32; 4]> {
 }
 
 pub struct App {
-    engine: NextCoreEngine,
+    engine: crate::engine_backend::AppEngine,
     font: TerminalFont,
     /// The font the chrome is drawn in.
     ///
@@ -794,7 +794,7 @@ impl App {
 
         let (clipboard_tx, clipboard_rx) = std::sync::mpsc::channel();
         Ok(Self {
-            engine: NextCoreEngine,
+            engine: crate::engine_backend::AppEngine::from_environment(),
             drawn_confirmation: None,
             drawn_suggestions: 0,
             preedit: crate::ime::Preedit::default(),

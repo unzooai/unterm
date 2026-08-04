@@ -5635,6 +5635,7 @@ dependencies = [
  "tempfile",
  "termwiz",
  "unterm-agents",
+ "unterm-core",
  "unterm-engine",
  "unterm-mcp",
  "unterm-profile",

@@ -172,6 +172,24 @@ split 归属（split_from）与 drain 阻断 split、事件流全生命周期
   禁止在 GUI 内直接持有 PTY 生命周期、绕过 Core 保存 Screen 状态。
 - IPC 破坏性变更必须升级 `unterm-protocol` 的协议 major（冻结点 F1）。
 
+## GUI 接入状态（M1-04b，2026-08-04）
+
+`unterm-app` 的 `App.engine` 已换为 `engine_backend::AppEngine` 枚举：
+`Local`（默认，进程内引擎，行为与 0.61.1 完全一致）或 `Core`
+（`UNTERM_CORE_CLIENT=1` 实验开关，经 `ensure_running` 自拉起 Core，
+CoreEngineClient + FrameCache 驱动）。AppEngine 实现全部五个引擎
+trait，styled 读在 Core 模式走 FrameCache。
+
+真机冒烟已通过（隔离 UNTERM_STATE_DIR）：GUI 首 pane 创建于 Core
+进程；**杀 GUI 后 Core 存活、session.list 仍含该会话**——M1 门禁
+「关闭 GUI 后 PTY 继续运行」的首次真机证据。
+
+实验开关下的已知缺口（M1-04 后续切片）：
+- 重开 GUI 无条件新建 pane，尚不 adopt Core 中的既有会话（重连语义）
+- GUI 内 MCP server、statsbar/cockpit 刷新线程仍指向进程本地引擎
+- 启动时的 scrollback 行数全局设置未传递到 Core 进程
+- GUI 渲染循环仍轮询 revision，未接 core.events 唤醒
+
 ## 渊源
 
 进程模型（discovery/锁/drain/握手语义与测试设计）移植自 wezterm 引擎线
