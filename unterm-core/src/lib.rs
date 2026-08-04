@@ -14,12 +14,17 @@ use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use unterm_engine::next_core::mouse_encoding::{
+    MouseButton, MouseEvent, MouseEventKind, MouseModifiers,
+};
 use unterm_engine::{
-    CreateSessionRequest, CursorSnapshot, InputEngine, LaunchPolicySnapshot,
-    PaneModesSnapshot, RenderFrameSnapshot, ScreenEngine, ScreenLine, ScreenSearchMatch,
-    ScreenSnapshot, ScrollbackTextRequest, ScrollbackTextSnapshot, SearchMode,
-    SessionActivitySnapshot, SessionEngine, SessionSnapshot, ShellSnapshot,
-    SplitDirection, SplitSessionRequest, StyledScreenSnapshot, StyledScrollbackSnapshot,
+    CreateSessionRequest, CursorSnapshot, EngineHealthSnapshot, HealthEngine, InputEngine,
+    LaunchPolicySnapshot, PaneModesSnapshot, RecordingEngine, RecordingExportResult,
+    RecordingStartResult, RecordingStatusSnapshot, RecordingStopResult, RenderFrameSnapshot,
+    ScreenEngine, ScreenLine, ScreenSearchMatch, ScreenSnapshot, ScrollbackTextRequest,
+    ScrollbackTextSnapshot, SearchMode, SessionActivitySnapshot, SessionEngine,
+    SessionSnapshot, ShellSnapshot, SplitDirection, SplitSessionRequest,
+    StyledScreenSnapshot, StyledScrollbackSnapshot,
 };
 use unterm_protocol::{BuildHandshake, ProcessRole};
 
@@ -678,6 +683,73 @@ fn dispatch_inner(
             engine.paste_input(pane_id, data)?;
             serde_json::to_string(&response_ok(id, serde_json::json!({"pasted": true})))?
         }
+        "session.revision" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(id, engine.screen_revision(pane_id)?))?
+        }
+        "session.scroll_to" => {
+            let pane_id = required_pane_id(request)?;
+            let target = required_i64(request, "target")? as isize;
+            engine.scroll_viewport_to(pane_id, target)?;
+            serde_json::to_string(&response_ok(id, serde_json::json!({"scrolled": true})))?
+        }
+        "session.scroll_by" => {
+            let pane_id = required_pane_id(request)?;
+            let delta = required_i64(request, "delta")? as isize;
+            engine.scroll_viewport_by(pane_id, delta)?;
+            serde_json::to_string(&response_ok(id, serde_json::json!({"scrolled": true})))?
+        }
+        "session.scroll_to_prompt" => {
+            let pane_id = required_pane_id(request)?;
+            let amount = required_i64(request, "amount")? as isize;
+            engine.scroll_viewport_to_prompt(pane_id, amount)?;
+            serde_json::to_string(&response_ok(id, serde_json::json!({"scrolled": true})))?
+        }
+        "session.report_mouse" => {
+            let pane_id = required_pane_id(request)?;
+            engine.report_mouse(pane_id, parse_mouse_event(&request.params)?)?;
+            serde_json::to_string(&response_ok(id, serde_json::json!({"reported": true})))?
+        }
+        "session.recording_start" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(id, engine.start_recording(pane_id)?))?
+        }
+        "session.recording_stop" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(id, engine.stop_recording(pane_id)?))?
+        }
+        "session.recording_status" => {
+            let pane_id = required_pane_id(request)?;
+            serde_json::to_string(&response_ok(id, engine.recording_status(pane_id)?))?
+        }
+        "session.recording_attach_trace" => {
+            let pane_id = required_pane_id(request)?;
+            let trace_id = request
+                .params
+                .get("trace_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("trace_id is required"))?
+                .to_owned();
+            serde_json::to_string(&response_ok(
+                id,
+                engine.attach_recording_trace(pane_id, trace_id)?,
+            ))?
+        }
+        "session.recording_export" => {
+            let pane_id = required_pane_id(request)?;
+            let target_path = request
+                .params
+                .get("target_path")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned);
+            serde_json::to_string(&response_ok(
+                id,
+                engine.export_markdown(pane_id, target_path)?,
+            ))?
+        }
+        "core.engine_health" => {
+            serde_json::to_string(&response_ok(id, engine.health()?))?
+        }
         "session.list" => {
             serde_json::to_string(&response_ok(id, engine.list_sessions()?))?
         }
@@ -794,6 +866,80 @@ fn parse_launch_policy(params: &serde_json::Value) -> LaunchPolicySnapshot {
         .cloned()
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default()
+}
+
+fn required_i64(request: &Request, key: &str) -> Result<i64> {
+    request
+        .params
+        .get(key)
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow::anyhow!("{key} is required"))
+}
+
+/// The wire form of a mouse event. Explicit fields instead of serde on
+/// the engine type, so the protocol does not inherit termwiz's layout.
+fn parse_mouse_event(params: &serde_json::Value) -> Result<MouseEvent> {
+    let kind = match params.get("kind").and_then(|v| v.as_str()) {
+        Some("press") => MouseEventKind::Press,
+        Some("release") => MouseEventKind::Release,
+        Some("motion") => MouseEventKind::Motion,
+        other => anyhow::bail!("unknown mouse event kind: {other:?}"),
+    };
+    let button = match params.get("button").and_then(|v| v.as_str()) {
+        None => None,
+        Some("left") => Some(MouseButton::Left),
+        Some("middle") => Some(MouseButton::Middle),
+        Some("right") => Some(MouseButton::Right),
+        Some("wheel_up") => Some(MouseButton::WheelUp),
+        Some("wheel_down") => Some(MouseButton::WheelDown),
+        Some("wheel_left") => Some(MouseButton::WheelLeft),
+        Some("wheel_right") => Some(MouseButton::WheelRight),
+        Some(other) => anyhow::bail!("unknown mouse button: {other}"),
+    };
+    let mut modifiers = MouseModifiers::NONE;
+    if params.get("shift").and_then(|v| v.as_bool()).unwrap_or(false) {
+        modifiers |= MouseModifiers::SHIFT;
+    }
+    if params.get("alt").and_then(|v| v.as_bool()).unwrap_or(false) {
+        modifiers |= MouseModifiers::ALT;
+    }
+    if params.get("ctrl").and_then(|v| v.as_bool()).unwrap_or(false) {
+        modifiers |= MouseModifiers::CTRL;
+    }
+    Ok(MouseEvent {
+        kind,
+        button,
+        column: params.get("column").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+        row: params.get("row").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+        modifiers,
+    })
+}
+
+fn mouse_event_params(pane_id: usize, event: MouseEvent) -> serde_json::Value {
+    let kind = match event.kind {
+        MouseEventKind::Press => "press",
+        MouseEventKind::Release => "release",
+        MouseEventKind::Motion => "motion",
+    };
+    let button = event.button.map(|button| match button {
+        MouseButton::Left => "left",
+        MouseButton::Middle => "middle",
+        MouseButton::Right => "right",
+        MouseButton::WheelUp => "wheel_up",
+        MouseButton::WheelDown => "wheel_down",
+        MouseButton::WheelLeft => "wheel_left",
+        MouseButton::WheelRight => "wheel_right",
+    });
+    serde_json::json!({
+        "pane_id": pane_id,
+        "kind": kind,
+        "button": button,
+        "column": event.column,
+        "row": event.row,
+        "shift": event.modifiers.contains(MouseModifiers::SHIFT),
+        "alt": event.modifiers.contains(MouseModifiers::ALT),
+        "ctrl": event.modifiers.contains(MouseModifiers::CTRL),
+    })
 }
 
 fn parse_scrollback_request(params: &serde_json::Value) -> ScrollbackTextRequest {
@@ -976,6 +1122,84 @@ impl CoreEngineClient {
     /// frame to decide who owns a mouse click.
     pub fn pane_modes(&self, pane_id: usize) -> Result<PaneModesSnapshot> {
         self.call("session.modes", serde_json::json!({"pane_id": pane_id}))
+    }
+
+    /// Mirror of `NextCoreEngine::screen_revision`: the cheap "anything
+    /// new?" probe a render loop asks between frames.
+    pub fn screen_revision(&self, pane_id: usize) -> Result<u64> {
+        self.call("session.revision", serde_json::json!({"pane_id": pane_id}))
+    }
+
+    pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
+        self.call_unit(
+            "session.scroll_to",
+            serde_json::json!({"pane_id": pane_id, "target": target as i64}),
+        )
+    }
+
+    pub fn scroll_viewport_by(&self, pane_id: usize, delta: isize) -> Result<()> {
+        self.call_unit(
+            "session.scroll_by",
+            serde_json::json!({"pane_id": pane_id, "delta": delta as i64}),
+        )
+    }
+
+    pub fn scroll_viewport_to_prompt(&self, pane_id: usize, amount: isize) -> Result<()> {
+        self.call_unit(
+            "session.scroll_to_prompt",
+            serde_json::json!({"pane_id": pane_id, "amount": amount as i64}),
+        )
+    }
+
+    pub fn report_mouse(&self, pane_id: usize, event: MouseEvent) -> Result<()> {
+        self.call_unit("session.report_mouse", mouse_event_params(pane_id, event))
+    }
+}
+
+impl RecordingEngine for CoreEngineClient {
+    fn start_recording(&self, pane_id: usize) -> Result<RecordingStartResult> {
+        self.call(
+            "session.recording_start",
+            serde_json::json!({"pane_id": pane_id}),
+        )
+    }
+
+    fn stop_recording(&self, pane_id: usize) -> Result<RecordingStopResult> {
+        self.call(
+            "session.recording_stop",
+            serde_json::json!({"pane_id": pane_id}),
+        )
+    }
+
+    fn recording_status(&self, pane_id: usize) -> Result<RecordingStatusSnapshot> {
+        self.call(
+            "session.recording_status",
+            serde_json::json!({"pane_id": pane_id}),
+        )
+    }
+
+    fn attach_recording_trace(&self, pane_id: usize, trace_id: String) -> Result<Vec<String>> {
+        self.call(
+            "session.recording_attach_trace",
+            serde_json::json!({"pane_id": pane_id, "trace_id": trace_id}),
+        )
+    }
+
+    fn export_markdown(
+        &self,
+        pane_id: usize,
+        target_path: Option<String>,
+    ) -> Result<RecordingExportResult> {
+        self.call(
+            "session.recording_export",
+            serde_json::json!({"pane_id": pane_id, "target_path": target_path}),
+        )
+    }
+}
+
+impl HealthEngine for CoreEngineClient {
+    fn health(&self) -> Result<EngineHealthSnapshot> {
+        self.call("core.engine_health", serde_json::Value::Null)
     }
 }
 
@@ -1575,6 +1799,87 @@ mod tests {
             matches!(event, CoreEvent::Draining)
         });
 
+        let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn facade_covers_interaction_and_lifecycle_surface() {
+        let (endpoint, worker) = start_server("interact-token");
+        let facade = CoreEngineClient::connect(endpoint, "interact-token").unwrap();
+
+        // The compile-time claim M1-04 rests on: the facade satisfies
+        // the full TerminalEngine bound, not just the three base traits.
+        fn assert_terminal_engine<T: unterm_engine::TerminalEngine>(_: &T) {}
+        assert_terminal_engine(&facade);
+
+        let session = facade
+            .create_session(CreateSessionRequest {
+                cols: 80,
+                rows: 24,
+                command_dir: None,
+                command: Some(CommandBuilder::from_argv(shell_argv())),
+                env: Vec::new(),
+                launch_policy: Default::default(),
+            })
+            .unwrap();
+        let pane_id = session.id;
+
+        facade
+            .write_input(pane_id, "echo interact-ready\r\n")
+            .unwrap();
+        let mut revision = 0;
+        for _ in 0..50 {
+            revision = facade.screen_revision(pane_id).unwrap();
+            if revision > 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(revision > 0, "screen revision never advanced");
+
+        facade.scroll_viewport_by(pane_id, -3).unwrap();
+        facade.scroll_viewport_to(pane_id, 0).unwrap();
+
+        facade
+            .report_mouse(
+                pane_id,
+                MouseEvent {
+                    kind: MouseEventKind::Press,
+                    button: Some(MouseButton::Left),
+                    column: 0,
+                    row: 0,
+                    modifiers: MouseModifiers::NONE,
+                },
+            )
+            .unwrap();
+        facade
+            .report_mouse(
+                pane_id,
+                MouseEvent {
+                    kind: MouseEventKind::Release,
+                    button: Some(MouseButton::Left),
+                    column: 0,
+                    row: 0,
+                    modifiers: MouseModifiers::SHIFT,
+                },
+            )
+            .unwrap();
+
+        let health = facade.health().unwrap();
+        assert!(health.ready, "engine health not ready: {health:?}");
+
+        let status = facade.recording_status(pane_id).unwrap();
+        assert!(!status.enabled);
+        let started = facade.start_recording(pane_id).unwrap();
+        assert!(!started.session_id.is_empty());
+        let status = facade.recording_status(pane_id).unwrap();
+        assert!(status.enabled);
+        let stopped = facade.stop_recording(pane_id).unwrap();
+        assert_eq!(stopped.session_id, started.session_id);
+
+        facade.destroy_session(pane_id).unwrap();
+        let mut owner = CoreClient::connect(endpoint, "interact-token").unwrap();
         let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
         worker.join().unwrap();
     }

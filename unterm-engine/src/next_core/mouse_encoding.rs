@@ -12,6 +12,10 @@
 
 use termwiz::input::Modifiers;
 
+// Re-exported so IPC layers can build a `MouseEvent` without their own
+// termwiz dependency; the wire format stays theirs to define.
+pub use termwiz::input::Modifiers as MouseModifiers;
+
 /// Which mouse events the application asked for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MouseTracking {

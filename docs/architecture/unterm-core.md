@@ -75,6 +75,17 @@ session.activity         SessionActivitySnapshot（进程树、IO 计数）
 session.erase_scrollback 清除历史（可含视口）
 session.resize           调整尺寸
 session.close            销毁会话
+session.revision         廉价 revision 探询（u64）
+session.scroll_to        视口滚动到绝对位置
+session.scroll_by        视口相对滚动
+session.scroll_to_prompt 按 prompt 标记滚动
+session.report_mouse     鼠标事件上报（显式线格式，不继承 termwiz 布局）
+session.recording_start  开始录制 -> RecordingStartResult
+session.recording_stop   停止录制 -> RecordingStopResult
+session.recording_status 录制状态
+session.recording_attach_trace 关联 trace id
+session.recording_export 导出 markdown
+core.engine_health       EngineHealthSnapshot（引擎自身健康，非进程健康）
 ```
 
 线协议为按行分隔的 JSON 请求/响应，每个请求携带 token；错误以
@@ -98,9 +109,12 @@ session.close            销毁会话
 
 ## CoreEngineClient（M1-04 的 GUI/CLI 接入面）
 
-`unterm_core::CoreEngineClient` 在客户端进程内实现 `SessionEngine +
-ScreenEngine + InputEngine`（另有 `pane_modes` 固有方法，对应
-`NextCoreEngine::pane_modes`），每个调用都跨认证 IPC 到 Core 进程执行。
+`unterm_core::CoreEngineClient` 在客户端进程内实现完整
+`TerminalEngine`（SessionEngine + ScreenEngine + InputEngine +
+RecordingEngine + HealthEngine，经 blanket impl），另有 GUI 依赖的
+固有方法镜像：`pane_modes` / `screen_revision` / `scroll_viewport_to` /
+`scroll_viewport_by` / `scroll_viewport_to_prompt` / `report_mouse`。
+每个调用都跨认证 IPC 到 Core 进程执行。
 GUI/CLI 把本地 `NextCoreEngine` 换成它即可让会话搬进 Core：这是把
 `unterm-engine` 进程级全局单例（`NextCoreRuntime`）从"隐式进程内共享"
 换成"显式跨进程 IPC"的迁移路径。单条 TCP 连接由 Mutex 保证请求-响应对
