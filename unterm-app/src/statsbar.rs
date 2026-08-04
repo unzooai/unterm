@@ -323,10 +323,11 @@ fn manifest_agent_for_process(process: &unterm_engine::ProcessTreeSnapshot) -> O
 
 /// Ask the machine. Only ever called from the refresh thread.
 fn read_facts(pane_id: usize) -> Facts {
-    // The engine handle carries no state of its own, so the refresh thread can
-    // make its own rather than borrowing the window's.
-    let engine = unterm_engine::next_core::NextCoreEngine;
-    let activity = unterm_engine::SessionEngine::activity(&engine, pane_id).ok();
+    // Through the installed provider rather than a direct next-core
+    // handle: in Core mode the sessions live in another process, and
+    // the process-local engine would answer for an empty world.
+    let engine = unterm_engine::host_engine();
+    let activity = unterm_engine::SessionEngine::activity(&*engine, pane_id).ok();
     let process = activity
         .as_ref()
         .and_then(|activity| activity.process.clone());
@@ -340,7 +341,7 @@ fn read_facts(pane_id: usize) -> Facts {
                 .or_else(|| process.root_cwd.clone())
         })
         .or_else(|| {
-            unterm_engine::SessionEngine::shell(&engine, pane_id)
+            unterm_engine::SessionEngine::shell(&*engine, pane_id)
                 .ok()
                 .and_then(|shell| shell.cwd)
         });

@@ -193,11 +193,28 @@ trait，styled 读在 Core 模式走 FrameCache。
 Scrollback」门禁的首个真机证据。Local 模式启动时引擎必为空，走的
 仍是原来的新建路径，行为不变。
 
-实验开关下的已知缺口（M1-04 后续切片）：
+MCP 一致性（M1-03c 第一阶段）已落地：`init_from_environment` 在 MCP
+server 启动前为**整个进程**决定引擎后端并装入 `ENGINE_PROVIDER`——
+Core 模式下 provider 返回 `CoreHostEngine`（终端面走共享
+`CoreEngineClient`，窗口/截图面仍由本进程回答，因为窗口就在这里）。
+statsbar/cockpit/录制导出/scrollback PNG 四处后台线程的引擎直构一并
+改走 `unterm_engine::host_engine()`。真机验证：`unterm-cli session
+create/split` 经 GUI 的 MCP server 创建的 pane 全部落在 Core 进程
+（split_from 血缘完整），GUI/MCP/后台线程看到同一个会话世界。
+`server_info`（实例注册表）补上 `UNTERM_STATE_DIR` 支持，与 CLI 读端
+（client.rs）、bridge registry、Core discovery 的隔离契约对齐——此前
+测试实例会污染真实用户注册表。
+
+注意：MCP server 的**生命周期**仍在 GUI 进程内（GUI 退出则 agent 面
+断开）；把 server 本体迁入 Core 进程（含 McpHost 反向 IPC）是
+M1-03c 的后续阶段。写入确认门（gate_pty_write）行为与引擎后端无关，
+全新实例首次写入需 GUI 批准是既有设计。
+
+实验开关下的已知缺口（后续切片）：
 - 布局（split 树）仍在 GUI 进程，重开后 split 关系靠 split_from
   降级重建，比例/方向不保真——布局入 Core 是后续设计决策
-- GUI 内 MCP server、statsbar/cockpit 刷新线程仍指向进程本地引擎
 - GUI 渲染循环仍轮询 revision，未接 core.events 唤醒
+- MCP server 生命周期随 GUI（见上）
 
 scrollback 配置已打通：connect_core 时经 `core.set_scrollback_lines`
 把 GUI 的配置值回传 Core（配置文件在客户端侧；对既有 pane 不生效，

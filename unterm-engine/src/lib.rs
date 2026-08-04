@@ -1587,6 +1587,19 @@ pub fn engine_provider() -> Option<fn() -> Box<dyn HostEngine>> {
     ENGINE_PROVIDER.get().copied()
 }
 
+/// The installed engine, or next-core when nothing was installed.
+///
+/// Background threads and the MCP surface must go through this rather
+/// than constructing `NextCoreEngine` directly: with sessions living
+/// in a Core process, the process-local engine is empty and a direct
+/// construction silently reads the wrong world.
+pub fn host_engine() -> Box<dyn HostEngine> {
+    match engine_provider() {
+        Some(provider) => provider(),
+        None => Box::new(next_core()),
+    }
+}
+
 /// Install next-core itself as the engine, for a process with no front end.
 ///
 /// The MCP surface's own tests need an engine but no window, and next-core is

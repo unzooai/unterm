@@ -185,15 +185,20 @@ fn run() -> anyhow::Result<()> {
     unterm_engine::next_core::NextCoreEngine::set_new_session_scrollback_lines(
         unterm_services::settings::scrollback_lines(&config),
     );
+    // Decide Local vs Core for the whole process -- window, MCP
+    // surface and background threads alike -- before the MCP server
+    // starts, so every consumer sees the same session world.
+    engine_backend::init_from_environment();
     if let Some(profile) = args.profile.as_deref() {
         std::env::set_var("UNTERM_STARTUP_PROFILE", profile);
     }
 
-    // The agent-facing API. next-core answers everything about sessions and
-    // screens; this app answers the two things that need a font stack and a
-    // key table. Installed before the window opens so an agent connecting
-    // early finds a working surface rather than a half-built one.
-    unterm_engine::install_next_core_provider();
+    // The agent-facing API. The engine provider was installed by
+    // init_from_environment above (next-core, or the Core process);
+    // this app answers the two things that need a font stack and a
+    // key table. Installed before the window opens so an agent
+    // connecting early finds a working surface rather than a
+    // half-built one.
     mcp_host::install();
     let (port, token) = unterm_mcp::start_mcp_server_with_version(unterm_protocol::PRODUCT_VERSION);
     log::info!("MCP server listening on 127.0.0.1:{port}");

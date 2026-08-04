@@ -4161,7 +4161,7 @@ impl App {
             let _ = std::thread::Builder::new()
                 .name("cockpit-checkpoint".to_string())
                 .spawn(move || {
-                    let engine = unterm_engine::next_core::NextCoreEngine;
+                    let engine = unterm_engine::host_engine();
                     for pane_id in checkpoint_panes {
                         let Some(status) =
                             unterm_services::cockpit::status::status_for_pane(pane_id)
@@ -4169,7 +4169,8 @@ impl App {
                             continue;
                         };
                         let activity =
-                            unterm_engine::SessionEngine::activity(&engine, pane_id as usize).ok();
+                            unterm_engine::SessionEngine::activity(&*engine, pane_id as usize)
+                                .ok();
                         let cwd = activity
                             .as_ref()
                             .and_then(|activity| activity.process.as_ref())
@@ -4180,7 +4181,7 @@ impl App {
                                     .or_else(|| process.root_cwd.clone())
                             })
                             .or_else(|| {
-                                unterm_engine::SessionEngine::shell(&engine, pane_id as usize)
+                                unterm_engine::SessionEngine::shell(&*engine, pane_id as usize)
                                     .ok()
                                     .and_then(|shell| shell.cwd)
                             });
@@ -5251,7 +5252,7 @@ impl App {
         let tx = self.clipboard_tx.clone();
         crate::clipboard::run(tx, move || {
             let result = unterm_engine::RecordingEngine::export_markdown(
-                &unterm_engine::next_core(),
+                &*unterm_engine::host_engine(),
                 pane,
                 None,
             )

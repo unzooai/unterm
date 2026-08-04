@@ -197,10 +197,10 @@ impl McpHost for AppMcpHost {
         max_rows: usize,
         dpi: usize,
     ) -> Result<Value> {
-        let engine = unterm_engine::next_core();
+        let engine = unterm_engine::host_engine();
         let pane_id = match pane_id {
             Some(pane_id) => pane_id,
-            None => unterm_engine::SessionEngine::list_sessions(&engine)?
+            None => unterm_engine::SessionEngine::list_sessions(&*engine)?
                 .into_iter()
                 .find(|session| session.is_active)
                 .map(|session| session.id)
@@ -288,7 +288,7 @@ impl McpHost for AppMcpHost {
 /// from the quick menu: the pane's history to one tall PNG, independent of
 /// what the window shows or covers.
 pub fn scrollback_png(pane_id: usize, path: &std::path::Path) -> Result<(u32, u32)> {
-    let engine = unterm_engine::next_core();
+    let engine = unterm_engine::host_engine();
     let scrollback = engine.read_styled_scrollback(
         pane_id,
         ScrollbackTextRequest {
