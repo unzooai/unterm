@@ -338,7 +338,7 @@ enum Message {
 #[derive(Debug, Parser, Clone)]
 pub struct RecordCommand {
     /// Start in the specified directory, instead of
-    /// the default_cwd defined by your wezterm configuration
+    /// the default_cwd defined by your Unterm configuration
     #[arg(long)]
     cwd: Option<std::path::PathBuf>,
 
@@ -348,7 +348,7 @@ pub struct RecordCommand {
     outfile: Option<std::path::PathBuf>,
 
     /// Start prog instead of the default_prog defined by your
-    /// wezterm configuration
+    /// Unterm configuration
     #[arg(value_parser)]
     prog: Vec<OsString>,
 }

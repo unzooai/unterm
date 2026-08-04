@@ -61,7 +61,7 @@ pub struct SplitPane {
     move_pane_id: Option<PaneId>,
 
     /// Instead of executing your shell, run PROG.
-    /// For example: `wezterm cli split-pane -- bash -l` will spawn bash
+    /// For example: `unterm-cli cli split-pane -- bash -l` will spawn bash
     /// as if it were a login shell.
     #[arg(value_parser, value_hint=ValueHint::CommandWithArguments, num_args=1..)]
     prog: Vec<OsString>,
