@@ -5676,6 +5676,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "unterm-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dirs-next",
+ "libc",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "unterm-engine",
+ "unterm-protocol",
+ "uuid",
+]
+
+[[package]]
 name = "unterm-engine"
 version = "0.1.0"
 dependencies = [

@@ -16,6 +16,7 @@ members = [
   "unterm-profile",
   "unterm-agents",
   "unterm-protocol",
+  "unterm-core",
 ]
 resolver = "2"
 exclude = [
