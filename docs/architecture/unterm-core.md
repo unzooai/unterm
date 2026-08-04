@@ -107,6 +107,27 @@ GUI/CLI 把本地 `NextCoreEngine` 换成它即可让会话搬进 Core：这是�
 原子，多线程调用不会交错帧。快照类型（unterm-engine）已补
 `Deserialize`，与 Core 侧 `Serialize` 对称。
 
+## IPC 渲染成本实测（2026-08-04，release，120x40 pane）
+
+`cargo test -p unterm-core --release -- --ignored --nocapture bench_styled`：
+
+| 路径 | p50 | p95 | max |
+|---|---|---|---|
+| `session.styled_screen` 全量（IPC） | 5.2ms | 21.2ms | 35.2ms |
+| `session.frame` 未变化（IPC） | 291µs | 343µs | 6.8ms |
+| `read_styled_screen` 进程内基线 | 37µs | 55µs | 116µs |
+
+TCP_NODELAY 已默认开启（关闭前 max 达 329ms，Nagle 与延迟 ACK 交互）；
+全量快照的 5ms 主要是 4800 cell 的 JSON 序列化，不是传输。
+
+**由此定死 M1-04 的渲染路径约束**：GUI 换用 CoreEngineClient 时，
+禁止把现有每帧 20+ 次 `read_styled_screen` 直译成 IPC 调用（一帧预算
+16ms）。正确形态是：`core.events` 推送（或每帧一次 291µs 的
+`session.frame since_revision` 探询）+ 增量帧 + 客户端 FrameCache；
+搜索/copy mode/link 检测等消费者读 FrameCache，不再各自打 IPC。全量
+快照仅在缓存缺失（新 pane、重连）时发生。若将来仍不够，再考虑二进制
+编码或行级 delta，属于优化项而非前置条件。
+
 ## 测试覆盖
 
 `cargo test -p unterm-core`：握手身份与兼容性、token 拒绝、锁互斥与

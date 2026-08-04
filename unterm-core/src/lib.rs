@@ -359,6 +359,11 @@ impl CoreServer {
                     stream
                         .set_nonblocking(false)
                         .context("set core client blocking")?;
+                    // Request/response frames are latency-bound, not
+                    // throughput-bound; Nagle only adds stalls here.
+                    stream
+                        .set_nodelay(true)
+                        .context("set core client nodelay")?;
                     let token = self.token.clone();
                     let started_at = self.started_at.clone();
                     let running = self.running.clone();
@@ -810,8 +815,10 @@ pub struct CoreClient {
 
 impl CoreClient {
     pub fn connect<A: ToSocketAddrs>(address: A, token: impl Into<String>) -> Result<Self> {
+        let stream = TcpStream::connect(address).context("connect unterm-core")?;
+        stream.set_nodelay(true).context("set core nodelay")?;
         Ok(Self {
-            stream: TcpStream::connect(address).context("connect unterm-core")?,
+            stream,
             token: token.into(),
         })
     }
@@ -875,6 +882,9 @@ pub struct CoreEventStream {
 impl CoreEventStream {
     pub fn connect<A: ToSocketAddrs>(address: A, token: impl Into<String>) -> Result<Self> {
         let stream = TcpStream::connect(address).context("connect unterm-core events")?;
+        stream
+            .set_nodelay(true)
+            .context("set core events nodelay")?;
         let mut writer = stream.try_clone()?;
         let request = serde_json::json!({
             "id": uuid::Uuid::new_v4().to_string(),
@@ -1565,6 +1575,81 @@ mod tests {
             matches!(event, CoreEvent::Draining)
         });
 
+        let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
+        worker.join().unwrap();
+    }
+
+    /// Not a correctness test: measures what a GUI frame would pay to
+    /// read a styled screen across the IPC boundary instead of from
+    /// process-local memory. Run explicitly with
+    /// `cargo test -p unterm-core --release -- --ignored --nocapture bench_styled`.
+    #[test]
+    #[ignore]
+    fn bench_styled_screen_ipc_round_trip() {
+        let (endpoint, worker) = start_server("bench-token");
+        let facade = CoreEngineClient::connect(endpoint, "bench-token").unwrap();
+        let session = facade
+            .create_session(CreateSessionRequest {
+                cols: 120,
+                rows: 40,
+                command_dir: None,
+                command: Some(CommandBuilder::from_argv(shell_argv())),
+                env: Vec::new(),
+                launch_policy: Default::default(),
+            })
+            .unwrap();
+        let pane_id = session.id;
+
+        // Put real content on the screen so the payload is honest.
+        for chunk in 0..5 {
+            facade
+                .write_input(pane_id, &format!("echo bench-fill-{chunk} {}\r\n", "x".repeat(80)))
+                .unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(500));
+
+        let mut percentiles = |label: &str, mut samples: Vec<Duration>| {
+            samples.sort();
+            let p50 = samples[samples.len() / 2];
+            let p95 = samples[samples.len() * 95 / 100];
+            let max = samples[samples.len() - 1];
+            println!("{label}: p50 {p50:?}, p95 {p95:?}, max {max:?}");
+        };
+
+        const ROUNDS: usize = 500;
+
+        let mut styled = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
+            let start = std::time::Instant::now();
+            let snapshot = facade.read_styled_screen(pane_id).unwrap();
+            styled.push(start.elapsed());
+            assert_eq!(snapshot.cols, 120);
+        }
+        percentiles("read_styled_screen (full, 120x40)", styled);
+
+        let revision = facade.read_styled_screen(pane_id).unwrap().revision;
+        let mut unchanged = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
+            let start = std::time::Instant::now();
+            let frame = facade.read_render_frame(pane_id, Some(revision)).unwrap();
+            unchanged.push(start.elapsed());
+            assert!(!frame.full);
+        }
+        percentiles("read_render_frame (unchanged)", unchanged);
+
+        // The in-process baseline the IPC numbers are judged against.
+        let local = unterm_engine::next_core();
+        let mut baseline = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
+            let start = std::time::Instant::now();
+            let snapshot = local.read_styled_screen(pane_id).unwrap();
+            baseline.push(start.elapsed());
+            assert_eq!(snapshot.cols, 120);
+        }
+        percentiles("read_styled_screen (in-process baseline)", baseline);
+
+        facade.destroy_session(pane_id).unwrap();
+        let mut owner = CoreClient::connect(endpoint, "bench-token").unwrap();
         let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
         worker.join().unwrap();
     }
