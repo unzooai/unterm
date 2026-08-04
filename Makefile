@@ -7,19 +7,18 @@ test:
 	cargo nextest run -p wezterm-escape-parser # no_std by default
 
 check:
-	cargo check -p unterm
+	cargo check -p unterm-app
 	cargo check -p unterm-cli
-	cargo check -p unterm-mux
+	cargo check -p unterm-core
+	cargo check -p unterm-mcp
 	cargo check -p wezterm-escape-parser
 	cargo check -p wezterm-cell
 	cargo check -p wezterm-surface
-	cargo check -p wezterm-ssh
 
 build:
-	cargo build $(BUILD_OPTS) -p unterm
+	cargo build $(BUILD_OPTS) -p unterm-app
 	cargo build $(BUILD_OPTS) -p unterm-cli
-	cargo build $(BUILD_OPTS) -p unterm-mux
-	cargo build $(BUILD_OPTS) -p strip-ansi-escapes
+	cargo build $(BUILD_OPTS) -p unterm-core
 
 fmt:
 	cargo +nightly fmt
