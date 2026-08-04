@@ -38,8 +38,22 @@ pub struct DiscoveryInfo {
     pub product_version: String,
 }
 
+/// Where this Core keeps its discovery record and instance lock.
+///
+/// `UNTERM_STATE_DIR` overrides the real per-user location — the same
+/// isolation contract M0-02 gave the bridge registry, so tests and
+/// headless environments never collide with the user's live Core.
+fn state_dir() -> Option<std::path::PathBuf> {
+    if let Ok(dir) = std::env::var("UNTERM_STATE_DIR") {
+        if !dir.is_empty() {
+            return Some(std::path::PathBuf::from(dir));
+        }
+    }
+    dirs_next::data_local_dir().map(|dir| dir.join("Unterm"))
+}
+
 pub fn discovery_path() -> Option<std::path::PathBuf> {
-    dirs_next::data_local_dir().map(|dir| dir.join("Unterm").join("core.json"))
+    state_dir().map(|dir| dir.join("core.json"))
 }
 
 pub fn read_discovery() -> Result<Option<DiscoveryInfo>> {

@@ -28,6 +28,8 @@ unterm-engine next-core（PTY、Screen、Scrollback、revision）
 
 - **发现**：Core 启动后将 `{endpoint, token, pid, product_version}` 原子写入
   `%LOCALAPPDATA%\Unterm\core.json`（Unix 为 data_local_dir 对应路径）。
+  `UNTERM_STATE_DIR` 覆盖该目录（discovery 与锁一起走）——与 M0-02 给
+  bridge registry 的隔离约定一致，测试/headless 环境不会碰真实用户 Core。
 - **single-instance 锁**：启动时以独占文件锁（Windows `share_mode(0)` /
   Unix `flock`）竞争 `core.lock`。仅锁持有者可 bind 端口并发布 discovery；
   落败进程静默退出，父进程继续轮询胜者的 discovery。进程崩溃由 OS 释放锁，
@@ -149,7 +151,12 @@ TCP_NODELAY 已默认开启（关闭前 max 达 329ms，Nagle 与延迟 ACK 交�
 frame revision 递增）、drain 拒新保旧、CoreEngineClient 门面全方法往返
 （styled screen/增量 frame/search/cursor/modes/shell/activity/resize）、
 split 归属（split_from）与 drain 阻断 split、事件流全生命周期
-（created -> screen_updated -> closed -> draining）。
+（created -> screen_updated -> closed -> draining）、交互面
+（revision/滚动/鼠标/录制/引擎健康 + TerminalEngine 编译期断言）。
+
+`tests/process_e2e.rs` 针对真实二进制：discovery 发布与 shutdown 清理、
+会话经真实进程往返、8 进程并发启动只产生一个 Core（败者自行退出且
+不覆盖胜者的 discovery）。全部走 `UNTERM_STATE_DIR` 临时目录。
 
 ## 维护规则
 
