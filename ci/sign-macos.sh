@@ -99,7 +99,7 @@ fi
 
 bash ci/build-macos-finder-sync.sh "$stagedir/Unterm.app"
 
-for bin in unterm unterm-cli unterm-mux strip-ansi-escapes ; do
+for bin in unterm unterm-core unterm-cli unterm-mux strip-ansi-escapes ; do
   # Prefer the per-arch builds (target/<triple>/release/$bin) and lipo them
   # together into a fat universal binary. We only fall back to the host-arch
   # direct path (target/release/$bin) if no per-arch builds exist at all —
@@ -127,7 +127,7 @@ for bin in unterm unterm-cli unterm-mux strip-ansi-escapes ; do
   elif [[ -f "$TARGET_DIR/release/$bin" ]] ; then
     cp "$TARGET_DIR/release/$bin" "$stagedir/Unterm.app/Contents/MacOS/$bin"
   else
-    echo "ERROR: missing build artifact $bin — run 'cargo build --release -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes' first"
+    echo "ERROR: missing build artifact $bin — run 'cargo build --release -p unterm -p unterm-core -p unterm-cli -p unterm-mux -p strip-ansi-escapes' first"
     exit 1
   fi
 done

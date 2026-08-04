@@ -24,7 +24,7 @@
 # What it does:
 #
 #   - Confirms HEAD has an annotated tag.
-#   - Builds release universal (x86_64 + aarch64) for unterm/unterm-cli/unterm-mux.
+#   - Builds release universal (x86_64 + aarch64) for unterm/unterm-core/unterm-cli/unterm-mux.
 #   - Calls ci/sign-macos.sh which signs, notarizes, staples, and zips the .app.
 #   - Uploads the resulting zip onto the matching GitHub Release.
 set -euo pipefail
@@ -74,7 +74,7 @@ echo ">> Building universal release for $TAG"
 rustup target add x86_64-apple-darwin aarch64-apple-darwin >/dev/null
 for triple in x86_64-apple-darwin aarch64-apple-darwin; do
   cargo build --release --target "$triple" \
-    -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+    -p unterm -p unterm-core -p unterm-cli -p unterm-mux -p strip-ansi-escapes
 done
 
 echo ">> Signing + notarizing as $TAG"

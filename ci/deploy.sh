@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build platform-specific Unterm release artifacts.
 # Run from repo root after a release build:
-#   cargo build --release -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+#   cargo build --release -p unterm -p unterm-core -p unterm-cli -p unterm-mux -p strip-ansi-escapes
 #   ci/deploy.sh
 #
 # Inputs:
@@ -39,7 +39,7 @@ case ${OSTYPE:-} in
     cp assets/unterm.lua "$zipdir/Unterm.app/Contents/Resources/unterm.lua"
     tic -xe wezterm -o "$zipdir/Unterm.app/Contents/Resources/terminfo" termwiz/data/wezterm.terminfo
 
-    for bin in unterm unterm-cli unterm-mux strip-ansi-escapes ; do
+    for bin in unterm unterm-core unterm-cli unterm-mux strip-ansi-escapes ; do
       if [[ -f "$TARGET_DIR/release/$bin" ]] ; then
         cp "$TARGET_DIR/release/$bin" "$zipdir/Unterm.app/Contents/MacOS/$bin"
       else
@@ -86,6 +86,7 @@ case ${OSTYPE:-} in
     helpers=assets/windows
     [ "${UNTERM_ARCH:-x64}" = "arm64" ] && helpers=assets/windows/arm64
     cp "$TARGET_DIR/release/unterm.exe" \
+       "$TARGET_DIR/release/unterm-core.exe" \
        "$TARGET_DIR/release/unterm-cli.exe" \
        "$TARGET_DIR/release/unterm-mux.exe" \
        "$TARGET_DIR/release/strip-ansi-escapes.exe" \
@@ -103,7 +104,7 @@ case ${OSTYPE:-} in
     # them in the zip whenever they exist (they're absent when
     # Cargo.toml has `strip = "symbols"`, present when debug info is
     # enabled).
-    for pdb in unterm.pdb unterm-cli.pdb unterm-mux.pdb; do
+    for pdb in unterm.pdb unterm-core.pdb unterm-cli.pdb unterm-mux.pdb; do
       if [ -f "$TARGET_DIR/release/$pdb" ]; then
         cp "$TARGET_DIR/release/$pdb" "$stagedir/"
       fi
@@ -179,6 +180,7 @@ Provides: x-terminal-emulator
 EOF
 
     install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/unterm"
+    install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/unterm-core"
     install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/unterm-cli"
     install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/unterm-mux"
     install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/strip-ansi-escapes"

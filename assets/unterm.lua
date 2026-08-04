@@ -54,7 +54,9 @@ config.scrollback_lines = 100000
 config.window_close_confirmation = 'NeverPrompt'
 config.window_background_opacity = 1.0
 config.win32_system_backdrop = 'Disable'
-config.show_unterm_status_bar = true
+-- The unified sidebar owns project/session status; keep the old full-width
+-- bottom bar disabled so the terminal remains visually uninterrupted.
+config.show_unterm_status_bar = false
 
 -------------------------------------------------
 -- 窗口（Windows Terminal 风格单栏）

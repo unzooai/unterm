@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build a Linux AppImage for Unterm.
-# Run after: cargo build --release -p unterm -p unterm-cli -p unterm-mux -p strip-ansi-escapes
+# Run after: cargo build --release -p unterm -p unterm-core -p unterm-cli -p unterm-mux -p strip-ansi-escapes
 set -euo pipefail
 set -x
 
@@ -8,6 +8,7 @@ rm -rf AppDir *.AppImage *.zsync
 mkdir AppDir
 
 install -Dsm755 -t AppDir/usr/bin target/release/unterm
+install -Dsm755 -t AppDir/usr/bin target/release/unterm-core
 install -Dsm755 -t AppDir/usr/bin target/release/unterm-cli
 install -Dsm755 -t AppDir/usr/bin target/release/unterm-mux
 install -Dsm755 -t AppDir/usr/bin target/release/strip-ansi-escapes

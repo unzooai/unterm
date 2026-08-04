@@ -47,6 +47,9 @@
       <Component Id="UntermExe" Guid="9A7EA657-4A0E-42B0-9974-0A77B4DD7FD0">
         <File Id="UntermExeFile" Source="$(var.SourceDir)\unterm.exe" KeyPath="yes" />
       </Component>
+      <Component Id="UntermCoreExe" Guid="D7A5F2EA-7C42-4E88-BE0C-5A5B0F66B127">
+        <File Source="$(var.SourceDir)\unterm-core.exe" KeyPath="yes" />
+      </Component>
       <Component Id="UntermCliExe" Guid="2C81E2F0-2E83-4B73-9F1B-5C4A7B3C7CE0">
         <File Source="$(var.SourceDir)\unterm-cli.exe" KeyPath="yes" />
       </Component>
