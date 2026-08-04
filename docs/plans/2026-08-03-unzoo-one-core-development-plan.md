@@ -153,7 +153,8 @@ M7 门禁：不启动 UI 仍可工作；进程独立健康；升级失败恢复�
 | M0-02 | 开发中 | product/protocol/schema 判定、CLI/Bridge 双向身份、持久 Bridge registry、GUI drain 请求、`-32010` 进程测试 | pre-registry 旧进程扫描、owner 自动重启 E2E、超时强退 |
 | M0-03 | 未开始 | 0.61.1 Windows 本机安装记录 | 12 项跨平台台账与回滚矩阵 |
 | M1-01/02 | 已完成（源码切片，`1148e8d7` + `core.events`） | unterm-core 进程：认证 IPC、discovery、single-instance 锁、drain、session.* 驱动 next-core、core.events 推送流；8 项测试含真实 PTY 往返与事件全生命周期 | 服务化安装（LaunchAgent/后台进程）随 M7 |
-| M1-03 | 开发中 | IPC 面 36 方法（含交互/录制/引擎健康）；`CoreEngineClient` 满足完整 TerminalEngine；`CoreEventStream` 订阅端；TCP_NODELAY + IPC 成本基准（全量 styled 5.2ms/未变化探询 291µs）；UNTERM_STATE_DIR 隔离；真实进程 E2E 含 8 进程竞锁；单元 9 + E2E 2 通过 | MCP server 迁入 Core 进程；GUI 换用门面与事件流（M1-04b，FrameCache 已就绪，见架构文档） |
+| M1-03 | 开发中 | IPC 面 36 方法（含交互/录制/引擎健康）；`CoreEngineClient` 满足完整 TerminalEngine；`CoreEventStream` 订阅端；TCP_NODELAY + IPC 成本基准（全量 styled 5.2ms/未变化探询 291µs）；UNTERM_STATE_DIR 隔离；真实进程 E2E 含 8 进程竞锁；单元 9 + E2E 2 通过 | MCP server 迁入 Core 进程；GUI 重连 adopt、事件唤醒、MCP/statsbar 本地引擎缺口（见架构文档 M1-04b 节） |
+| M1-04 | 开发中 | `AppEngine` 后端抽象落地，`UNTERM_CORE_CLIENT=1` 真机冒烟：GUI 首 pane 建于 Core，杀 GUI 会话存活（M1 门禁首个真机证据）；默认 Local 无行为变化，614 项测试通过 | 重开 GUI adopt 既有会话；渲染循环接 core.events；退出三语义 UI（M1-04 原定验收） |
 | M2–M7 | 未开始 | 现有 next-core/MCP/Audit 是迁移输入 | 按上述冻结点推进 |
 
 ## 7. 下一切片入口条件
