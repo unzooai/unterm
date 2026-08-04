@@ -54,9 +54,14 @@ M0 门禁：版本探针 <1 秒、无窗口/Server/PTY/注册表实例；升级�
 5. `M1-02` 实现认证本地 IPC envelope、discover/info/health/readiness/events。
 6. `M1-03` 将 Terminal Engine 和 MCP 生命周期从 GUI 迁入 Core。
 7. `M1-04` GUI/CLI 改为 Core Client，支持 cursor 重连和三种退出语义。
+   - 当前退出应用提醒视觉权重过低，用户很容易忽略；必须改为主动聚焦的高可见度模态提醒。
+   - 明确展示“后台继续运行”“排空任务后退出”“立即取消并退出”三种结果，不能只依赖弱提示文字。
+   - 立即取消使用危险操作层级，默认焦点放在可恢复的“后台继续运行”，并支持键盘完整操作。
+   - 选择后台继续后显示持续可发现的托盘/状态提示，说明 Core、PTY 和 Agent 仍在运行及如何重新打开。
 8. `M1-05` 20 Client 竞争、GUI/Core 崩溃和旧 MCP 合约回归测试。
 
-M1 门禁：无 GUI 创建 PTY；关闭/重开 GUI 后 Pane 和 Scrollback 不变；Core 健康不被 GUI 健康替代。
+M1 门禁：无 GUI 创建 PTY；关闭/重开 GUI 后 Pane 和 Scrollback 不变；Core 健康不被 GUI 健康替代；
+退出提醒在普通、最大化和多窗口状态下均清晰可见，三种退出结果经过可用性测试且不会误取消后台任务。
 
 ### M2 Durable Task Engine
 
