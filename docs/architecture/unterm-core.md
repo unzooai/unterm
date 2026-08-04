@@ -63,6 +63,7 @@ session.write            写入 PTY（InputEngine::write_input）
 session.paste            粘贴（bracketed paste 语义）
 session.screen           ScreenSnapshot（lines/cells/cursor/revision/dirty_rows）
 session.styled_screen    StyledScreenSnapshot（逐 cell 样式，GUI 渲染输入）
+session.styled_frame     同上但带 since_revision：未变化只回小信封，不序列化 cell 网格
 session.frame            RenderFrameSnapshot，支持 since_revision 增量
 session.visible_text     可见区纯文本
 session.lines            指定区间 ScreenLine
@@ -138,11 +139,18 @@ TCP_NODELAY 已默认开启（关闭前 max 达 329ms，Nagle 与延迟 ACK 交�
 
 **由此定死 M1-04 的渲染路径约束**：GUI 换用 CoreEngineClient 时，
 禁止把现有每帧 20+ 次 `read_styled_screen` 直译成 IPC 调用（一帧预算
-16ms）。正确形态是：`core.events` 推送（或每帧一次 291µs 的
-`session.frame since_revision` 探询）+ 增量帧 + 客户端 FrameCache；
-搜索/copy mode/link 检测等消费者读 FrameCache，不再各自打 IPC。全量
-快照仅在缓存缺失（新 pane、重连）时发生。若将来仍不够，再考虑二进制
-编码或行级 delta，属于优化项而非前置条件。
+16ms）。正确形态是：`core.events` 推送 + `session.styled_frame`
+增量拉取 + 客户端 FrameCache；搜索/copy mode/link 检测等消费者读
+FrameCache，不再各自打 IPC。全量快照仅在缓存缺失（新 pane、重连）时
+发生。若将来仍不够，再考虑二进制编码或行级 delta，属于优化项而非
+前置条件。
+
+该形态已由 `unterm_core::FrameCache` 实现：后台 `frame-cache` 线程
+订阅事件，ScreenUpdated/SessionCreated 触发 `styled_frame(since)`
+拉取，SessionClosed 驱逐；GUI 从本地内存读快照（clone 成本），
+`generation()` 单调计数供脏检查。事件流按 200ms 读超时轮询停止标志
+（Windows 上 `shutdown()` 不会解除已阻塞的 recv，不能靠它退出线程）；
+`CoreEventStream` 为此改为手动分帧缓冲，读超时不丢半行数据。
 
 ## 测试覆盖
 

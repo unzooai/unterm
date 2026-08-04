@@ -611,6 +611,24 @@ fn dispatch_inner(
             let pane_id = required_pane_id(request)?;
             serde_json::to_string(&response_ok(id, engine.read_styled_screen(pane_id)?))?
         }
+        "session.styled_frame" => {
+            let pane_id = required_pane_id(request)?;
+            let since_revision = request
+                .params
+                .get("since_revision")
+                .and_then(|v| v.as_u64());
+            // The engine read costs microseconds; what a stale caller
+            // must not pay is serializing 4800 styled cells for a frame
+            // it already has. Compare revisions server-side and send a
+            // small envelope instead.
+            let screen = engine.read_styled_screen(pane_id)?;
+            let body = if since_revision == Some(screen.revision) {
+                serde_json::json!({"unchanged": true, "revision": screen.revision, "screen": null})
+            } else {
+                serde_json::json!({"unchanged": false, "revision": screen.revision, "screen": screen})
+            };
+            serde_json::to_string(&response_ok(id, body))?
+        }
         "session.visible_text" => {
             let pane_id = required_pane_id(request)?;
             serde_json::to_string(&response_ok(id, engine.read_visible_text(pane_id)?))?
@@ -1034,9 +1052,15 @@ impl CoreClient {
 ///
 /// Owns its own connection: events push on it continuously, so it
 /// cannot share the request/response connection a `CoreEngineClient`
-/// multiplexes.
+/// multiplexes. Framing is buffered by hand instead of `BufReader`:
+/// with a read timeout set, a timed-out read must leave any half-
+/// received line in the buffer instead of losing it — that is what
+/// lets a consumer poll a stop flag without corrupting the stream.
+/// (`shutdown()` is no escape hatch here: on Windows it does not
+/// unblock an already-blocked `recv`.)
 pub struct CoreEventStream {
-    reader: BufReader<TcpStream>,
+    stream: TcpStream,
+    buffer: Vec<u8>,
 }
 
 impl CoreEventStream {
@@ -1045,45 +1069,75 @@ impl CoreEventStream {
         stream
             .set_nodelay(true)
             .context("set core events nodelay")?;
-        let mut writer = stream.try_clone()?;
         let request = serde_json::json!({
             "id": uuid::Uuid::new_v4().to_string(),
             "method": "core.events",
             "token": token.into(),
             "params": serde_json::Value::Null,
         });
-        writeln!(writer, "{request}")?;
-        writer.flush()?;
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        reader.read_line(&mut line)?;
+        let mut this = Self {
+            stream,
+            buffer: Vec::new(),
+        };
+        writeln!(this.stream, "{request}")?;
+        this.stream.flush()?;
+        let line = this
+            .next_line()?
+            .ok_or_else(|| anyhow::anyhow!("core.events feed closed before the ack"))?;
         let ack: Response<serde_json::Value> =
             serde_json::from_str(&line).context("decode core.events ack")?;
         if !ack.ok {
             let code = ack.error.map(|error| error.code).unwrap_or_default();
             anyhow::bail!("core.events subscription refused ({code})");
         }
-        Ok(Self { reader })
+        Ok(this)
     }
 
     /// Block until the next event arrives. `Ok(None)` means the feed
-    /// closed: the core shut down or the connection dropped.
+    /// closed: the core shut down or the connection dropped. With a
+    /// read timeout set, the timeout surfaces as `Err` and the stream
+    /// stays consistent — retrying is safe.
     pub fn next_event(&mut self) -> Result<Option<CoreEvent>> {
-        let mut line = String::new();
-        if self.reader.read_line(&mut line)? == 0 {
-            return Ok(None);
+        match self.next_line()? {
+            None => Ok(None),
+            Some(line) => Ok(Some(
+                serde_json::from_str(line.trim()).context("decode core event")?,
+            )),
         }
-        Ok(Some(
-            serde_json::from_str(line.trim()).context("decode core event")?,
-        ))
+    }
+
+    fn next_line(&mut self) -> Result<Option<String>> {
+        use std::io::Read;
+        loop {
+            if let Some(pos) = self.buffer.iter().position(|&byte| byte == b'\n') {
+                let line: Vec<u8> = self.buffer.drain(..=pos).collect();
+                return Ok(Some(String::from_utf8(line).context("core event not utf-8")?));
+            }
+            let mut chunk = [0u8; 4096];
+            match self.stream.read(&mut chunk) {
+                Ok(0) => return Ok(None),
+                Ok(read) => self.buffer.extend_from_slice(&chunk[..read]),
+                Err(err) => return Err(err).context("read core event feed"),
+            }
+        }
     }
 
     pub fn set_read_timeout(&self, timeout: Option<Duration>) -> Result<()> {
-        self.reader
-            .get_ref()
+        self.stream
             .set_read_timeout(timeout)
             .context("set core event read timeout")
     }
+}
+
+/// True when the error is only a read timeout: the feed is intact and
+/// the caller may retry after checking whatever it paused to check.
+pub fn is_timeout_error(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<std::io::Error>().is_some_and(|io| {
+        matches!(
+            io.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        )
+    })
 }
 
 /// The Core-backed engine a GUI or CLI holds in place of a local
@@ -1168,6 +1222,30 @@ impl CoreEngineClient {
     pub fn report_mouse(&self, pane_id: usize, event: MouseEvent) -> Result<()> {
         self.call_unit("session.report_mouse", mouse_event_params(pane_id, event))
     }
+
+    /// Styled screen, but only when it moved past `since_revision`.
+    /// `Ok(None)` means the caller's copy is already current — the
+    /// server skips serializing the cell grid entirely for that case.
+    pub fn styled_frame(
+        &self,
+        pane_id: usize,
+        since_revision: Option<u64>,
+    ) -> Result<Option<StyledScreenSnapshot>> {
+        let envelope: StyledFrameEnvelope = self.call(
+            "session.styled_frame",
+            serde_json::json!({"pane_id": pane_id, "since_revision": since_revision}),
+        )?;
+        Ok(envelope.screen)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct StyledFrameEnvelope {
+    #[allow(dead_code)]
+    unchanged: bool,
+    #[allow(dead_code)]
+    revision: u64,
+    screen: Option<StyledScreenSnapshot>,
 }
 
 impl RecordingEngine for CoreEngineClient {
@@ -1409,6 +1487,156 @@ impl InputEngine for CoreEngineClient {
             "session.paste",
             serde_json::json!({"pane_id": pane_id, "data": text}),
         )
+    }
+}
+
+/// Event-driven client-side cache of styled screens.
+///
+/// The benchmark that shaped this: a full styled screen over IPC costs
+/// ~5ms; the GUI reads it 20+ times per frame today. A renderer
+/// therefore must never fetch per read. This cache subscribes to
+/// `core.events`, refetches a pane only when the Core says its screen
+/// moved, and serves every read from local memory at clone cost.
+pub struct FrameCache {
+    inner: Arc<FrameCacheInner>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+struct FrameCacheInner {
+    frames: std::sync::RwLock<std::collections::HashMap<usize, StyledScreenSnapshot>>,
+    generation: std::sync::atomic::AtomicU64,
+    stopping: AtomicBool,
+    client: CoreEngineClient,
+}
+
+impl FrameCacheInner {
+    fn refresh(&self, pane_id: usize) {
+        let since = self
+            .frames
+            .read()
+            .expect("frame cache lock poisoned")
+            .get(&pane_id)
+            .map(|screen| screen.revision);
+        // A pane can die between the event and this fetch; that is the
+        // close event's job to clean up, not an error worth surfacing.
+        if let Ok(Some(screen)) = self.client.styled_frame(pane_id, since) {
+            self.frames
+                .write()
+                .expect("frame cache lock poisoned")
+                .insert(pane_id, screen);
+            self.bump();
+        }
+    }
+
+    fn evict(&self, pane_id: usize) {
+        if self
+            .frames
+            .write()
+            .expect("frame cache lock poisoned")
+            .remove(&pane_id)
+            .is_some()
+        {
+            self.bump();
+        }
+    }
+
+    fn bump(&self) {
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
+impl FrameCache {
+    /// Connect, seed from `session.list`, and start the update worker.
+    /// Subscription begins before seeding, so a screen that changes
+    /// mid-seed is refetched rather than missed.
+    pub fn start<A: ToSocketAddrs + Clone>(address: A, token: impl Into<String>) -> Result<Self> {
+        let token = token.into();
+        let client = CoreEngineClient::connect(address.clone(), token.clone())?;
+        let mut events = CoreEventStream::connect(address, token)?;
+        // The worker must notice `stopping` even when the feed is
+        // quiet; the buffered framing keeps timed-out reads lossless.
+        events.set_read_timeout(Some(Duration::from_millis(200)))?;
+        let inner = Arc::new(FrameCacheInner {
+            frames: std::sync::RwLock::new(std::collections::HashMap::new()),
+            generation: std::sync::atomic::AtomicU64::new(0),
+            stopping: AtomicBool::new(false),
+            client,
+        });
+        if let Ok(sessions) = inner.client.list_sessions() {
+            for session in sessions {
+                inner.refresh(session.id);
+            }
+        }
+        let worker_inner = inner.clone();
+        let worker = std::thread::Builder::new()
+            .name("frame-cache".into())
+            .spawn(move || loop {
+                if worker_inner.stopping.load(Ordering::Acquire) {
+                    break;
+                }
+                match events.next_event() {
+                    Ok(Some(CoreEvent::SessionCreated { pane_id }))
+                    | Ok(Some(CoreEvent::ScreenUpdated { pane_id, .. })) => {
+                        worker_inner.refresh(pane_id)
+                    }
+                    Ok(Some(CoreEvent::SessionClosed { pane_id })) => {
+                        worker_inner.evict(pane_id)
+                    }
+                    Ok(Some(CoreEvent::SessionDead { .. }))
+                    | Ok(Some(CoreEvent::Draining)) => {}
+                    Ok(None) => break,
+                    Err(err) if is_timeout_error(&err) => continue,
+                    Err(_) => break,
+                }
+            })
+            .expect("spawn frame cache worker");
+        Ok(Self {
+            inner,
+            worker: Some(worker),
+        })
+    }
+
+    /// Serve a styled screen from local memory. `None` is a genuine
+    /// miss (unknown pane) — the caller decides whether to fall back
+    /// to a direct fetch.
+    pub fn styled_screen(&self, pane_id: usize) -> Option<StyledScreenSnapshot> {
+        self.inner
+            .frames
+            .read()
+            .expect("frame cache lock poisoned")
+            .get(&pane_id)
+            .cloned()
+    }
+
+    pub fn panes(&self) -> Vec<usize> {
+        self.inner
+            .frames
+            .read()
+            .expect("frame cache lock poisoned")
+            .keys()
+            .copied()
+            .collect()
+    }
+
+    /// Monotonic change counter: a renderer that saw the same value
+    /// twice knows nothing on screen moved and can skip the frame.
+    pub fn generation(&self) -> u64 {
+        self.inner
+            .generation
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+impl Drop for FrameCache {
+    fn drop(&mut self) {
+        self.inner.stopping.store(true, Ordering::Release);
+        // The worker wakes within its read timeout, sees the flag and
+        // exits. No socket shutdown games: Windows would not unblock
+        // an in-flight recv anyway.
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 
@@ -1894,6 +2122,62 @@ mod tests {
 
         facade.destroy_session(pane_id).unwrap();
         let mut owner = CoreClient::connect(endpoint, "interact-token").unwrap();
+        let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn frame_cache_converges_via_events_and_evicts_on_close() {
+        let (endpoint, worker) = start_server("cache-token");
+        let facade = CoreEngineClient::connect(endpoint, "cache-token").unwrap();
+        let cache = FrameCache::start(endpoint, "cache-token").unwrap();
+
+        let session = facade
+            .create_session(CreateSessionRequest {
+                cols: 80,
+                rows: 24,
+                command_dir: None,
+                command: Some(CommandBuilder::from_argv(shell_argv())),
+                env: Vec::new(),
+                launch_policy: Default::default(),
+            })
+            .unwrap();
+        let pane_id = session.id;
+        facade
+            .write_input(pane_id, "echo cache-ready\r\n")
+            .unwrap();
+
+        // The test thread never fetches: content may only arrive via
+        // the event -> refetch pipeline the GUI will depend on.
+        let mut converged = false;
+        for _ in 0..100 {
+            if let Some(screen) = cache.styled_screen(pane_id) {
+                if styled_screen_text(&screen).contains("cache-ready") {
+                    converged = true;
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(converged, "cache never converged to the echoed text");
+        assert!(cache.panes().contains(&pane_id));
+        let generation = cache.generation();
+        assert!(generation > 0);
+
+        facade.destroy_session(pane_id).unwrap();
+        let mut evicted = false;
+        for _ in 0..100 {
+            if cache.styled_screen(pane_id).is_none() {
+                evicted = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(evicted, "closed pane was never evicted from the cache");
+        assert!(cache.generation() > generation);
+
+        drop(cache);
+        let mut owner = CoreClient::connect(endpoint, "cache-token").unwrap();
         let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
         worker.join().unwrap();
     }
