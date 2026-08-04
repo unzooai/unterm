@@ -1025,26 +1025,51 @@ impl App {
         let atlas_uploaded_glyphs = self.atlas.len();
 
         let (cols, rows) = self.font.grid_for(size.width as f32, size.height as f32);
-        let env = launch_env_for_new_pane();
-        let session = self.engine.create_session(CreateSessionRequest {
-            cols,
-            rows,
-            command_dir: self
-                .start_directory
-                .clone()
-                .or_else(|| {
-                    self.restore
+        // A Core that outlived the previous window still holds its
+        // sessions; a window that opened onto a populated Core must
+        // show those, not stack a fresh shell on top of them. In Local
+        // mode the engine was born with this process and the list is
+        // empty, so this is the create path it always was.
+        let adopted = unterm_engine::SessionEngine::list_sessions(&self.engine)
+            .ok()
+            .and_then(|sessions| {
+                let live: Vec<_> = sessions
+                    .into_iter()
+                    .filter(|session| !session.is_dead)
+                    .collect();
+                let focused = live.iter().find(|session| session.is_active).cloned();
+                focused.or_else(|| live.into_iter().next())
+            });
+        let session = match adopted {
+            Some(existing) => {
+                // This window's grid decides the size, not the one the
+                // previous window left behind.
+                let _ = self.engine.resize_session(existing.id, cols, rows);
+                existing
+            }
+            None => {
+                let env = launch_env_for_new_pane();
+                self.engine.create_session(CreateSessionRequest {
+                    cols,
+                    rows,
+                    command_dir: self
+                        .start_directory
+                        .clone()
+                        .or_else(|| {
+                            self.restore
+                                .as_ref()
+                                .and_then(|saved| saved.cwds.first())
+                                .map(std::path::PathBuf::from)
+                        })
+                        .or_else(|| self.config_default_cwd.clone())
                         .as_ref()
-                        .and_then(|saved| saved.cwds.first())
-                        .map(std::path::PathBuf::from)
-                })
-                .or_else(|| self.config_default_cwd.clone())
-                .as_ref()
-                .map(|path| path.display().to_string()),
-            command: prepare_shell(self.shell.clone()),
-            env,
-            launch_policy: LaunchPolicySnapshot::default(),
-        })?;
+                        .map(|path| path.display().to_string()),
+                    command: prepare_shell(self.shell.clone()),
+                    env,
+                    launch_policy: LaunchPolicySnapshot::default(),
+                })?
+            }
+        };
 
         // The first pane is a tab of one. Recording it here means a later split
         // has an arrangement to grow rather than one to infer.

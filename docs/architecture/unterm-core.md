@@ -184,8 +184,17 @@ trait，styled 读在 Core 模式走 FrameCache。
 进程；**杀 GUI 后 Core 存活、session.list 仍含该会话**——M1 门禁
 「关闭 GUI 后 PTY 继续运行」的首次真机证据。
 
+重开领养（M1-04c）已落地：窗口首 pane 优先领养 Core 中的活会话
+（偏好 is_active，跳过已死会话），仅在 Core 为空时才新建 shell；
+其余会话由 `sync_tabs` 的既有对账逻辑接管（含 split 归属）。真机
+验证：GUI 写入 marker -> 杀 GUI -> 重开 -> 会话数不变（领养而非
+新建）、marker 内容仍在屏幕上——「重开 GUI 后可以看到相同 Pane 和
+Scrollback」门禁的首个真机证据。Local 模式启动时引擎必为空，走的
+仍是原来的新建路径，行为不变。
+
 实验开关下的已知缺口（M1-04 后续切片）：
-- 重开 GUI 无条件新建 pane，尚不 adopt Core 中的既有会话（重连语义）
+- 布局（split 树）仍在 GUI 进程，重开后 split 关系靠 split_from
+  降级重建，比例/方向不保真——布局入 Core 是后续设计决策
 - GUI 内 MCP server、statsbar/cockpit 刷新线程仍指向进程本地引擎
 - 启动时的 scrollback 行数全局设置未传递到 Core 进程
 - GUI 渲染循环仍轮询 revision，未接 core.events 唤醒
