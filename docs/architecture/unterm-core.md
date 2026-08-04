@@ -89,6 +89,7 @@ session.recording_status 录制状态
 session.recording_attach_trace 关联 trace id
 session.recording_export 导出 markdown
 core.engine_health       EngineHealthSnapshot（引擎自身健康，非进程健康）
+core.set_scrollback_lines 之后新建会话的 scrollback 容量（客户端连上后回传自己的配置）
 ```
 
 线协议为按行分隔的 JSON 请求/响应，每个请求携带 token；错误以
@@ -196,8 +197,11 @@ Scrollback」门禁的首个真机证据。Local 模式启动时引擎必为空�
 - 布局（split 树）仍在 GUI 进程，重开后 split 关系靠 split_from
   降级重建，比例/方向不保真——布局入 Core 是后续设计决策
 - GUI 内 MCP server、statsbar/cockpit 刷新线程仍指向进程本地引擎
-- 启动时的 scrollback 行数全局设置未传递到 Core 进程
 - GUI 渲染循环仍轮询 revision，未接 core.events 唤醒
+
+scrollback 配置已打通：connect_core 时经 `core.set_scrollback_lines`
+把 GUI 的配置值回传 Core（配置文件在客户端侧；对既有 pane 不生效，
+与设置页「新 pane 生效」契约一致；多客户端后写覆盖）。
 
 ## 渊源
 

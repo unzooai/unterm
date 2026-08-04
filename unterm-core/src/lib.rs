@@ -782,6 +782,19 @@ fn dispatch_inner(
         "core.engine_health" => {
             serde_json::to_string(&response_ok(id, engine.health()?))?
         }
+        "core.set_scrollback_lines" => {
+            let lines = request
+                .params
+                .get("lines")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| anyhow::anyhow!("lines is required"))?
+                as usize;
+            // Applies to sessions created from here on; existing panes
+            // keep their capacity, matching the settings page's
+            // "new pane to apply" contract. Last client to set wins.
+            unterm_engine::next_core::NextCoreEngine::set_new_session_scrollback_lines(lines);
+            serde_json::to_string(&response_ok(id, serde_json::json!({"applied": lines})))?
+        }
         "session.list" => {
             serde_json::to_string(&response_ok(id, engine.list_sessions()?))?
         }
@@ -1221,6 +1234,16 @@ impl CoreEngineClient {
 
     pub fn report_mouse(&self, pane_id: usize, event: MouseEvent) -> Result<()> {
         self.call_unit("session.report_mouse", mouse_event_params(pane_id, event))
+    }
+
+    /// Set the scrollback capacity for sessions the Core creates from
+    /// now on. A client passes its own configured value along right
+    /// after connecting; the config file lives client-side.
+    pub fn set_new_session_scrollback_lines(&self, lines: usize) -> Result<()> {
+        self.call_unit(
+            "core.set_scrollback_lines",
+            serde_json::json!({"lines": lines}),
+        )
     }
 
     /// Styled screen, but only when it moved past `since_revision`.
@@ -2041,6 +2064,28 @@ mod tests {
             matches!(event, CoreEvent::Draining)
         });
 
+        let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn scrollback_lines_setting_crosses_the_ipc_boundary() {
+        let (endpoint, worker) = start_server("scrollback-token");
+        let facade = CoreEngineClient::connect(endpoint, "scrollback-token").unwrap();
+        let default = unterm_engine::next_core::NextCoreEngine::new_session_scrollback_lines();
+
+        facade.set_new_session_scrollback_lines(4321).unwrap();
+        // The test server shares this process, so the global it set is
+        // directly observable here.
+        assert_eq!(
+            unterm_engine::next_core::NextCoreEngine::new_session_scrollback_lines(),
+            4321
+        );
+
+        // Other tests create sessions in this same process; leave the
+        // default as we found it.
+        facade.set_new_session_scrollback_lines(default).unwrap();
+        let mut owner = CoreClient::connect(endpoint, "scrollback-token").unwrap();
         let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
         worker.join().unwrap();
     }

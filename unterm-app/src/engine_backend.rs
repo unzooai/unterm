@@ -72,6 +72,13 @@ impl AppEngine {
     fn connect_core() -> Result<Self> {
         let info = unterm_core::ensure_running()?;
         let client = CoreEngineClient::connect(&info.endpoint, info.token.clone())?;
+        // The config file is this process's to read; the Core just
+        // applies whatever the connecting client was configured with.
+        // main() stored the value in the local engine global before
+        // any window opened, so it is current here.
+        client.set_new_session_scrollback_lines(
+            NextCoreEngine::new_session_scrollback_lines(),
+        )?;
         let cache = FrameCache::start(&info.endpoint, info.token)?;
         Ok(AppEngine::Core { client, cache })
     }
