@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Unterm Otty-style Sidebar Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101216;
+      --panel: #191c22;
+      --panel-2: #20242b;
+      --line: #2c313a;
+      --text: #dfe6ef;
+      --muted: #89929f;
+      --accent: #43d6b4;
+      --warn: #e3bb53;
+      --danger: #ff6b6b;
+      --shadow: rgba(0, 0, 0, .38);
+      --window: #0e1014;
+      --terminal: #0e1014;
+      --files: #15181e;
+      --popover: #242932;
+      --git-bg: #191c22;
+      --chrome-border: #343a45;
+      --dim: #687382;
+      --mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+      --ui: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 25% 0%, #202633 0, transparent 34rem), var(--bg);
+      color: var(--text);
+      font-family: var(--ui);
+      padding: 28px;
+    }
+
+    .page {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: grid;
+      gap: 18px;
+    }
+
+    h1 {
+      font-size: 20px;
+      margin: 0;
+      letter-spacing: 0;
+      font-weight: 650;
+    }
+
+    .note {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .stage {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .window {
+      height: 720px;
+      border: 1px solid var(--chrome-border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--window);
+      box-shadow: 0 24px 70px var(--shadow);
+      display: grid;
+      grid-template-rows: 38px 1fr;
+    }
+
+    .titlebar {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: 138px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 0 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .mark {
+      width: 22px;
+      height: 22px;
+      border: 1.5px solid var(--accent);
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+
+    .brand span {
+      font-size: 13px;
+      font-weight: 620;
+      white-space: nowrap;
+    }
+
+    .title {
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .path-title {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-width: 0;
+      text-align: center;
+      line-height: 1;
+    }
+
+    .path-title strong {
+      display: inline;
+      font-size: 13px;
+      font-weight: 640;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .path-title strong::after {
+      content: "/";
+      color: var(--muted);
+      margin-left: 8px;
+      font-weight: 400;
+    }
+
+    .path-title span {
+      display: inline;
+      margin-top: 0;
+      font-size: 11px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .ai-strip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .ai-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 24px;
+      padding: 0 8px;
+      border: 1px solid rgba(67, 214, 180, .28);
+      border-radius: 999px;
+      color: var(--accent);
+      background: rgba(67, 214, 180, .08);
+    }
+
+    .ai-pill.waiting {
+      border-color: rgba(227, 187, 83, .36);
+      color: var(--warn);
+      background: rgba(227, 187, 83, .08);
+    }
+
+    .traffic {
+      display: flex;
+      gap: 8px;
+    }
+
+    .traffic i {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      display: block;
+      background: #59616f;
+    }
+
+    .traffic i:nth-child(1) { background: #ff5f57; }
+    .traffic i:nth-child(2) { background: #febc2e; }
+    .traffic i:nth-child(3) { background: #28c840; }
+
+    .main {
+      display: grid;
+      grid-template-columns: 188px 236px 1fr;
+      min-height: 0;
+    }
+
+    .sessions {
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      min-width: 0;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 6px;
+      padding: 10px 10px 8px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-2);
+    }
+
+    .icon-btn {
+      height: 31px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 15px;
+      background: transparent;
+    }
+
+    .icon-btn.active {
+      color: var(--accent);
+      background: rgba(67, 214, 180, .11);
+      border-color: rgba(67, 214, 180, .36);
+    }
+
+    .icon-btn:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, .07);
+    }
+
+    .actions > .icon-btn:nth-child(1) { border-radius: 7px 0 0 7px; }
+    .actions > .icon-btn:nth-child(2) {
+      margin-left: -6px;
+      border-left-color: var(--line);
+      border-radius: 0 7px 7px 0;
+      font-family: var(--ui);
+      font-size: 10px;
+      letter-spacing: -.2px;
+    }
+
+    .actions > .icon-btn:nth-child(6),
+    .actions > .icon-btn:nth-child(7),
+    .actions > .icon-btn:nth-child(8),
+    .actions > .icon-btn:nth-child(9) { display: none; }
+
+    .more-popover {
+      position: absolute;
+      top: 74px;
+      left: 142px;
+      z-index: 10;
+      display: none;
+      width: 190px;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--popover);
+      box-shadow: 0 16px 36px rgba(0,0,0,.45);
+    }
+    .more-popover.open { display: grid; gap: 2px; }
+    .more-popover button {
+      border: 0;
+      border-radius: 5px;
+      padding: 7px 9px;
+      text-align: left;
+      color: var(--muted);
+      background: transparent;
+      font: 12px var(--ui);
+    }
+    .more-popover button:hover { color: var(--text); background: rgba(255,255,255,.08); }
+
+    .shell-popover { left: 46px; }
+
+    .project-head {
+      padding: 10px 12px 6px;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .session-list {
+      overflow: hidden;
+      padding: 0 8px;
+      display: grid;
+      align-content: start;
+      gap: 4px;
+    }
+
+    .session {
+      min-height: 48px;
+      border-radius: 7px;
+      display: grid;
+      grid-template-columns: 18px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 0 9px;
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 0;
+    }
+
+    .session.active {
+      background: rgba(67, 214, 180, .10);
+      color: var(--text);
+      border-left: 2px solid var(--accent);
+    }
+
+    .session strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 560;
+    }
+
+    .session small {
+      display: block;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-top: 2px;
+    }
+
+    .ai-line {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 3px;
+      color: var(--accent);
+      font-size: 10.5px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .ai-line.waiting { color: var(--warn); }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--muted);
+    }
+
+    .dot.work { background: var(--accent); box-shadow: 0 0 12px rgba(67,214,180,.45); }
+    .dot.warn { background: var(--warn); }
+
+    .footer-actions {
+      display: none !important;
+      border-top: 1px solid var(--line);
+      background: var(--panel-2);
+      padding: 8px 10px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+
+    .side-status {
+      display: none !important;
+      border-top: 1px solid var(--line);
+      padding: 7px 10px 8px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.5;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      background: var(--panel);
+    }
+
+    .side-status span + span::before {
+      content: "  ·  ";
+      color: #5d6673;
+    }
+
+    .files {
+      background: var(--files);
+      border-right: 1px solid var(--line);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-width: 0;
+    }
+
+    .files h2 {
+      margin: 0;
+      padding: 12px;
+      font-size: 12px;
+      color: var(--accent);
+      border-bottom: 1px solid var(--line);
+      font-weight: 560;
+    }
+
+    .files::after {
+      content: "Git   agent/product-readiness   ·   3 changed";
+      display: block;
+      border-top: 1px solid var(--line);
+      padding: 9px 10px 10px;
+      background: var(--git-bg);
+      color: var(--warn);
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tree {
+      padding: 10px 8px;
+      overflow: hidden;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.9;
+      color: var(--muted);
+    }
+
+    .tree .sel {
+      color: var(--text);
+      background: rgba(255,255,255,.06);
+      border-radius: 5px;
+      padding: 2px 5px;
+      margin-left: -5px;
+    }
+
+    .git-panel {
+      border-top: 1px solid var(--line);
+      padding: 9px 10px 10px;
+      background: #191c22;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .git-panel strong { color: var(--text); font-weight: 560; }
+    .git-panel .git-meta { display: flex; justify-content: space-between; margin-top: 5px; }
+    .git-panel .git-dirty { color: var(--warn); }
+
+    .terminal {
+      min-width: 0;
+      background: var(--terminal);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.55;
+      padding: 18px 20px;
+      color: var(--text);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .terminal .prompt { color: var(--accent); }
+    .terminal .dim { color: var(--dim); }
+    .cursor {
+      display: inline-block;
+      width: 8px;
+      height: 17px;
+      background: var(--accent);
+      vertical-align: -3px;
+    }
+
+    .statusbar {
+      display: none;
+    }
+
+    .spec {
+      border: 1px solid var(--chrome-border);
+      border-radius: 10px;
+      background: rgba(25, 28, 34, .88);
+      padding: 16px;
+    }
+
+    .spec h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+    }
+
+    .theme-picker { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+    .theme-picker button { border: 1px solid var(--line); border-radius: 999px; padding: 5px 8px; color: var(--muted); background: transparent; font: 11px var(--ui); cursor: pointer; }
+    .theme-picker button.active, .theme-picker button:hover { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+    html[data-theme="daylight"] body { background: #e8ecf1; }
+    html[data-theme="daylight"] .window { background: #f7f9fb; border-color: #cfd6df; }
+    html[data-theme="daylight"] .terminal { background: #fbfcfd; }
+    html[data-theme="daylight"] .titlebar,
+    html[data-theme="daylight"] .sessions { background: #ffffff; }
+    html[data-theme="daylight"] .files { background: #f7f9fb; }
+    html[data-theme="daylight"] .git-panel { background: #f0f4f8; }
+    html[data-theme="daylight"] .spec { background: rgba(255,255,255,.92); }
+    html[data-theme="daylight"] .more-popover { background: #ffffff; box-shadow: 0 14px 30px rgba(31,41,55,.18); }
+
+    html[data-theme="midnight"] .terminal { background: #0b1220; }
+    html[data-theme="classic"] .terminal { background: #0b0b0b; }
+
+    html[data-theme="notion-dark"] body { background: #191918; }
+    html[data-theme="notion-dark"] .window { background: #20201f; border-color: #3a3a38; }
+    html[data-theme="notion-dark"] .titlebar,
+    html[data-theme="notion-dark"] .sessions { background: #20201f; }
+    html[data-theme="notion-dark"] .files { background: #191918; }
+    html[data-theme="notion-dark"] .terminal { background: #191918; color: #e9e9e7; }
+    html[data-theme="notion-dark"] .git-panel { background: #292927; }
+    html[data-theme="notion-dark"] .spec,
+    html[data-theme="notion-dark"] .more-popover { background: #292927; }
+
+    html[data-theme="notion-light"] body { background: #f7f6f3; }
+    html[data-theme="notion-light"] .window,
+    html[data-theme="notion-light"] .terminal { background: #ffffff; }
+    html[data-theme="notion-light"] .files { background: #f7f6f3; }
+    html[data-theme="notion-light"] .spec { background: #f7f6f3; }
+    html[data-theme="notion-light"] .more-popover { background: #ffffff; box-shadow: 0 14px 30px rgba(55,53,47,.12); }
+
+    .spec ul {
+      padding-left: 18px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .narrow {
+      width: 420px;
+      height: 420px;
+      grid-template-columns: 142px 1fr;
+      display: grid;
+      border: 1px solid #343a45;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #0e1014;
+    }
+
+    .narrow .sessions { min-width: 0; }
+    .narrow .actions { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 2px; padding: 6px; }
+    .narrow .terminal { padding: 14px; font-size: 12px; }
+
+    @media (max-width: 980px) {
+      .stage { grid-template-columns: 1fr; }
+      .main { grid-template-columns: 164px 1fr; }
+      .files { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div>
+      <h1>Unterm 左侧通栏 UI 预览</h1>
+      <p class="note">目标：学习 OTTY 的 workspace 结构，把设置、命令、分屏、搜索、项目、截图/导出等操作固定在左侧；mac 顶部按当前 tab 的项目和 cwd 更新，同时显示正在运行或等待用户的 AI。</p>
+    </div>
+
+    <section class="stage">
+      <div class="window">
+        <header class="titlebar">
+          <div class="brand">
+            <div class="mark">U</div>
+            <span>Unterm</span>
+          </div>
+          <div class="path-title">
+            <strong>unterm</strong>
+            <span>~/Developer/unterm · agent/product-readiness-ui-acceptance</span>
+          </div>
+          <div class="ai-strip">
+            <span class="ai-pill">● Codex running</span>
+            <span class="ai-pill waiting">! Claude waiting</span>
+            <div class="traffic"><i></i><i></i><i></i></div>
+          </div>
+        </header>
+
+        <div class="main">
+          <aside class="sessions">
+            <div class="actions" aria-label="primary actions">
+              <div class="icon-btn" title="新建标签">+</div>
+              <div class="icon-btn" title="选择 Shell">⌄</div>
+              <div class="icon-btn" title="命令面板">☰</div>
+              <div class="icon-btn active" title="文件树">▣</div>
+              <div class="icon-btn" title="向右分屏">⇲</div>
+              <div class="icon-btn" title="跳转文件夹">⌕</div>
+              <div class="icon-btn" title="终端搜索">⌘</div>
+              <div class="icon-btn" title="Agent 收件箱">!</div>
+              <div class="icon-btn" title="设置">⚙</div>
+              <div class="icon-btn" title="更多菜单">⌄</div>
+            </div>
+
+            <div class="project-head">Sessions 7</div>
+            <div class="session-list">
+              <div class="session active" data-project="unterm" data-path="~/Developer/unterm · agent/product-readiness-ui-acceptance" data-ai="● Codex running"><span class="dot work"></span><div><strong>unterm</strong><small>~/Developer/unterm</small><span class="ai-line">● Codex · cargo check</span></div><span>1</span></div>
+              <div class="session" data-project="web-app" data-path="~/Developer/web-app · feat/socket-metadata" data-ai="! Claude waiting"><span class="dot warn"></span><div><strong>web preview</strong><small>~/Developer/web-app</small><span class="ai-line waiting">! Claude · needs approval</span></div><span>2</span></div>
+              <div class="session" data-project="docs" data-path="~/Developer/unterm/docs/plans" data-ai=""><span class="dot"></span><div><strong>docs</strong><small>plans</small></div><span>3</span></div>
+              <div class="session" data-project="review" data-path="~/Developer/unterm · git panel" data-ai="● Codex reviewing"><span class="dot"></span><div><strong>review</strong><small>git panel</small></div><span>4</span></div>
+              <div class="session" data-project="release" data-path="~/Developer/unterm/dist-local" data-ai=""><span class="dot"></span><div><strong>release</strong><small>dist-local</small></div><span>5</span></div>
+            </div>
+
+            <div class="footer-actions">
+              <div class="icon-btn" title="新建标签">+</div>
+              <div class="icon-btn" title="选择 Shell">⌄</div>
+              <div class="icon-btn" title="搜索会话">⌕</div>
+            </div>
+            <div class="side-status"><span>pwsh</span><span>git</span><span>mcp ready</span></div>
+          </aside>
+
+          <aside class="files">
+            <h2>▾ D:\code\unterm</h2>
+            <div class="tree">
+              ▾ wezterm-gui<br />
+              &nbsp;&nbsp;▾ src<br />
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="sel">termwindow</span><br />
+              &nbsp;&nbsp;&nbsp;&nbsp;overlay<br />
+              &nbsp;&nbsp;&nbsp;&nbsp;mcp<br />
+              ▾ wezterm<br />
+              &nbsp;&nbsp;src\main.rs<br />
+              ▾ docs<br />
+              &nbsp;&nbsp;quality<br />
+              Cargo.toml
+            </div>
+          </aside>
+
+          <section class="terminal">
+            <span class="dim"># 左侧是固定工作区，不会因分屏或打开文件树消失</span><br />
+            <span class="prompt">PS D:\code\unterm&gt;</span> cargo check -p wezterm-gui<br />
+            <span class="dim">checking unterm-gui v0.61.1</span><br />
+            <span class="dim">top bar: passive title/status only</span><br /><br />
+            <span class="prompt">PS D:\code\unterm&gt;</span> <span class="cursor"></span>
+          </section>
+        </div>
+
+      </div>
+
+      <aside class="spec">
+        <div class="theme-picker" aria-label="主题预览">
+          <button class="active" data-theme="standard">Standard</button>
+          <button data-theme="midnight">Midnight</button>
+          <button data-theme="daylight">Daylight</button>
+          <button data-theme="classic">Classic</button>
+          <button data-theme="notion-dark">Notion Dark</button>
+          <button data-theme="notion-light">Notion Light</button>
+        </div>
+        <h2>设计约束</h2>
+        <ul>
+          <li>顶部不再放命令面板、搜索、分屏、设置、更多操作。</li>
+          <li>mac 顶部路径跟随 active tab：打开哪个 tab，就显示哪个 tab 的项目名和 cwd。</li>
+          <li>路径显示采用 mac 逻辑：单行 `project / ~/Developer/project`，不做厚重双行标题。</li>
+          <li>正在运行/等待的 AI 要显示出来：顶部显示全窗口摘要，session 行显示该 tab 的 AI 状态。</li>
+          <li>左侧第一屏固定显示主要操作，滚动 tab 不影响这些入口。</li>
+          <li>箭头按钮只显示图标，不显示“更多操作”文字。</li>
+          <li>未最大化时保持图标矩阵，不靠顶部宽度自适应挤压。</li>
+          <li>文件树作为第二列，可开关；关闭后终端回收空间。</li>
+          <li>截图、滚动截图、导出会话放入左侧更多菜单。</li>
+        </ul>
+      </aside>
+    </section>
+
+    <section class="spec">
+      <h2>窄窗口状态</h2>
+      <div class="narrow">
+        <aside class="sessions">
+          <div class="actions">
+            <div class="icon-btn">☰</div><div class="icon-btn active">▣</div><div class="icon-btn">⇲</div><div class="icon-btn">⌕</div>
+            <div class="icon-btn">⌘</div><div class="icon-btn">!</div><div class="icon-btn">⚙</div><div class="icon-btn">⌄</div>
+          </div>
+          <div class="project-head">Sessions</div>
+          <div class="session-list">
+            <div class="session active"><span class="dot work"></span><div><strong>unterm</strong><small>cargo</small></div><span>1</span></div>
+            <div class="session"><span class="dot"></span><div><strong>docs</strong><small>plans</small></div><span>2</span></div>
+          </div>
+          <div class="footer-actions">
+            <div class="icon-btn">+</div><div class="icon-btn">⌄</div><div class="icon-btn">⌕</div>
+          </div>
+          <div class="side-status"><span>pwsh</span><span>git</span><span>mcp ready</span></div>
+        </aside>
+        <section class="terminal"><span class="prompt">PS&gt;</span> npm test<br><span class="dim">no top action overflow</span><br><br><span class="prompt">PS&gt;</span> <span class="cursor"></span></section>
+      </div>
+    </section>
+  </main>
+  <script>
+    const themes = {
+      standard: ['#101216','#191c22','#20242b','#2c313a','#dfe6ef','#89929f','#43d6b4'],
+      midnight: ['#090d18','#111827','#172238','#24334b','#e4edff','#8292ad','#67b7ff'],
+      daylight: ['#eef1f5','#f7f9fb','#edf1f5','#d7dde5','#263241','#667384','#2563eb'],
+      classic: ['#0b0b0b','#151515','#202020','#343434','#f0f0f0','#a0a0a0','#f2c14e'],
+      'notion-dark': ['#191918','#20201f','#292927','#3a3a38','#e9e9e7','#a4a4a0','#529cca'],
+      'notion-light': ['#ffffff','#ffffff','#f7f6f3','#e9e9e7','#37352f','#787774','#2383e2']
+    };
+    const themeExtras = {
+      standard: ['#0e1014','#0e1014','#15181e','#242932','#191c22','#343a45','#687382'],
+      midnight: ['#0f1726','#0b1220','#111a2a','#1c2940','#18243a','#2b3b55','#7f91ad'],
+      daylight: ['#f7f9fb','#fbfcfd','#f1f4f8','#ffffff','#eef2f6','#cfd6df','#667384'],
+      classic: ['#111111','#0b0b0b','#151515','#202020','#181818','#343434','#a0a0a0'],
+      'notion-dark': ['#20201f','#191918','#242423','#2d2d2b','#292927','#3a3a38','#8f8f8b'],
+      'notion-light': ['#ffffff','#ffffff','#f7f6f3','#ffffff','#f7f6f3','#e9e9e7','#9b9a97']
+    };
+    document.querySelectorAll('.theme-picker button').forEach((button) => {
+      button.addEventListener('click', () => {
+        const values = themes[button.dataset.theme];
+        document.documentElement.dataset.theme = button.dataset.theme;
+        document.documentElement.style.colorScheme = button.dataset.theme.endsWith('light') || button.dataset.theme === 'daylight' ? 'light' : 'dark';
+        ['--bg','--panel','--panel-2','--line','--text','--muted','--accent'].forEach((name, i) => document.documentElement.style.setProperty(name, values[i]));
+        ['--window','--terminal','--files','--popover','--git-bg','--chrome-border','--dim'].forEach((name, i) => document.documentElement.style.setProperty(name, themeExtras[button.dataset.theme][i]));
+        document.querySelectorAll('.theme-picker button').forEach((b) => b.classList.toggle('active', b === button));
+      });
+    });
+
+    const actionRail = document.querySelector('.actions');
+    const moreButton = actionRail && actionRail.lastElementChild;
+    const shellButton = actionRail && actionRail.children[1];
+    let shellPopover;
+    if (actionRail && shellButton) {
+      shellButton.textContent = 'PS⌄';
+      if (actionRail.children[3]) actionRail.children[3].textContent = '▱';
+      if (moreButton) moreButton.textContent = '⋯';
+      shellPopover = document.createElement('div');
+      shellPopover.className = 'more-popover shell-popover';
+      shellPopover.innerHTML = '<button>PowerShell <span style="color:var(--accent)">默认</span></button><button>Command Prompt</button><button>Git Bash</button><button>WSL / Ubuntu</button><button>SSH…</button><button style="border-top:1px solid var(--line);margin-top:3px;padding-top:9px">▣ 以管理员身份运行</button><button>设置默认 Shell</button>';
+      actionRail.parentElement.appendChild(shellPopover);
+      shellButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        shellPopover.classList.toggle('open');
+        if (moreButton && moreButton._popover) moreButton._popover.classList.remove('open');
+      });
+    }
+    if (moreButton) {
+      const popover = document.createElement('div');
+      popover.className = 'more-popover';
+      popover.innerHTML = '<button>跳转文件夹</button><button>Agent 收件箱 <span style="color:var(--warn)">1</span></button><button>设置</button><button>当前屏幕截图</button><button>选择区域截图</button><button>滚动截图</button><button>导出会话</button><button>Git 面板</button><div style="border-top:1px solid var(--line);margin:4px 3px 2px;padding:8px 6px 3px;color:var(--muted);font-size:10px;line-height:1.6"><strong style="color:var(--text)">Unterm</strong> v0.57.4<br/><a href="https://unterm.app" target="_blank" style="color:var(--accent);text-decoration:none">unterm.app</a><br/><a href="https://github.com/zhitongblog/unterm" target="_blank" style="color:var(--muted);text-decoration:none">GitHub repository</a><br/>doaipm 出品</div>';
+      actionRail.parentElement.appendChild(popover);
+      moreButton._popover = popover;
+      moreButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        popover.classList.toggle('open');
+      });
+      document.addEventListener('click', () => {
+        popover.classList.remove('open');
+        if (shellPopover) shellPopover.classList.remove('open');
+      });
+    }
+
+    const projectTitle = document.querySelector(".path-title strong");
+    const projectPath = document.querySelector(".path-title span");
+    const aiStrip = document.querySelector(".ai-strip");
+    const traffic = document.querySelector(".traffic");
+    document.querySelectorAll(".session[data-project]").forEach((row) => {
+      row.addEventListener("click", () => {
+        document.querySelectorAll(".session").forEach((r) => r.classList.remove("active"));
+        row.classList.add("active");
+        projectTitle.textContent = row.dataset.project;
+        projectPath.textContent = row.dataset.path;
+        const ai = row.dataset.ai || "no active AI";
+        const waiting = ai.startsWith("!");
+        aiStrip.innerHTML = `<span class="ai-pill ${waiting ? "waiting" : ""}">${ai}</span>`;
+        aiStrip.appendChild(traffic);
+      });
+    });
+  </script>
+</body>
+</html>
