@@ -51,6 +51,7 @@ core.health              ready | draining
 core.readiness           同上
 core.drain               拒新会话（create/split），保存量
 core.shutdown            停止服务
+core.events              连接转为单向事件推送流（见下）
 session.create           cols/rows/cwd/argv/env/launch_policy -> SessionSnapshot
 session.split            源 pane + direction/size_percent -> SessionSnapshot
 session.get              单个会话快照
@@ -80,6 +81,21 @@ session.close            销毁会话
 `{code, message}` 返回（`unauthenticated` / `draining` /
 `method_not_found` / `internal_error` / `invalid_request`）。
 
+## core.events 事件流
+
+`core.events` 把该连接变成单向推送流：先回 `{subscribed: true}`，之后每行
+一个事件（`session_created` / `session_closed` / `session_dead` /
+`screen_updated{revision}` / `draining`）。客户端用
+`CoreEventStream::connect` 订阅——这是 GUI 摆脱 `about_to_wait` 定时轮询
+的基础：革命性变化不在轮询是否存在，而在轮询只发生在 Core 内一处
+（`core-event-watcher` 线程，有订阅者 25ms、无订阅者 250ms 降频），而非
+每个客户端各自的帧循环。引擎日后提供真正的唤醒钩子时，只需改 watcher
+实现，线协议不变。
+
+事件是边沿通知而非可回放日志：晚到的订阅者用 `session.list` 自举，只听
+之后的变化。持久化、cursor 可寻址的事件存储是 M2（Durable Task Engine）
+的工作，不在此处提前造第二套协议。
+
 ## CoreEngineClient（M1-04 的 GUI/CLI 接入面）
 
 `unterm_core::CoreEngineClient` 在客户端进程内实现 `SessionEngine +
@@ -97,7 +113,8 @@ GUI/CLI 把本地 `NextCoreEngine` 换成它即可让会话搬进 Core：这是�
 释放、真实 PTY 会话经 Core IPC 完整往返（写入命令并从 Screen 读回输出、
 frame revision 递增）、drain 拒新保旧、CoreEngineClient 门面全方法往返
 （styled screen/增量 frame/search/cursor/modes/shell/activity/resize）、
-split 归属（split_from）与 drain 阻断 split。
+split 归属（split_from）与 drain 阻断 split、事件流全生命周期
+（created -> screen_updated -> closed -> draining）。
 
 ## 维护规则
 

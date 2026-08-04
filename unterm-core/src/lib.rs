@@ -190,6 +190,129 @@ pub fn response_error<T: Serialize>(
     }
 }
 
+/// One session-affecting change, pushed to `core.events` subscribers.
+///
+/// Edge notifications, not a replayable log: a subscriber that connects
+/// late bootstraps from `session.list` and only hears what happens next.
+/// The durable, cursor-addressable event store is M2's work, not this.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum CoreEvent {
+    SessionCreated { pane_id: usize },
+    SessionClosed { pane_id: usize },
+    SessionDead { pane_id: usize, reason: Option<String> },
+    ScreenUpdated { pane_id: usize, revision: u64 },
+    Draining,
+}
+
+/// Fan-out point between the engine watcher and `core.events`
+/// connections. Dead subscribers are dropped on the next publish.
+struct EventHub {
+    subscribers: std::sync::Mutex<Vec<std::sync::mpsc::Sender<String>>>,
+}
+
+impl EventHub {
+    fn new() -> Self {
+        Self {
+            subscribers: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn subscribe(&self) -> std::sync::mpsc::Receiver<String> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.subscribers
+            .lock()
+            .expect("event hub lock poisoned")
+            .push(sender);
+        receiver
+    }
+
+    fn subscriber_count(&self) -> usize {
+        self.subscribers
+            .lock()
+            .expect("event hub lock poisoned")
+            .len()
+    }
+
+    fn publish(&self, event: &CoreEvent) {
+        let Ok(line) = serde_json::to_string(event) else {
+            return;
+        };
+        self.subscribers
+            .lock()
+            .expect("event hub lock poisoned")
+            .retain(|sender| sender.send(line.clone()).is_ok());
+    }
+}
+
+/// Poll the engine for changes and publish them as events.
+///
+/// The engine has no wakeup hook yet, so this is where the polling
+/// lives -- once, in the Core, instead of in every client's frame
+/// loop. Adding a real hook later changes this function, not the wire
+/// protocol. Idle cost stays low: with no subscribers the watcher only
+/// keeps its baseline fresh, at a slower cadence.
+fn watch_engine_events(hub: Arc<EventHub>, running: Arc<AtomicBool>, draining: Arc<AtomicBool>) {
+    let engine = unterm_engine::next_core();
+    let mut known: std::collections::HashMap<usize, (bool, u64)> = std::collections::HashMap::new();
+    let mut announced_draining = false;
+    while running.load(Ordering::Acquire) {
+        let has_subscribers = hub.subscriber_count() > 0;
+
+        if draining.load(Ordering::Acquire) && !announced_draining {
+            announced_draining = true;
+            hub.publish(&CoreEvent::Draining);
+        }
+
+        // Publishing to an empty hub is a no-op, so events are never
+        // gated on subscriber presence: gating would race a subscriber
+        // arriving between the check and a session appearing, and lose
+        // that session's created event for good.
+        if let Ok(sessions) = engine.list_sessions() {
+            let mut seen = std::collections::HashSet::new();
+            for session in &sessions {
+                seen.insert(session.id);
+                let revision = engine.screen_revision(session.id).unwrap_or(0);
+                match known.get(&session.id) {
+                    None => {
+                        known.insert(session.id, (session.is_dead, revision));
+                        hub.publish(&CoreEvent::SessionCreated {
+                            pane_id: session.id,
+                        });
+                    }
+                    Some(&(was_dead, last_revision)) => {
+                        if session.is_dead && !was_dead {
+                            hub.publish(&CoreEvent::SessionDead {
+                                pane_id: session.id,
+                                reason: session.dead_reason.clone(),
+                            });
+                        }
+                        if revision != last_revision {
+                            hub.publish(&CoreEvent::ScreenUpdated {
+                                pane_id: session.id,
+                                revision,
+                            });
+                        }
+                        known.insert(session.id, (session.is_dead, revision));
+                    }
+                }
+            }
+            let closed: Vec<usize> = known
+                .keys()
+                .copied()
+                .filter(|id| !seen.contains(id))
+                .collect();
+            for pane_id in closed {
+                known.remove(&pane_id);
+                hub.publish(&CoreEvent::SessionClosed { pane_id });
+            }
+        }
+
+        let interval = if has_subscribers { 25 } else { 250 };
+        std::thread::sleep(Duration::from_millis(interval));
+    }
+}
+
 /// Authenticated local server shared by GUI, CLI and automation clients.
 pub struct CoreServer {
     listener: TcpListener,
@@ -197,6 +320,7 @@ pub struct CoreServer {
     started_at: String,
     running: Arc<AtomicBool>,
     draining: Arc<AtomicBool>,
+    events: Arc<EventHub>,
 }
 
 impl CoreServer {
@@ -211,6 +335,7 @@ impl CoreServer {
             started_at: chrono::Utc::now().to_rfc3339(),
             running: Arc::new(AtomicBool::new(true)),
             draining: Arc::new(AtomicBool::new(false)),
+            events: Arc::new(EventHub::new()),
         })
     }
 
@@ -219,6 +344,15 @@ impl CoreServer {
     }
 
     pub fn run(&self) -> Result<()> {
+        let watcher = {
+            let hub = self.events.clone();
+            let running = self.running.clone();
+            let draining = self.draining.clone();
+            std::thread::Builder::new()
+                .name("core-event-watcher".into())
+                .spawn(move || watch_engine_events(hub, running, draining))
+                .context("spawn core event watcher")?
+        };
         while self.running.load(Ordering::Acquire) {
             match self.listener.accept() {
                 Ok((stream, _)) => {
@@ -229,9 +363,10 @@ impl CoreServer {
                     let started_at = self.started_at.clone();
                     let running = self.running.clone();
                     let draining = self.draining.clone();
+                    let events = self.events.clone();
                     std::thread::spawn(move || {
                         if let Err(err) =
-                            handle_stream(stream, &token, &started_at, &running, &draining)
+                            handle_stream(stream, &token, &started_at, &running, &draining, &events)
                         {
                             eprintln!("unterm-core client error: {err:#}");
                         }
@@ -243,6 +378,7 @@ impl CoreServer {
                 Err(err) => return Err(err).context("accept unterm-core client"),
             }
         }
+        let _ = watcher.join();
         Ok(())
     }
 }
@@ -253,6 +389,7 @@ fn handle_stream(
     started_at: &str,
     running: &AtomicBool,
     draining: &AtomicBool,
+    events: &Arc<EventHub>,
 ) -> Result<()> {
     let reader = BufReader::new(stream.try_clone()?);
     for line in reader.lines() {
@@ -285,6 +422,35 @@ fn handle_stream(
             )?;
             stream.flush()?;
             continue;
+        }
+        if request.method == "core.events" {
+            // This connection becomes a one-way event feed: acknowledge,
+            // then push until the subscriber hangs up or the core stops.
+            let receiver = events.subscribe();
+            writeln!(
+                stream,
+                "{}",
+                serde_json::to_string(&response_ok(
+                    request.id,
+                    serde_json::json!({"subscribed": true}),
+                ))?
+            )?;
+            stream.flush()?;
+            loop {
+                match receiver.recv_timeout(Duration::from_millis(500)) {
+                    Ok(line) => {
+                        if writeln!(stream, "{line}").is_err() || stream.flush().is_err() {
+                            return Ok(());
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if !running.load(Ordering::Acquire) {
+                            return Ok(());
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+                }
+            }
         }
         let should_stop = request.method == "core.shutdown";
         let creates_session =
@@ -694,6 +860,59 @@ impl CoreClient {
             );
         }
         Ok(info)
+    }
+}
+
+/// Blocking subscription to the Core's event feed.
+///
+/// Owns its own connection: events push on it continuously, so it
+/// cannot share the request/response connection a `CoreEngineClient`
+/// multiplexes.
+pub struct CoreEventStream {
+    reader: BufReader<TcpStream>,
+}
+
+impl CoreEventStream {
+    pub fn connect<A: ToSocketAddrs>(address: A, token: impl Into<String>) -> Result<Self> {
+        let stream = TcpStream::connect(address).context("connect unterm-core events")?;
+        let mut writer = stream.try_clone()?;
+        let request = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "method": "core.events",
+            "token": token.into(),
+            "params": serde_json::Value::Null,
+        });
+        writeln!(writer, "{request}")?;
+        writer.flush()?;
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
+        let ack: Response<serde_json::Value> =
+            serde_json::from_str(&line).context("decode core.events ack")?;
+        if !ack.ok {
+            let code = ack.error.map(|error| error.code).unwrap_or_default();
+            anyhow::bail!("core.events subscription refused ({code})");
+        }
+        Ok(Self { reader })
+    }
+
+    /// Block until the next event arrives. `Ok(None)` means the feed
+    /// closed: the core shut down or the connection dropped.
+    pub fn next_event(&mut self) -> Result<Option<CoreEvent>> {
+        let mut line = String::new();
+        if self.reader.read_line(&mut line)? == 0 {
+            return Ok(None);
+        }
+        Ok(Some(
+            serde_json::from_str(line.trim()).context("decode core event")?,
+        ))
+    }
+
+    pub fn set_read_timeout(&self, timeout: Option<Duration>) -> Result<()> {
+        self.reader
+            .get_ref()
+            .set_read_timeout(timeout)
+            .context("set core event read timeout")
     }
 }
 
@@ -1276,6 +1495,76 @@ mod tests {
 
         facade.destroy_session(split.id).unwrap();
         facade.destroy_session(source.id).unwrap();
+        let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
+        worker.join().unwrap();
+    }
+
+    /// Read events until one satisfies the predicate. Other tests share
+    /// the process-global engine, so unrelated sessions' events are
+    /// expected here and must be skipped, not treated as failures.
+    fn wait_for_event(
+        events: &mut CoreEventStream,
+        what: &str,
+        mut predicate: impl FnMut(&CoreEvent) -> bool,
+    ) -> CoreEvent {
+        for _ in 0..500 {
+            match events.next_event() {
+                Ok(Some(event)) if predicate(&event) => return event,
+                Ok(Some(_)) => continue,
+                Ok(None) => panic!("event feed closed while waiting for {what}"),
+                Err(err) => panic!("event feed failed while waiting for {what}: {err:#}"),
+            }
+        }
+        panic!("gave up waiting for {what}");
+    }
+
+    #[test]
+    fn events_stream_reports_session_lifecycle() {
+        let (endpoint, worker) = start_server("events-token");
+        let mut events = CoreEventStream::connect(endpoint, "events-token").unwrap();
+        events
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+
+        let facade = CoreEngineClient::connect(endpoint, "events-token").unwrap();
+        let session = facade
+            .create_session(CreateSessionRequest {
+                cols: 80,
+                rows: 24,
+                command_dir: None,
+                command: Some(CommandBuilder::from_argv(shell_argv())),
+                env: Vec::new(),
+                launch_policy: Default::default(),
+            })
+            .unwrap();
+        let pane_id = session.id;
+
+        wait_for_event(&mut events, "session_created", |event| {
+            matches!(event, CoreEvent::SessionCreated { pane_id: id } if *id == pane_id)
+        });
+
+        facade
+            .write_input(pane_id, "echo events-ready\r\n")
+            .unwrap();
+        let updated = wait_for_event(&mut events, "screen_updated", |event| {
+            matches!(event, CoreEvent::ScreenUpdated { pane_id: id, .. } if *id == pane_id)
+        });
+        match updated {
+            CoreEvent::ScreenUpdated { revision, .. } => assert!(revision > 0),
+            _ => unreachable!(),
+        }
+
+        facade.destroy_session(pane_id).unwrap();
+        wait_for_event(&mut events, "session_closed", |event| {
+            matches!(event, CoreEvent::SessionClosed { pane_id: id } if *id == pane_id)
+        });
+
+        let mut owner = CoreClient::connect(endpoint, "events-token").unwrap();
+        let _: Response<serde_json::Value> = owner.request("core.drain").unwrap();
+        wait_for_event(&mut events, "draining", |event| {
+            matches!(event, CoreEvent::Draining)
+        });
+
         let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
         worker.join().unwrap();
     }
