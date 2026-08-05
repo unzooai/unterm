@@ -1,4 +1,8 @@
 {
+  "confirm.wants_to_run": "请求执行",
+  "confirm.allow": "允许",
+  "confirm.always_allow": "始终允许",
+  "confirm.refuse": "拒绝",
   "core.lost": "unterm-core 已停止运行。它持有的 shell 已中断；重启 Unterm 以重新开始。",
   "close.keys": "↑↓ 选择 · Enter 确认 · Esc 留在 Unterm",
   "close.title": "退出 Unterm？{sessions} 个会话正在运行",

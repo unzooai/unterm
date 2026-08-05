@@ -1,4 +1,8 @@
 {
+  "confirm.wants_to_run": "vuole eseguire",
+  "confirm.allow": "consenti",
+  "confirm.always_allow": "consenti sempre",
+  "confirm.refuse": "rifiuta",
   "core.lost": "unterm-core si è arrestato. Le shell che conteneva sono perse; riavvia Unterm.",
   "close.keys": "↑↓ scegli · Invio conferma · Esc resta in Unterm",
   "close.title": "Chiudere Unterm? {sessions} sessione/i in esecuzione",

@@ -1587,7 +1587,13 @@ impl App {
             .max(2.0);
         let bar_height = (metrics.height + pad * 2.0).round().max(1.0);
         let top = height - bar_height - self.status_bar_height();
-        let columns = (window_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        // Starts where the terminal does. Run full-bleed and it lies across
+        // the dock's own footer controls, leaving "new session" and settings
+        // sliced in half -- and the question belongs to the grid anyway, not
+        // to the strip listing the tabs.
+        let left = self.dock_width(metrics);
+        let strip_width = (window_width - left).max(0.0);
+        let columns = (strip_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
         // Less the inset the pen starts at, or the last hint runs off the edge.
         let line = crate::confirm::status_line(
             &view.agent,
@@ -1600,9 +1606,9 @@ impl App {
         let foreground = self.colors.foreground;
         let background = self.colors.background;
         quads.backgrounds.push(unterm_render::quads::Quad {
-            left: 0.0,
+            left,
             top,
-            width: window_width,
+            width: strip_width,
             height: bar_height,
             color: foreground,
         });
@@ -1610,7 +1616,7 @@ impl App {
             + ((bar_height - metrics.height) / 2.0
                 + crate::ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt)
                 .max(0.0);
-        let pen = (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
+        let pen = left + (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
         self.append_mono(&line, background, (pen, text_top), quads);
     }
 

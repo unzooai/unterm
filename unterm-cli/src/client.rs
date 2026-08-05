@@ -35,6 +35,15 @@ pub fn set_target_instance(id: Option<&str>) {
     }
 }
 
+/// Windows reports a socket read timeout as `TimedOut`, but some stacks
+/// surface it as `WouldBlock`; both mean the same thing here.
+fn is_timeout(err: &std::io::Error) -> bool {
+    matches!(
+        err.kind(),
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+    )
+}
+
 impl McpClient {
     /// Read the auth token + MCP port from `~/.unterm/server.json` (with
     /// fallback to the legacy `~/.unterm/auth_token` + 19876), dial the
@@ -58,8 +67,24 @@ impl McpClient {
         )
         .map_err(|_| anyhow!("{}", NOT_RUNNING_HINT))?;
 
-        // Generous read timeout for slow ops (recording stop, screenshot, etc.).
-        stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
+        // Generous read timeout for slow ops (recording stop, screenshot,
+        // etc.) -- and it must outlast the server's confirmation wait, not
+        // merely equal it. A PTY write parks the server thread on a
+        // confirmation banner for `mcp_confirmation_timeout_ms`; when both
+        // sides ran the same 30s the client gave up in the same instant the
+        // server decided, so the real verdict ("the user refused", "the
+        // question timed out") was never delivered and the CLI invented a
+        // connection failure instead. The margin makes the server's answer
+        // always win the race.
+        let confirm_wait =
+            Duration::from_millis(unterm_services::settings::current().mcp_confirmation_timeout_ms);
+        stream
+            .set_read_timeout(Some(
+                confirm_wait
+                    .saturating_add(Duration::from_secs(15))
+                    .max(Duration::from_secs(30)),
+            ))
+            .ok();
         stream.set_write_timeout(Some(Duration::from_secs(10))).ok();
         stream.set_nodelay(true).ok();
 
@@ -120,10 +145,23 @@ impl McpClient {
         self.writer.flush().ok();
 
         let mut buf = String::new();
-        let n = self
-            .reader
-            .read_line(&mut buf)
-            .map_err(|e| anyhow!("MCP read failed ({}); {}", e, NOT_RUNNING_HINT))?;
+        let n = self.reader.read_line(&mut buf).map_err(|e| {
+            // A read timeout means the server took the request and never
+            // answered -- the opposite situation from "nothing is
+            // listening", and pointing at the wrong one sends people to
+            // restart an app that is running fine. The connect above
+            // already proved something is there.
+            if is_timeout(&e) {
+                anyhow!(
+                    "MCP {} timed out waiting for a reply. Unterm is running but did not answer; \
+                     if this was a command for a pane, check the Unterm window for a confirmation \
+                     asking you to approve it.",
+                    method
+                )
+            } else {
+                anyhow!("MCP read failed ({}); {}", e, NOT_RUNNING_HINT)
+            }
+        })?;
         if n == 0 {
             return Err(anyhow!(
                 "MCP server closed the connection unexpectedly; {}",

@@ -1,4 +1,8 @@
 {
+  "confirm.wants_to_run": "wants to run",
+  "confirm.allow": "allow",
+  "confirm.always_allow": "always allow",
+  "confirm.refuse": "refuse",
   "core.lost": "unterm-core has stopped. The shells it held are gone; restart Unterm to start over.",
   "close.keys": "↑↓ choose · Enter confirm · Esc stay in Unterm",
   "close.title": "Close Unterm? {sessions} session(s) running",

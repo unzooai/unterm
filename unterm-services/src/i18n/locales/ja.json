@@ -1,4 +1,8 @@
 {
+  "confirm.wants_to_run": "の実行を要求",
+  "confirm.allow": "許可",
+  "confirm.always_allow": "常に許可",
+  "confirm.refuse": "拒否",
   "core.lost": "unterm-core が停止しました。保持していたシェルは失われました。Unterm を再起動してください。",
   "close.keys": "↑↓ 選択 · Enter 決定 · Esc Unterm に留まる",
   "close.title": "Unterm を終了しますか？{sessions} 個のセッションが実行中",

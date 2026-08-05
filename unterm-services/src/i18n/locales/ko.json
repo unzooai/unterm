@@ -1,4 +1,8 @@
 {
+  "confirm.wants_to_run": "실행을 요청",
+  "confirm.allow": "허용",
+  "confirm.always_allow": "항상 허용",
+  "confirm.refuse": "거부",
   "core.lost": "unterm-core가 중지되었습니다. 보유하던 셸이 종료되었습니다. Unterm을 다시 시작하세요.",
   "close.keys": "↑↓ 선택 · Enter 확인 · Esc Unterm에 머무르기",
   "close.title": "Unterm을 종료할까요? 세션 {sessions}개 실행 중",

@@ -728,6 +728,49 @@ impl ConnectionContext {
 }
 
 #[cfg(test)]
+mod input_preview_tests {
+    use super::input_preview;
+
+    #[test]
+    fn the_command_leads_so_a_narrow_banner_cannot_cut_it_away() {
+        let preview = input_preview("rm -rf /");
+        assert!(
+            preview.starts_with("rm -rf /"),
+            "metadata came before the command: {preview}"
+        );
+        assert!(preview.contains("8 bytes"), "the size was dropped: {preview}");
+    }
+
+    #[test]
+    fn a_newline_with_text_behind_it_is_flagged() {
+        // The injection shape: approve `ls`, get `rm -rf /` too.
+        let preview = input_preview("ls\rrm -rf /");
+        assert!(preview.starts_with("[ctrl]"), "not flagged: {preview}");
+        assert!(preview.contains("\\r"), "the terminator was hidden: {preview}");
+    }
+
+    #[test]
+    fn a_trailing_newline_is_not_flagged() {
+        // How every ordinary command is submitted. Flagging it would make
+        // the warning meaningless by making it constant.
+        for ordinary in ["ls\r", "ls\n", "ls\r\n", "git status\r"] {
+            let preview = input_preview(ordinary);
+            assert!(
+                !preview.contains("[ctrl]"),
+                "ordinary submission flagged as dangerous: {preview}"
+            );
+        }
+    }
+
+    #[test]
+    fn invisible_control_bytes_are_still_flagged() {
+        let preview = input_preview("ls\u{1b}[31m");
+        assert!(preview.starts_with("[ctrl]"), "not flagged: {preview}");
+        assert!(preview.contains("\\x1b"), "escape not rendered: {preview}");
+    }
+}
+
+#[cfg(test)]
 mod engine_neutral_handler_tests {
     use super::{
         audit_log_snapshot_json, compute_agent_cwd, mcp_state, shell_command_builder,
@@ -3816,9 +3859,15 @@ pub enum ConfirmationDecision {
 
 /// Internal result of `gate_pty_write`. Callers either proceed (with
 /// audit + write) or return an error to the MCP client.
+///
+/// `Block` carries why, because all three ways to be blocked used to reach
+/// the caller as the single word "denied". An agent told the user denied it
+/// will stop and report that; an agent told nobody was there to ask can say
+/// so, and one told the question expired can offer to ask again. Same
+/// outcome, three different things to do about it.
 enum GateOutcome {
     Allow,
-    Block,
+    Block(String),
 }
 
 #[derive(Clone, Copy)]
@@ -4665,17 +4714,34 @@ pub fn dismiss_suggestion(id: &str) -> Result<(), String> {
 /// whether the original contained any non-printable bytes — so log
 /// readers can spot `\x03` (Ctrl-C) injection without us dumping every
 /// raw keystroke (which could include passwords).
-fn input_preview(input: &str) -> String {
+/// Public so the front end's banner tests can build their fixtures from the
+/// real thing. The defect that made this public: the banner tests passed a
+/// bare command as the "preview" and asserted it survived truncation, while
+/// production prefixed a byte count that pushed the command off the row.
+/// A test that cannot see the production shape cannot catch that.
+pub fn input_preview(input: &str) -> String {
     const MAX_LEN: usize = 80;
     let total_len = input.len();
     let mut has_ctrl = false;
+    // A line terminator with more text behind it is the injection shape: the
+    // reader approves what they can see, and the shell runs a second command
+    // they never read. A *trailing* newline is just how you submit a line, so
+    // flagging that would be noise -- and noise in a security prompt trains
+    // people to click through it.
+    let mut newline_seen = false;
     let mut rendered = String::with_capacity(input.len().min(MAX_LEN * 4) + 16);
     for c in input.chars() {
         if c == '\n' || c == '\r' || c == '\t' {
             // Keep whitespace visible but readable.
             match c {
-                '\n' => rendered.push_str("\\n"),
-                '\r' => rendered.push_str("\\r"),
+                '\n' => {
+                    newline_seen = true;
+                    rendered.push_str("\\n");
+                }
+                '\r' => {
+                    newline_seen = true;
+                    rendered.push_str("\\r");
+                }
                 '\t' => rendered.push_str("\\t"),
                 _ => {}
             }
@@ -4683,6 +4749,9 @@ fn input_preview(input: &str) -> String {
             has_ctrl = true;
             rendered.push_str(&format!("\\x{:02x}", c as u32));
         } else {
+            if newline_seen && !c.is_whitespace() {
+                has_ctrl = true;
+            }
             rendered.push(c);
         }
         if rendered.chars().count() >= MAX_LEN {
@@ -4690,11 +4759,22 @@ fn input_preview(input: &str) -> String {
             break;
         }
     }
+    // Order matters, because the confirmation banner truncates this from the
+    // right to fit one row: whatever leads survives. The command is the only
+    // part someone can make a trust decision from, so it leads, and the byte
+    // count -- interesting in the audit log, useless when deciding -- goes
+    // last where it is cut first. `[ctrl]` stays in front of the command
+    // despite that rule: invisible control bytes are the case where the
+    // visible text is precisely what you must not trust.
     format!(
-        "len={}{} {}",
-        total_len,
-        if has_ctrl { " [ctrl]" } else { "" },
-        rendered
+        "{}{}{}",
+        if has_ctrl { "[ctrl] " } else { "" },
+        rendered,
+        if total_len > 0 {
+            format!(" ({total_len} bytes)")
+        } else {
+            String::new()
+        }
     )
 }
 
@@ -5723,8 +5803,8 @@ impl McpHandler {
         // `Block` returns -32004 to the agent.
         match self.gate_pty_write("session.input", pane_id, input)? {
             GateOutcome::Allow => {}
-            GateOutcome::Block => {
-                return Err(anyhow!("user denied"));
+            GateOutcome::Block(why) => {
+                return Err(anyhow!("{why}"));
             }
         }
 
@@ -5753,8 +5833,8 @@ impl McpHandler {
 
         match self.gate_pty_write("session.paste", pane_id, text)? {
             GateOutcome::Allow => {}
-            GateOutcome::Block => {
-                return Err(anyhow!("user denied"));
+            GateOutcome::Block(why) => {
+                return Err(anyhow!("{why}"));
             }
         }
 
@@ -5774,7 +5854,7 @@ impl McpHandler {
     /// because policy is `Never`, the agent is on the trusted list,
     /// the user already picked "always allow" this session, or
     /// because they just clicked Allow on the banner). Returns
-    /// `GateOutcome::Block` when the user denied (or the banner
+    /// `GateOutcome::Block(why)` when the user denied (or the banner
     /// timed out).
     fn gate_pty_write(&self, method: &str, pane_id: usize, input: &str) -> Result<GateOutcome> {
         let cfg = unterm_services::settings::current();
@@ -5822,7 +5902,11 @@ impl McpHandler {
                     "agent={agent} {preview} (no window to confirm; trust the agent or set mcp_input_confirmation=never)"
                 ),
             );
-            return Ok(GateOutcome::Block);
+            return Ok(GateOutcome::Block(
+                "blocked: no Unterm window is open to approve this write. Add the agent to \
+                 mcp_trusted_agents, or set mcp_input_confirmation=never."
+                    .to_string(),
+            ));
         }
 
         // Park on a confirmation banner. Capacity is intentionally
@@ -5877,7 +5961,9 @@ impl McpHandler {
                     Some(&pane_id.to_string()),
                     &format!("agent={} {}", agent, preview),
                 );
-                Ok(GateOutcome::Block)
+                Ok(GateOutcome::Block(
+                    "refused: the user declined this write in the Unterm window".to_string(),
+                ))
             }
             Err(_) => {
                 // Timeout: clean up the still-queued banner (the
@@ -5893,7 +5979,12 @@ impl McpHandler {
                     Some(&pane_id.to_string()),
                     &format!("agent={} {}", agent, preview),
                 );
-                Ok(GateOutcome::Block)
+                Ok(GateOutcome::Block(format!(
+                    "unanswered: the confirmation in the Unterm window went unanswered for {}s, \
+                     so the write was not performed. Nobody refused it -- try again with someone \
+                     at the window.",
+                    timeout_ms / 1000
+                )))
             }
         };
         // And a frame after it resolves either way, so a banner the keys did
@@ -6893,8 +6984,8 @@ impl McpHandler {
 
         match self.gate_pty_write("exec.run", pane_id, command)? {
             GateOutcome::Allow => {}
-            GateOutcome::Block => {
-                return Err(anyhow!("user denied"));
+            GateOutcome::Block(why) => {
+                return Err(anyhow!("{why}"));
             }
         }
 
@@ -6921,8 +7012,8 @@ impl McpHandler {
 
         match self.gate_pty_write("exec.send", pane_id, bytes)? {
             GateOutcome::Allow => {}
-            GateOutcome::Block => {
-                return Err(anyhow!("user denied"));
+            GateOutcome::Block(why) => {
+                return Err(anyhow!("{why}"));
             }
         }
 
@@ -6964,8 +7055,8 @@ impl McpHandler {
 
         match self.gate_pty_write("exec.run_wait", pane_id, command)? {
             GateOutcome::Allow => {}
-            GateOutcome::Block => {
-                return Err(anyhow!("user denied"));
+            GateOutcome::Block(why) => {
+                return Err(anyhow!("{why}"));
             }
         }
 
@@ -7045,8 +7136,8 @@ impl McpHandler {
 
         match self.gate_pty_write("exec.cancel", pane_id, "Ctrl+C")? {
             GateOutcome::Allow => {}
-            GateOutcome::Block => {
-                return Err(anyhow!("user denied"));
+            GateOutcome::Block(why) => {
+                return Err(anyhow!("{why}"));
             }
         }
 
@@ -7079,8 +7170,8 @@ impl McpHandler {
 
         match self.gate_pty_write("signal.send", pane_id, signal)? {
             GateOutcome::Allow => {}
-            GateOutcome::Block => {
-                return Err(anyhow!("user denied"));
+            GateOutcome::Block(why) => {
+                return Err(anyhow!("{why}"));
             }
         }
 
@@ -7318,8 +7409,8 @@ impl McpHandler {
                         self.audit("orchestrate.launch", Some(&pane_id.to_string()), command);
                         engine.write_input(pane_id, &input)?;
                     }
-                    GateOutcome::Block => {
-                        return Err(anyhow!("user denied"));
+                    GateOutcome::Block(why) => {
+                        return Err(anyhow!("{why}"));
                     }
                 }
             }
@@ -7354,8 +7445,8 @@ impl McpHandler {
                 }
                 match self.gate_pty_write("orchestrate.broadcast", id, command)? {
                     GateOutcome::Allow => {}
-                    GateOutcome::Block => {
-                        results.push(json!({"session_id": id_str, "error": "user denied"}));
+                    GateOutcome::Block(why) => {
+                        results.push(json!({"session_id": id_str, "error": why}));
                         continue;
                     }
                 }

@@ -1,4 +1,8 @@
 {
+  "confirm.wants_to_run": "चलाना चाहता है",
+  "confirm.allow": "अनुमति",
+  "confirm.always_allow": "हमेशा अनुमति",
+  "confirm.refuse": "अस्वीकार",
   "core.lost": "unterm-core बंद हो गया। इसके शेल समाप्त हो गए; Unterm पुनः आरंभ करें।",
   "close.keys": "↑↓ चुनें · Enter पुष्टि · Esc Unterm में रहें",
   "close.title": "Unterm बंद करें? {sessions} सत्र चल रहे हैं",

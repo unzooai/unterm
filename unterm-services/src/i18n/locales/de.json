@@ -1,4 +1,8 @@
 {
+  "confirm.wants_to_run": "möchte ausführen",
+  "confirm.allow": "erlauben",
+  "confirm.always_allow": "immer erlauben",
+  "confirm.refuse": "ablehnen",
   "core.lost": "unterm-core wurde beendet. Die Shells darin sind weg; starte Unterm neu.",
   "close.keys": "↑↓ wählen · Enter bestätigen · Esc in Unterm bleiben",
   "close.title": "Unterm beenden? {sessions} Sitzung(en) laufen",

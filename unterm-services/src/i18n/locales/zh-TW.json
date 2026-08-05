@@ -1,4 +1,8 @@
 {
+  "confirm.wants_to_run": "請求執行",
+  "confirm.allow": "允許",
+  "confirm.always_allow": "永遠允許",
+  "confirm.refuse": "拒絕",
   "core.lost": "unterm-core 已停止執行。它持有的 shell 已中斷；重新啟動 Unterm 以重新開始。",
   "close.keys": "↑↓ 選擇 · Enter 確認 · Esc 留在 Unterm",
   "close.title": "結束 Unterm？{sessions} 個工作階段執行中",

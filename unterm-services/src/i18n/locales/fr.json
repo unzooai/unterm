@@ -1,4 +1,8 @@
 {
+  "confirm.wants_to_run": "veut exécuter",
+  "confirm.allow": "autoriser",
+  "confirm.always_allow": "toujours autoriser",
+  "confirm.refuse": "refuser",
   "core.lost": "unterm-core s'est arrêté. Les shells qu'il détenait sont perdus ; relancez Unterm.",
   "close.keys": "↑↓ choisir · Entrée confirmer · Échap rester dans Unterm",
   "close.title": "Quitter Unterm ? {sessions} session(s) en cours",
