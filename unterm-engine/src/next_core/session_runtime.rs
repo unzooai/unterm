@@ -90,6 +90,10 @@ pub(super) fn spawn(
 
     Ok(NextCoreSession {
         snapshot: SessionSnapshot {
+            // Filled in by the split path; a pane that was not split
+            // from anything has no arrangement of its own to describe.
+            split_axis: None,
+            split_ratio: None,
             split_from,
             id,
             title,

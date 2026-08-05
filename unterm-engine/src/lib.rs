@@ -130,6 +130,16 @@ pub struct SessionSnapshot {
     /// front end has no other way to tell a new pane beside an existing one
     /// from a whole new tab, and would show the wrong thing.
     pub split_from: Option<usize>,
+    /// How the split that made this pane divides its space, when one
+    /// did. A front end rebuilding an arrangement it did not create --
+    /// after a restart, or in another window -- has no other way to
+    /// know: `split_from` says which pane it came from, and these two
+    /// say what it looked like.
+    pub split_axis: Option<next_core::layout::SplitAxis>,
+    /// What fraction of the room the *first* pane keeps. Which pane is
+    /// first depends on the direction the split was asked for; the
+    /// engine resolves that here so every consumer agrees.
+    pub split_ratio: Option<f64>,
     pub title: String,
     pub cols: usize,
     pub rows: usize,
@@ -1515,26 +1525,6 @@ pub trait McpHost: Send + Sync {
         _include_base64: bool,
     ) -> Result<serde_json::Value> {
         anyhow::bail!("this front end has no window to capture")
-    }
-
-    /// Tell the front end which way a pane was just split.
-    ///
-    /// The kernel deliberately does not arrange panes -- where a pane sits is
-    /// a product decision, and the kernel's job stops at running the shell. So
-    /// it records only that a pane came from another one, and a front end
-    /// adopting it has to guess which way. This is how the request's own
-    /// answer reaches it instead: an agent asking to split downwards and
-    /// getting a column beside it got something other than what it asked for.
-    ///
-    /// Called after the pane exists, so the front end can act on it whenever
-    /// it next looks. A front end with no arrangement to keep ignores it.
-    fn note_split(
-        &self,
-        _new_pane: usize,
-        _source_pane: usize,
-        _direction: SplitDirection,
-        _size_percent: u8,
-    ) {
     }
 
     /// The key assignments this front end has, for the tool catalogue.

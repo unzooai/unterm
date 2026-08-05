@@ -4182,16 +4182,24 @@ impl App {
         };
         let focused = self.tabs.active_pane(tab_id).unwrap_or(live.session_id);
 
-        // Size the new session to the rectangle it will actually get, so its
-        // shell never sees a width it is not being drawn at.
-        let (cols, rows) = self
-            .font
-            .grid_for(self.terminal_width(), self.terminal_height());
-        let (new_cols, new_rows) = initial_split_grid(axis, cols, rows);
+        // Through the engine's own split, not a bare create: the
+        // engine then records what this arrangement is, and a window
+        // opening later -- this one after a restart, or another one
+        // onto the same Core -- can rebuild it instead of guessing at
+        // horizontal-and-half. It also puts this path and the MCP
+        // surface's `session.split` on the same road.
         let env = launch_env_for_new_pane();
-        let session = match self.engine.create_session(CreateSessionRequest {
-            cols: new_cols,
-            rows: new_rows,
+        let session = match self.engine.split_session(unterm_engine::SplitSessionRequest {
+            source_pane_id: focused,
+            direction: match axis {
+                unterm_engine::next_core::layout::SplitAxis::Horizontal => {
+                    unterm_engine::SplitDirection::Right
+                }
+                unterm_engine::next_core::layout::SplitAxis::Vertical => {
+                    unterm_engine::SplitDirection::Down
+                }
+            },
+            size_percent: 50,
             command_dir: None,
             command: prepare_shell(self.shell.clone()),
             env,
@@ -5687,6 +5695,17 @@ impl App {
 
     /// The rest of the tabs the last window had, one per saved directory.
     fn restore_extra_tabs(&mut self) {
+        // A Core that kept the sessions has already restored them --
+        // `sync_tabs` adopts every one. Opening the saved directories
+        // on top would spawn a second shell for each, and the count
+        // would grow with every restart. The saved list is for a cold
+        // start, where nothing is running to adopt.
+        let adopted = unterm_engine::SessionEngine::list_sessions(&self.engine)
+            .map(|sessions| sessions.len())
+            .unwrap_or(0);
+        if adopted > 1 {
+            return;
+        }
         let extra: Vec<String> = self
             .restore
             .as_ref()
@@ -7152,22 +7171,22 @@ impl App {
             let split = session
                 .split_from
                 .filter(|source| self.tabs.tab_of_pane(*source).is_some());
-            // Which way, if whoever asked for it said. The kernel records only
-            // that the pane came from another one -- how they sit together is
-            // this side's decision, so the request's own answer is left here
-            // by the MCP surface rather than carried through the kernel.
-            let asked = crate::mcp_host::take_split(session.id)
-                .filter(|split| Some(split.source) == session.split_from);
+            // Which way and at what size -- from the engine, which
+            // resolved it when the split was made. That is what lets an
+            // arrangement survive a restart: this window may never have
+            // seen the split it is rebuilding. Falling back to
+            // horizontal-and-half is for panes made before the engine
+            // recorded any of this.
             let outcome = match split {
                 Some(source) => self
                     .tabs
                     .split(
                         source,
                         session.id,
-                        asked
-                            .map(|split| split.axis)
+                        session
+                            .split_axis
                             .unwrap_or(unterm_engine::next_core::layout::SplitAxis::Horizontal),
-                        asked.map(|split| split.first_ratio).unwrap_or(0.5),
+                        session.split_ratio.unwrap_or(0.5),
                     )
                     .map(|_| ()),
                 None => self.tabs.create_tab(session.id).map(|_| ()),

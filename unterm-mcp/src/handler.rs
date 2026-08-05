@@ -5554,15 +5554,12 @@ impl McpHandler {
             launch_policy,
         };
 
+        // The engine resolves the direction into the arrangement and
+        // returns it on the snapshot, so nothing has to be handed to
+        // the front end on the side. That side channel was a
+        // process-local map, and it could never have worked once the
+        // sessions moved into a Core of their own.
         let session = engine.split_session(request)?;
-        // Where the new pane goes is the front end's decision, and this is the
-        // only place that knows what was asked for: the kernel records that a
-        // pane came from another one and deliberately not how they sit
-        // together. Without this, an agent asking to split downwards gets a
-        // column beside the source instead.
-        if let Some(host) = unterm_engine::mcp_host() {
-            host.note_split(session.id, src_pane_id, direction, size_percent);
-        }
         Ok(json!({
             "id": session.id,
             "session_id": session.id.to_string(),

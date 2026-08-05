@@ -15,12 +15,90 @@
 use anyhow::{anyhow, Result};
 
 /// How a split divides its space.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SplitAxis {
     /// Side by side, dividing the width.
     Horizontal,
     /// Stacked, dividing the height.
     Vertical,
+}
+
+/// Turn a split direction and the new pane's share into the axis and
+/// the ratio an arrangement is made of.
+///
+/// Which pane ends up first depends on the direction: splitting right
+/// or down leaves the source first, splitting left or up puts the new
+/// pane there. The percentage asked for is always the *new* pane's
+/// share, so one of those two cases has to be turned around — and
+/// getting it backwards is a split that lands the right way round at
+/// the wrong size. Resolved once, here, so no consumer has to know.
+pub fn resolve_split(direction: crate::SplitDirection, size_percent: u8) -> (SplitAxis, f64) {
+    use crate::SplitDirection;
+    let share = (size_percent.min(100) as f64 / 100.0).clamp(0.05, 0.95);
+    let (axis, new_pane_is_first) = match direction {
+        SplitDirection::Right => (SplitAxis::Horizontal, false),
+        SplitDirection::Left => (SplitAxis::Horizontal, true),
+        SplitDirection::Down => (SplitAxis::Vertical, false),
+        SplitDirection::Up => (SplitAxis::Vertical, true),
+    };
+    (
+        axis,
+        if new_pane_is_first {
+            share
+        } else {
+            1.0 - share
+        },
+    )
+}
+
+#[cfg(test)]
+mod resolve_split_tests {
+    use super::*;
+    use crate::SplitDirection;
+
+    /// Left and right are the same cut; which side the new pane lands
+    /// on is the difference. Reporting both as "horizontal, source
+    /// first" is how an agent asking to split left got a pane on the
+    /// right.
+    #[test]
+    fn every_direction_becomes_the_cut_it_names() {
+        assert_eq!(resolve_split(SplitDirection::Right, 50).0, SplitAxis::Horizontal);
+        assert_eq!(resolve_split(SplitDirection::Left, 50).0, SplitAxis::Horizontal);
+        assert_eq!(resolve_split(SplitDirection::Down, 50).0, SplitAxis::Vertical);
+        assert_eq!(resolve_split(SplitDirection::Up, 50).0, SplitAxis::Vertical);
+    }
+
+    /// The share asked for is always the *new* pane's. Splitting right
+    /// at 30% leaves the source with 70; splitting left at 30% gives
+    /// the new pane the first 30. Using the number as-is in both cases
+    /// is a split that lands the right way round at the wrong size.
+    #[test]
+    fn the_share_is_always_the_new_panes() {
+        assert!((resolve_split(SplitDirection::Right, 30).1 - 0.7).abs() < 1e-9);
+        assert!((resolve_split(SplitDirection::Down, 30).1 - 0.7).abs() < 1e-9);
+        assert!((resolve_split(SplitDirection::Left, 30).1 - 0.3).abs() < 1e-9);
+        assert!((resolve_split(SplitDirection::Up, 30).1 - 0.3).abs() < 1e-9);
+    }
+
+    /// A pane with no room is a pane that cannot be seen or typed
+    /// into, so nothing is ever given all of the space or none of it.
+    #[test]
+    fn no_split_leaves_a_pane_with_nothing() {
+        for percent in [0, 1, 99, 100, 255] {
+            for direction in [
+                SplitDirection::Right,
+                SplitDirection::Left,
+                SplitDirection::Down,
+                SplitDirection::Up,
+            ] {
+                let ratio = resolve_split(direction, percent).1;
+                assert!(
+                    (0.05..=0.95).contains(&ratio),
+                    "{direction:?} at {percent}% gave {ratio}"
+                );
+            }
+        }
+    }
 }
 
 /// A pane's cell rectangle within its tab.

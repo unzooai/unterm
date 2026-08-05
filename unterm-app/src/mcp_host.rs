@@ -26,60 +26,6 @@ pub fn install() {
 /// The split arrives on the MCP server's thread and the arrangement belongs to
 /// the one drawing; this is the note left between them. Read once and removed,
 /// so a pane closed and its id reused cannot inherit an old answer.
-static SPLITS: std::sync::OnceLock<parking_lot::Mutex<std::collections::HashMap<usize, Split>>> =
-    std::sync::OnceLock::new();
-
-/// Where a new pane was asked to go.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Split {
-    pub source: usize,
-    pub axis: unterm_engine::next_core::layout::SplitAxis,
-    /// How much of the source's room the *first* pane keeps.
-    ///
-    /// Which pane is first depends on the direction: splitting right or down
-    /// leaves the source first, and splitting left or up puts the new pane
-    /// there. The percentage in the request is always the new pane's share, so
-    /// one of the two cases has to be turned around -- and getting it wrong is
-    /// a split that lands the right way round at the wrong size.
-    pub first_ratio: f64,
-}
-
-fn splits() -> &'static parking_lot::Mutex<std::collections::HashMap<usize, Split>> {
-    SPLITS.get_or_init(Default::default)
-}
-
-/// What was asked for the pane, if anything was.
-pub fn take_split(pane_id: usize) -> Option<Split> {
-    splits().lock().remove(&pane_id)
-}
-
-/// Turn a direction and a share into an axis and a ratio.
-pub fn split_for(
-    source: usize,
-    direction: unterm_engine::SplitDirection,
-    size_percent: u8,
-) -> Split {
-    use unterm_engine::next_core::layout::SplitAxis;
-    use unterm_engine::SplitDirection;
-
-    let share = (size_percent.min(100) as f64 / 100.0).clamp(0.05, 0.95);
-    let (axis, new_pane_is_first) = match direction {
-        SplitDirection::Right => (SplitAxis::Horizontal, false),
-        SplitDirection::Left => (SplitAxis::Horizontal, true),
-        SplitDirection::Down => (SplitAxis::Vertical, false),
-        SplitDirection::Up => (SplitAxis::Vertical, true),
-    };
-    Split {
-        source,
-        axis,
-        first_ratio: if new_pane_is_first {
-            share
-        } else {
-            1.0 - share
-        },
-    }
-}
-
 /// The window, for the threads that are not the one drawing it.
 ///
 /// `instance.focus` arrives on the MCP server's thread and has to reach a
@@ -256,18 +202,6 @@ impl McpHost for AppMcpHost {
                 "supported_styles": ["fg", "bg", "bold", "inverse", "theme_palette"],
             },
         }))
-    }
-
-    fn note_split(
-        &self,
-        new_pane: usize,
-        source_pane: usize,
-        direction: unterm_engine::SplitDirection,
-        size_percent: u8,
-    ) {
-        splits()
-            .lock()
-            .insert(new_pane, split_for(source_pane, direction, size_percent));
     }
 
     fn key_assignments(&self) -> Vec<Value> {
@@ -580,84 +514,3 @@ fn write_capture(
     Ok(reply)
 }
 
-#[cfg(test)]
-mod split_tests {
-    use super::*;
-    use unterm_engine::next_core::layout::SplitAxis;
-    use unterm_engine::SplitDirection;
-
-    /// Left and right are the same cut; which side the new pane lands on is
-    /// the difference. Reporting both as "horizontal, source first" is how an
-    /// agent asking to split left got a pane on the right.
-    #[test]
-    fn every_direction_becomes_the_cut_it_names() {
-        assert_eq!(
-            split_for(1, SplitDirection::Right, 50).axis,
-            SplitAxis::Horizontal
-        );
-        assert_eq!(
-            split_for(1, SplitDirection::Left, 50).axis,
-            SplitAxis::Horizontal
-        );
-        assert_eq!(
-            split_for(1, SplitDirection::Down, 50).axis,
-            SplitAxis::Vertical
-        );
-        assert_eq!(
-            split_for(1, SplitDirection::Up, 50).axis,
-            SplitAxis::Vertical
-        );
-    }
-
-    /// The share in the request is always the *new* pane's. Splitting right at
-    /// 30% leaves the source with 70; splitting left at 30% gives the new pane
-    /// the first 30. Using the number as-is in both cases is a split that
-    /// lands the right way round at the wrong size.
-    #[test]
-    fn the_share_is_always_the_new_panes() {
-        assert!((split_for(1, SplitDirection::Right, 30).first_ratio - 0.7).abs() < 1e-9);
-        assert!((split_for(1, SplitDirection::Down, 30).first_ratio - 0.7).abs() < 1e-9);
-        assert!((split_for(1, SplitDirection::Left, 30).first_ratio - 0.3).abs() < 1e-9);
-        assert!((split_for(1, SplitDirection::Up, 30).first_ratio - 0.3).abs() < 1e-9);
-    }
-
-    /// A pane with no room is a pane that cannot be seen or typed into, so
-    /// nothing is ever given all of the space or none of it.
-    #[test]
-    fn no_split_leaves_a_pane_with_nothing() {
-        for percent in [0, 1, 99, 100, 255] {
-            for direction in [
-                SplitDirection::Right,
-                SplitDirection::Left,
-                SplitDirection::Down,
-                SplitDirection::Up,
-            ] {
-                let ratio = split_for(1, direction, percent).first_ratio;
-                assert!(
-                    ratio >= 0.05 && ratio <= 0.95,
-                    "{direction:?} at {percent}% gave {ratio}"
-                );
-            }
-        }
-    }
-
-    /// The note is read once. A pane closed and its id handed out again must
-    /// not be arranged by an answer meant for the pane before it.
-    #[test]
-    fn the_note_is_taken_rather_than_read() {
-        let host = AppMcpHost;
-        host.note_split(4242, 7, SplitDirection::Down, 40);
-        let first = take_split(4242);
-        assert_eq!(first.map(|split| split.axis), Some(SplitAxis::Vertical));
-        assert_eq!(take_split(4242), None, "the note outlived its pane");
-    }
-
-    /// And it says which pane it was about, so a stale note cannot rearrange
-    /// a pane that came from somewhere else.
-    #[test]
-    fn the_note_names_the_pane_it_came_from() {
-        let host = AppMcpHost;
-        host.note_split(4243, 9, SplitDirection::Right, 50);
-        assert_eq!(take_split(4243).map(|split| split.source), Some(9));
-    }
-}

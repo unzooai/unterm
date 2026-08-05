@@ -19,6 +19,16 @@ pub struct LastSession {
 }
 
 fn path() -> Option<std::path::PathBuf> {
+    // `UNTERM_STATE_DIR` replaces ~/.unterm wholesale -- the same
+    // contract the instance registry, the bridge records, the config
+    // and the Core's discovery all honor. Without it here, a test or
+    // a headless run reopened the real user's tabs and then wrote its
+    // own over them.
+    if let Some(dir) = std::env::var_os("UNTERM_STATE_DIR") {
+        if !dir.is_empty() {
+            return Some(std::path::PathBuf::from(dir).join("last_session.json"));
+        }
+    }
     dirs_next::home_dir().map(|home| home.join(".unterm").join("last_session.json"))
 }
 
