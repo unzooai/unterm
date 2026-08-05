@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 const KEEP_DAYS: i64 = 30;
 
 fn audit_dir() -> Option<PathBuf> {
-    dirs_next::home_dir().map(|home| home.join(".unterm").join("audit"))
+    unterm_protocol::state_path("audit")
 }
 
 fn file_name(date: chrono::NaiveDate) -> String {

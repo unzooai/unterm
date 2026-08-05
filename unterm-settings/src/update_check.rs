@@ -30,11 +30,7 @@ const REPO: &str = "zhitongblog/unterm";
 static STARTED: AtomicBool = AtomicBool::new(false);
 
 fn state_path() -> Option<PathBuf> {
-    Some(
-        dirs_next::home_dir()?
-            .join(".unterm")
-            .join("update_check.json"),
-    )
+    unterm_protocol::state_path("update_check.json")
 }
 
 /// Spawn the background poller. Idempotent — multiple calls are no-ops

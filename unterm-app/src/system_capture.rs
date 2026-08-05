@@ -8,9 +8,8 @@
 //! the PNG to the system clipboard for parity with the Windows path.
 
 fn output_dir() -> anyhow::Result<std::path::PathBuf> {
-    let dir = dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
+    let dir = unterm_protocol::state_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm"))
         .join("screenshots");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)

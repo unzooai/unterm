@@ -203,12 +203,7 @@ fn unterm_dir() -> PathBuf {
     // registers itself in the real user's instance registry — and a
     // hard-killed test instance leaves a stale server.json pointing
     // at a dead port for the CLI to trip over.
-    if let Some(path) = std::env::var_os("UNTERM_STATE_DIR") {
-        if !path.is_empty() {
-            return PathBuf::from(path);
-        }
-    }
-    dirs_next::home_dir().unwrap_or_default().join(".unterm")
+    unterm_protocol::state_dir().unwrap_or_else(|| PathBuf::from(".unterm"))
 }
 
 fn instances_dir() -> PathBuf {

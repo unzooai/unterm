@@ -26,8 +26,7 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 pub fn unterm_dir() -> Result<PathBuf> {
-    let home = dirs_next::home_dir().context("home dir not found")?;
-    Ok(home.join(".unterm"))
+    unterm_protocol::state_dir().context("home dir not found")
 }
 
 pub fn agents_dir() -> Result<PathBuf> {

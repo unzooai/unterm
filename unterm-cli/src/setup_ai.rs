@@ -273,13 +273,15 @@ pub fn run(cmd: SetupAiCommand, json_out: bool) -> Result<()> {
     });
     if !cmd.dry_run && filter.is_none() {
         if cmd.remove {
-            let _ = std::fs::remove_file(stamp_path(&home));
+            if let Some(stamp) = stamp_path() {
+                let _ = std::fs::remove_file(stamp);
+            }
         } else if any_detected && !any_failed {
             // Only stamp a clean, complete run. If no agent was detected (the
             // user hasn't installed one yet) or any write failed, leave the
             // stamp absent so the GUI re-runs us next launch — an agent
             // installed later in this same version still gets picked up.
-            write_stamp(&home);
+            write_stamp();
         }
     }
 
@@ -317,12 +319,17 @@ fn unterm_cli_path() -> String {
         .unwrap_or_else(|| "unterm-cli".to_string())
 }
 
-fn stamp_path(home: &Path) -> PathBuf {
-    home.join(".unterm").join("setup-ai.stamp")
+/// The stamp is Unterm's own state, not part of any agent's config tree, so
+/// it moves with the state directory even though the agent paths above are
+/// anchored to the real home directory.
+fn stamp_path() -> Option<PathBuf> {
+    unterm_protocol::state_path("setup-ai.stamp")
 }
 
-fn write_stamp(home: &Path) {
-    let path = stamp_path(home);
+fn write_stamp() {
+    let Some(path) = stamp_path() else {
+        return;
+    };
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }

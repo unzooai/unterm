@@ -246,11 +246,7 @@ pub struct Recent {
 }
 
 fn remembered_path() -> Option<std::path::PathBuf> {
-    Some(
-        dirs_next::home_dir()?
-            .join(".unterm")
-            .join("recent-characters.json"),
-    )
+    unterm_protocol::state_path("recent-characters.json")
 }
 
 /// What has been picked before, most useful first.

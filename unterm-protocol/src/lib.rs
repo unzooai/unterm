@@ -107,6 +107,31 @@ fn protocol_major(version: &str) -> Option<&str> {
     version.split('.').next().filter(|part| !part.is_empty())
 }
 
+/// Where this process keeps its durable state.
+///
+/// `UNTERM_STATE_DIR` replaces `~/.unterm` **wholesale**: a test, a headless
+/// Core, or a second install that sets it must not touch the real user's
+/// registries, config, recordings, or trust lists. Nothing may reach for
+/// `home_dir().join(".unterm")` directly -- every such site is a place where
+/// an isolated run quietly writes into the user's home, and there were 55 of
+/// them before this existed.
+///
+/// Returns `None` only when there is no override and no home directory, which
+/// is the same condition every caller already had to handle.
+pub fn state_dir() -> Option<std::path::PathBuf> {
+    if let Some(dir) = std::env::var_os("UNTERM_STATE_DIR") {
+        if !dir.is_empty() {
+            return Some(std::path::PathBuf::from(dir));
+        }
+    }
+    dirs_next::home_dir().map(|home| home.join(".unterm"))
+}
+
+/// [`state_dir`] joined with `name`, for the common one-liner case.
+pub fn state_path(name: impl AsRef<std::path::Path>) -> Option<std::path::PathBuf> {
+    state_dir().map(|dir| dir.join(name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,6 +181,39 @@ mod tests {
             handshake.compatibility().error_code(),
             Some("product_version_mismatch")
         );
+    }
+
+    #[test]
+    fn the_state_dir_override_replaces_the_home_directory_entirely() {
+        // Serialised against the other env-touching test in this module by
+        // running them in one test: env vars are process-global.
+        let original = std::env::var_os("UNTERM_STATE_DIR");
+
+        std::env::set_var("UNTERM_STATE_DIR", "");
+        let empty_falls_back = state_dir();
+        assert_eq!(
+            empty_falls_back,
+            dirs_next::home_dir().map(|home| home.join(".unterm")),
+            "an empty override should mean 'not set', not 'use the empty path'"
+        );
+
+        let sandbox = std::env::temp_dir().join("unterm-state-dir-probe");
+        std::env::set_var("UNTERM_STATE_DIR", &sandbox);
+        assert_eq!(state_dir(), Some(sandbox.clone()));
+        assert_eq!(state_path("audit"), Some(sandbox.join("audit")));
+        // Not "outside the home directory" -- on Windows the temp dir lives
+        // under it. The thing that must never happen is landing back in the
+        // real `~/.unterm`, which is what every leak looked like.
+        assert_ne!(
+            state_dir(),
+            dirs_next::home_dir().map(|home| home.join(".unterm")),
+            "an override still resolved to the real user's state directory"
+        );
+
+        match original {
+            Some(value) => std::env::set_var("UNTERM_STATE_DIR", value),
+            None => std::env::remove_var("UNTERM_STATE_DIR"),
+        }
     }
 
     #[test]

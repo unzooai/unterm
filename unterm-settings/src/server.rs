@@ -978,10 +978,8 @@ fn api_state(handler: &McpHandler) -> Response {
 // hint after Save.
 
 fn scrollback_path() -> std::path::PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("scrollback.json")
+    unterm_protocol::state_path("scrollback.json")
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm").join("scrollback.json"))
 }
 
 fn current_scrollback_lines() -> u64 {
@@ -1042,10 +1040,8 @@ fn api_scrollback_set(body: &[u8]) -> Response {
 // env until the user opens a new tab.
 
 fn compat_path() -> std::path::PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("compat.json")
+    unterm_protocol::state_path("compat.json")
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm").join("compat.json"))
 }
 
 fn current_term_program() -> String {
@@ -1568,10 +1564,8 @@ fn find_theme(id: &str) -> Option<&'static ThemePreset> {
 }
 
 fn theme_config_path() -> std::path::PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("theme.json")
+    unterm_protocol::state_path("theme.json")
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm").join("theme.json"))
 }
 
 fn save_theme_to_disk(preset: &ThemePreset) -> Result<()> {
@@ -1645,9 +1639,8 @@ fn current_recording_info() -> Value {
 }
 
 fn sessions_path_string() -> String {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
+    unterm_protocol::state_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm"))
         .join("sessions")
         .display()
         .to_string()

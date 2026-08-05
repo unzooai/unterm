@@ -581,14 +581,7 @@ fn pid_alive(pid: u32) -> bool {
 }
 
 fn unterm_dir() -> Result<PathBuf> {
-    if let Some(path) = std::env::var_os("UNTERM_STATE_DIR") {
-        if !path.is_empty() {
-            return Ok(PathBuf::from(path));
-        }
-    }
-    Ok(dirs_next::home_dir()
-        .ok_or_else(|| anyhow!("could not resolve home directory"))?
-        .join(".unterm"))
+    unterm_protocol::state_dir().ok_or_else(|| anyhow!("could not resolve home directory"))
 }
 
 #[cfg(test)]

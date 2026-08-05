@@ -258,8 +258,7 @@ pub fn subdirectories(base: &Path) -> Vec<Entry> {
 /// From `~/.unterm/projects.json`, which is where the product has always kept
 /// them -- so a list built up by the previous version is still there.
 pub fn recents() -> Vec<Entry> {
-    let Some(path) = dirs_next::home_dir().map(|home| home.join(".unterm").join("projects.json"))
-    else {
+    let Some(path) = unterm_protocol::state_path("projects.json") else {
         return Vec::new();
     };
     let Ok(text) = std::fs::read_to_string(path) else {

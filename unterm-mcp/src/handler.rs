@@ -1338,9 +1338,10 @@ mod engine_neutral_handler_tests {
         std::env::set_var("UNTERM_ENGINE", "next-core");
 
         let name = format!("unterm-workspace-plan-test-{}", std::process::id());
-        let dir = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".unterm")
+        // Resolved the same way workspace_restore resolves it, so the fixture
+        // lands where the code under test will look for it.
+        let dir = unterm_protocol::state_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from(".unterm"))
             .join("workspaces");
         let path = dir.join(format!("{name}.json"));
         let result: Result<Value> = (|| {
@@ -4782,10 +4783,8 @@ pub fn input_preview(input: &str) -> String {
 /// restarts so the user doesn't have to Alt+A their preferred agent
 /// once per session.
 fn trusted_agents_path() -> std::path::PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("trusted_agents.json")
+    unterm_protocol::state_path("trusted_agents.json")
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm").join("trusted_agents.json"))
 }
 
 /// Load the persisted trust list. Schema:
@@ -8015,9 +8014,8 @@ impl McpHandler {
         });
 
         // Save to ~/.unterm/workspaces/<name>.json
-        let dir = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".unterm")
+        let dir = unterm_protocol::state_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from(".unterm"))
             .join("workspaces");
         std::fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}.json", name));
@@ -8032,9 +8030,8 @@ impl McpHandler {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'name'"))?;
 
-        let path = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".unterm")
+        let path = unterm_protocol::state_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from(".unterm"))
             .join("workspaces")
             .join(format!("{}.json", name));
 
@@ -8144,9 +8141,8 @@ impl McpHandler {
     }
 
     fn workspace_list(&self) -> Result<Value> {
-        let dir = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".unterm")
+        let dir = unterm_protocol::state_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from(".unterm"))
             .join("workspaces");
 
         let mut workspaces = Vec::new();
@@ -9448,10 +9444,8 @@ impl McpHandler {
 }
 
 fn proxy_config_path() -> std::path::PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("proxy.json")
+    unterm_protocol::state_path("proxy.json")
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm").join("proxy.json"))
 }
 
 fn load_proxy_settings() -> ProxySettings {
@@ -10282,9 +10276,8 @@ mod exec_wait_tests {
 // ---------------------------------------------------------------------------
 
 fn capture_output_dir() -> Result<std::path::PathBuf> {
-    let dir = dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
+    let dir = unterm_protocol::state_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm"))
         .join("screenshots");
     std::fs::create_dir_all(&dir).context("create screenshots output dir")?;
     Ok(dir)
@@ -10552,9 +10545,8 @@ fn clipboard_read_win32() -> Result<Value> {
             let img = image::RgbaImage::from_raw(width, height, rgba_buf)
                 .ok_or_else(|| anyhow!("Failed to create image buffer from DIB data"))?;
 
-            let clipboard_dir = dirs_next::home_dir()
-                .unwrap_or_default()
-                .join(".unterm")
+            let clipboard_dir = unterm_protocol::state_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from(".unterm"))
                 .join("clipboard");
             std::fs::create_dir_all(&clipboard_dir)
                 .context("Failed to create clipboard output directory")?;
@@ -11017,9 +11009,8 @@ fn find_cg_window_id(pid: u32, title_substr: Option<&str>) -> Result<Option<u32>
 fn clipboard_read_macos() -> Result<Value> {
     // 1) If pasteboard contains an image, write it to a PNG and return.
     //    osascript exits non-zero when the cast to PNGf fails (i.e. no image).
-    let dir = dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
+    let dir = unterm_protocol::state_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm"))
         .join("clipboard");
     std::fs::create_dir_all(&dir).context("create clipboard output dir")?;
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
@@ -11149,9 +11140,8 @@ pub fn capture_window_image(
 #[cfg(all(unix, not(target_os = "macos")))]
 fn clipboard_read_linux() -> Result<Value> {
     // 1) Try image via wl-paste / xclip first.
-    let dir = dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
+    let dir = unterm_protocol::state_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm"))
         .join("clipboard");
     std::fs::create_dir_all(&dir).context("create clipboard output dir")?;
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");

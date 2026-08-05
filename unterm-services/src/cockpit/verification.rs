@@ -54,7 +54,7 @@ struct VerificationFile {
 }
 
 fn records_path() -> Option<PathBuf> {
-    dirs_next::home_dir().map(|home| home.join(".unterm").join("verifications.json"))
+    unterm_protocol::state_path("verifications.json")
 }
 
 fn store() -> &'static Mutex<Vec<VerificationRecord>> {

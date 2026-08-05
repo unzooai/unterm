@@ -68,7 +68,7 @@ fn fleets_path() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("UNTERM_FLEETS_PATH") {
         return Some(PathBuf::from(path));
     }
-    dirs_next::home_dir().map(|h| h.join(".unterm").join("fleets.json"))
+    unterm_protocol::state_path("fleets.json")
 }
 
 /// Empty the store. Behind a feature so it is not in a shipped binary, but

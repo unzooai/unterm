@@ -35,9 +35,12 @@ pub use store::{default_store, SecretError, SecretKey, SecretStore};
 
 use std::path::PathBuf;
 
-/// Root config directory for Unterm. `~/.unterm` on all platforms.
+/// Root config directory for Unterm. `~/.unterm` on all platforms, unless
+/// `UNTERM_STATE_DIR` moves it.
 pub fn unterm_dir() -> PathBuf {
-    dirs_next::home_dir().unwrap_or_default().join(".unterm")
+    // Without a home directory there is nowhere sensible to go; the old
+    // relative path at least keeps the process running instead of panicking.
+    unterm_protocol::state_dir().unwrap_or_else(|| PathBuf::from(".unterm"))
 }
 
 /// Directory containing one TOML file per profile + `index.toml`.

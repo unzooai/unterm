@@ -76,10 +76,8 @@ impl Default for RecordingConfig {
 }
 
 fn config_path() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("recording.json")
+    unterm_protocol::state_path("recording.json")
+        .unwrap_or_else(|| PathBuf::from(".unterm").join("recording.json"))
 }
 
 pub fn load_config() -> RecordingConfig {

@@ -16,7 +16,7 @@ pub struct Saved {
 }
 
 fn directory() -> Option<std::path::PathBuf> {
-    dirs_next::home_dir().map(|home| home.join(".unterm").join("workspaces"))
+    unterm_protocol::state_path("workspaces")
 }
 
 /// Every saved workspace, by name.

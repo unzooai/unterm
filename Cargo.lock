@@ -5606,6 +5606,7 @@ dependencies = [
  "thiserror 1.0.69",
  "toml 0.8.23",
  "unterm-profile",
+ "unterm-protocol",
  "url",
 ]
 
@@ -5710,6 +5711,7 @@ dependencies = [
  "serde",
  "serde_json",
  "termwiz",
+ "unterm-protocol",
 ]
 
 [[package]]
@@ -5758,12 +5760,14 @@ dependencies = [
  "thiserror 1.0.69",
  "toml 0.8.23",
  "unicode-segmentation",
+ "unterm-protocol",
 ]
 
 [[package]]
 name = "unterm-protocol"
 version = "0.61.1"
 dependencies = [
+ "dirs-next",
  "serde",
  "serde_json",
  "toml 0.8.23",
@@ -5825,6 +5829,7 @@ dependencies = [
  "unterm-engine",
  "unterm-mcp",
  "unterm-profile",
+ "unterm-protocol",
  "unterm-services",
 ]
 

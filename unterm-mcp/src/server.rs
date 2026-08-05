@@ -86,13 +86,12 @@ pub fn start_mcp_server_with_version(product_version: &str) -> (u16, String) {
 /// a steady-state launch does nothing. Entirely best-effort: any failure is
 /// logged and ignored — discovery is a convenience, never a reason to block.
 fn maybe_register_ai_agents() {
-    let Some(home) = dirs_next::home_dir() else {
+    let Some(stamp) = unterm_protocol::state_path("setup-ai.stamp") else {
         return;
     };
     thread::Builder::new()
         .name("setup-ai-register".into())
         .spawn(move || {
-            let stamp = home.join(".unterm").join("setup-ai.stamp");
             let current = unterm_protocol::PRODUCT_VERSION;
             if std::fs::read_to_string(&stamp)
                 .map(|s| s.trim() == current)

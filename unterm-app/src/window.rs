@@ -6002,9 +6002,8 @@ impl App {
     /// the eye already is.
     fn capture_scrollback(&mut self) {
         let pane = self.focused_session();
-        let dir = dirs_next::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".unterm")
+        let dir = unterm_protocol::state_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from(".").join(".unterm"))
             .join("captures");
         if let Err(err) = std::fs::create_dir_all(&dir) {
             self.show_notice(format!("capture failed: {err}"));

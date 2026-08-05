@@ -22,4 +22,5 @@ unterm-agents.workspace = true
 unterm-engine = { path = "../unterm-engine" }
 unterm-mcp = { path = "../unterm-mcp" }
 unterm-profile.workspace = true
+unterm-protocol.workspace = true
 unterm-services.workspace = true

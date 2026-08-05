@@ -118,10 +118,8 @@ pub fn run(cmd: UploadCommand, json_out: bool) -> Result<()> {
 }
 
 fn config_path() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("upload.json")
+    unterm_protocol::state_path("upload.json")
+        .unwrap_or_else(|| PathBuf::from(".unterm").join("upload.json"))
 }
 
 fn write_config_template(force: bool) -> Result<PathBuf> {

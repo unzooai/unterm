@@ -188,10 +188,8 @@ fn chcp_command() -> String {
 /// Where the injection toggle lives: `~/.unterm/proxy.json`, the file the
 /// ▼ menu, Web Settings and the MCP proxy tools all share.
 fn proxy_config_path() -> std::path::PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("proxy.json")
+    unterm_protocol::state_path("proxy.json")
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm").join("proxy.json"))
 }
 
 fn proxy_config_value() -> serde_json::Value {

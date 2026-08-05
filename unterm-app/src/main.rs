@@ -59,8 +59,7 @@ mod workspaces;
 /// stderr elsewhere, and a line in ~/.unterm/panic.log either way.
 pub(crate) fn report_fatal(text: &str) {
     log::error!("{text}");
-    if let Some(home) = dirs_next::home_dir() {
-        let dir = home.join(".unterm");
+    if let Some(dir) = unterm_protocol::state_dir() {
         let _ = std::fs::create_dir_all(&dir);
         let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
         let line = format!("[{stamp}] {text}\n");
@@ -102,8 +101,7 @@ fn install_panic_reporter() {
         let text = format!("unterm panicked: {info}");
         if is_main {
             report_fatal(&text);
-        } else if let Some(home) = dirs_next::home_dir() {
-            let dir = home.join(".unterm");
+        } else if let Some(dir) = unterm_protocol::state_dir() {
             let _ = std::fs::create_dir_all(&dir);
             let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
             use std::io::Write as _;
@@ -368,7 +366,13 @@ fn migrate_old_config() -> anyhow::Result<()> {
     let Some(home) = dirs_next::home_dir() else {
         return Ok(());
     };
-    let new_path = home.join(".unterm").join("unterm.conf");
+    // The old candidates below are read from the real home directory, but
+    // the file we write -- and the one old copy that lived beside it -- are
+    // state, so they follow the state directory wherever it points.
+    let Some(state_dir) = unterm_protocol::state_dir() else {
+        return Ok(());
+    };
+    let new_path = state_dir.join("unterm.conf");
     if new_path.exists() {
         return Ok(());
     }
@@ -379,7 +383,7 @@ fn migrate_old_config() -> anyhow::Result<()> {
         // back to the new bundled font and spacing even though the user's
         // v0.57.4 configuration was still present.
         home.join(".config").join("unterm").join("unterm.lua"),
-        home.join(".unterm").join("unterm.lua"),
+        state_dir.join("unterm.lua"),
         home.join(".unterm.lua"),
         home.join(".wezterm.lua"),
     ];

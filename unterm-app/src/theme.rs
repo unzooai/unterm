@@ -256,7 +256,7 @@ pub fn by_id(id: &str) -> Option<&'static Theme> {
 /// `~/.unterm/theme.json`, the same file the CLI has always used -- the two
 /// have to agree, or switching in one is undone by the other.
 fn remembered_path() -> Option<std::path::PathBuf> {
-    Some(dirs_next::home_dir()?.join(".unterm").join("theme.json"))
+    unterm_protocol::state_path("theme.json")
 }
 
 /// The theme chosen last time, if there was one.

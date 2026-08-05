@@ -149,10 +149,8 @@ fn map_to_canonical(raw: &str) -> Option<&'static str> {
 }
 
 fn locale_path() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
-        .join("lang.json")
+    unterm_protocol::state_path("lang.json")
+        .unwrap_or_else(|| PathBuf::from(".unterm").join("lang.json"))
 }
 
 fn read_persisted_locale() -> Option<&'static str> {

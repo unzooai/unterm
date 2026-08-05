@@ -30,6 +30,7 @@ thiserror.workspace = true
 unicode-segmentation.workspace = true
 dirs-next.workspace = true
 log.workspace = true
+unterm-protocol.workspace = true
 # Cross-platform OS keychain. Backend selection is at compile time via
 # `keyring` feature flags in the workspace Cargo.toml — Keychain on
 # macOS, Credential Manager on Windows, Secret Service (D-Bus +

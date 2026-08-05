@@ -112,11 +112,11 @@ fn sessions_root() -> PathBuf {
             return PathBuf::from(root);
         }
     }
-    let home = std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    home.join(".unterm").join("sessions")
+    unterm_protocol::state_dir()
+        // With no home to anchor to, keep recording into the working
+        // directory rather than dropping the session on the floor.
+        .unwrap_or_else(|| PathBuf::from(".").join(".unterm"))
+        .join("sessions")
 }
 
 fn index_path() -> PathBuf {

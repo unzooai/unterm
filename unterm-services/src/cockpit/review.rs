@@ -41,7 +41,7 @@ struct CheckpointFile {
 }
 
 fn path() -> Option<PathBuf> {
-    dirs_next::home_dir().map(|h| h.join(".unterm").join("checkpoints.json"))
+    unterm_protocol::state_path("checkpoints.json")
 }
 
 fn store() -> &'static Mutex<CheckpointFile> {

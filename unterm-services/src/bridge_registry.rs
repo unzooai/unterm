@@ -52,15 +52,7 @@ pub fn request_incompatible_drains() -> Result<usize> {
 }
 
 fn bridges_dir() -> Result<PathBuf> {
-    if let Some(path) = std::env::var_os("UNTERM_STATE_DIR") {
-        if !path.is_empty() {
-            return Ok(PathBuf::from(path).join("bridges"));
-        }
-    }
-    Ok(dirs_next::home_dir()
-        .context("could not resolve home directory")?
-        .join(".unterm")
-        .join("bridges"))
+    unterm_protocol::state_path("bridges").context("could not resolve home directory")
 }
 
 fn register_in(dir: &Path, build: BuildHandshake) -> Result<BridgeRegistration> {

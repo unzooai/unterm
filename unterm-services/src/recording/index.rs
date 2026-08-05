@@ -57,9 +57,8 @@ pub fn sessions_root() -> PathBuf {
             return PathBuf::from(root);
         }
     }
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".unterm")
+    unterm_protocol::state_dir()
+        .unwrap_or_else(|| PathBuf::from(".unterm"))
         .join("sessions")
 }
 

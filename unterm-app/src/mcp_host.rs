@@ -470,9 +470,8 @@ fn capture_path(kind: &str, extension: &str) -> std::path::PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|since| since.as_millis())
         .unwrap_or_default();
-    let directory = dirs_next::home_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join(".unterm")
+    let directory = unterm_protocol::state_dir()
+        .unwrap_or_else(|| std::env::temp_dir().join(".unterm"))
         .join("captures");
     directory.join(format!("{kind}-{stamp}.{extension}"))
 }

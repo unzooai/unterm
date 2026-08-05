@@ -190,10 +190,8 @@ fn apply_theme_live(preset: &ThemePreset) -> Result<bool> {
 }
 
 fn theme_config_path() -> Result<std::path::PathBuf> {
-    Ok(dirs_next::home_dir()
-        .ok_or_else(|| anyhow!("could not resolve home directory"))?
-        .join(".unterm")
-        .join("theme.json"))
+    unterm_protocol::state_path("theme.json")
+        .ok_or_else(|| anyhow!("could not resolve home directory"))
 }
 
 fn read_active_theme() -> Option<String> {

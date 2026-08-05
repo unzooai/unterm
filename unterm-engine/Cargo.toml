@@ -19,3 +19,4 @@ serde_json.workspace = true
 freetype.workspace = true
 harfbuzz.workspace = true
 termwiz.workspace = true
+unterm-protocol.workspace = true
