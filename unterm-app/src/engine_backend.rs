@@ -53,23 +53,46 @@ static CORE_SHARED: std::sync::OnceLock<CoreShared> = std::sync::OnceLock::new()
 /// starts: the provider slot is set-once, and an MCP surface that
 /// came up on the local engine while the window talks to a Core
 /// would split the world in two.
-pub fn init_from_environment() {
-    if std::env::var("UNTERM_CORE_CLIENT").is_ok_and(|value| value == "1") {
+pub fn init_from_environment() -> Backend {
+    // Still opt-in via `UNTERM_CORE_CLIENT=1`, despite the surface now
+    // living in the Core and everything around it being verified on
+    // real hardware. One thing holds the default back: an agent's
+    // `session.focus` reaches the Core and is reported back correctly,
+    // and the window does not act on it -- so a peer asking to be
+    // looked at is not looked at. Making this the default before that
+    // works would ship a regression against the arrangement it
+    // replaces.
+    let wants_core = std::env::var("UNTERM_CORE_CLIENT").is_ok_and(|value| value == "1");
+    if wants_core {
         match connect_core_shared() {
             Ok(()) => {
                 unterm_engine::set_engine_provider(|| Box::new(CoreHostEngine));
-                eprintln!("unterm: UNTERM_CORE_CLIENT=1, sessions live in unterm-core");
-                return;
+                return Backend::Core;
             }
             Err(err) => {
+                // Falling back rather than refusing to start: a user
+                // whose Core will not come up still gets a terminal,
+                // and the one thing they lose is said out loud.
                 eprintln!(
-                    "unterm: UNTERM_CORE_CLIENT=1 but the core is unavailable ({err:#}); \
-                     using the in-process engine"
+                    "unterm: unterm-core is unavailable ({err:#}); this window keeps its \
+                     sessions in-process, and they will not outlive it"
                 );
             }
         }
     }
     unterm_engine::install_next_core_provider();
+    Backend::Local
+}
+
+/// Which arrangement `init_from_environment` settled on.
+///
+/// `main` needs it to decide whether to start an MCP server of its own:
+/// in Core mode the Core is already serving one, and a second would give
+/// agents two different answers about the same sessions.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Backend {
+    Local,
+    Core,
 }
 
 fn connect_core_shared() -> Result<()> {
@@ -625,5 +648,67 @@ impl CaptureEngine for CoreHostEngine {
 impl HostEngine for CoreHostEngine {
     fn name(&self) -> &'static str {
         "unterm-core"
+    }
+}
+
+/// The agent-facing state this window draws but does not own.
+///
+/// Suggestions, the Insights numbers and the audit trail all live
+/// wherever the MCP surface does. That used to be this process always;
+/// with the surface in a Core it is over there, and a window reading its
+/// own empty copy would draw an empty Inbox next to a Core full of work.
+///
+/// Named exactly like the `unterm_mcp::handler` functions they stand in
+/// for, so the call sites read the same and the only thing that changed
+/// is which process answers.
+pub mod mcp_state {
+    use unterm_mcp::handler::{InsightsMcpSnapshot, Suggestion};
+
+    pub fn pending_suggestions_for_pane(pane_id: u64) -> Vec<Suggestion> {
+        match super::CORE_SHARED.get() {
+            // A Core that cannot answer is reported as "nothing
+            // pending" rather than as an error: this is drawn every
+            // frame, and a failed fetch must not become a dialog.
+            Some(shared) => shared.client.pending_suggestions(pane_id).unwrap_or_default(),
+            None => unterm_mcp::handler::pending_suggestions_for_pane(pane_id),
+        }
+    }
+
+    pub fn accept_suggestion(id: &str, run_immediately: bool) -> Result<String, String> {
+        match super::CORE_SHARED.get() {
+            Some(shared) => shared
+                .client
+                .accept_suggestion(id, run_immediately)
+                .map_err(|err| format!("{err:#}")),
+            None => unterm_mcp::handler::accept_suggestion(id, run_immediately),
+        }
+    }
+
+    pub fn dismiss_suggestion(id: &str) -> Result<(), String> {
+        match super::CORE_SHARED.get() {
+            Some(shared) => shared
+                .client
+                .dismiss_suggestion(id)
+                .map_err(|err| format!("{err:#}")),
+            None => unterm_mcp::handler::dismiss_suggestion(id),
+        }
+    }
+
+    pub fn insights_mcp_snapshot(recent_audit_limit: usize) -> InsightsMcpSnapshot {
+        match super::CORE_SHARED.get() {
+            Some(shared) => shared.client.insights(recent_audit_limit).unwrap_or_default(),
+            None => unterm_mcp::handler::insights_mcp_snapshot(recent_audit_limit),
+        }
+    }
+
+    pub fn audit_gui_write(method: &str, pane_id: u64, detail: &str) {
+        match super::CORE_SHARED.get() {
+            // Best-effort, as it always was: an audit line that cannot
+            // be written must not stop the action it describes.
+            Some(shared) => {
+                let _ = shared.client.audit_gui_write(method, pane_id, detail);
+            }
+            None => unterm_mcp::handler::audit_gui_write(method, pane_id, detail),
+        }
     }
 }

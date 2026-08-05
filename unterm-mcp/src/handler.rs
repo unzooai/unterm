@@ -4049,7 +4049,7 @@ pub struct ConfirmationView {
 /// alongside the suggestion so `session.suggest_status` can report what
 /// happened to a previously-posted suggestion (and so the suggest UI
 /// can decide whether to render it).
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SuggestionState {
     Pending,
@@ -4071,7 +4071,7 @@ pub struct SuggestionSource {
 /// One MCP-driven suggestion. The text is **not** written to PTY at
 /// post time — only when the user actively accepts it via the
 /// suggest UI (or programmatically via `accept_suggestion`).
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Suggestion {
     pub id: String,
     pub pane_id: u64,
@@ -4224,6 +4224,7 @@ pub fn resolve_confirmation(id: u64, decision: ConfirmationDecision) -> bool {
 /// Aggregate counters surfaced in the Insights overlay. Single
 /// snapshot under one Mutex acquire so renderers don't need to make
 /// six separate calls.
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct InsightsMcpSnapshot {
     pub input_count: u64,
     pub seconds_since_last_input: Option<f32>,

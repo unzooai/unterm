@@ -1116,6 +1116,89 @@ fn dispatch_inner(
         "core.engine_health" => {
             serde_json::to_string(&response_ok(id, engine.health()?))?
         }
+        // The agent-facing state a window draws but does not own.
+        // Pulled rather than pushed: none of it is latency-critical, and
+        // a pull keeps the reverse channel free for the things that
+        // genuinely have to interrupt.
+        "mcp.suggestions" => {
+            let pane_id = request
+                .params
+                .get("pane_id")
+                .and_then(|value| value.as_u64())
+                .unwrap_or_default();
+            serde_json::to_string(&response_ok(
+                id,
+                unterm_mcp::handler::pending_suggestions_for_pane(pane_id),
+            ))?
+        }
+        "mcp.accept_suggestion" => {
+            let suggestion_id = request
+                .params
+                .get("id")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let run = request
+                .params
+                .get("run")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            match unterm_mcp::handler::accept_suggestion(&suggestion_id, run) {
+                Ok(text) => serde_json::to_string(&response_ok(id, text))?,
+                Err(message) => serde_json::to_string(&response_error::<serde_json::Value>(
+                    id,
+                    "suggestion_rejected",
+                    &message,
+                ))?,
+            }
+        }
+        "mcp.dismiss_suggestion" => {
+            let suggestion_id = request
+                .params
+                .get("id")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            match unterm_mcp::handler::dismiss_suggestion(&suggestion_id) {
+                Ok(()) => serde_json::to_string(&response_ok(id, serde_json::Value::Null))?,
+                Err(message) => serde_json::to_string(&response_error::<serde_json::Value>(
+                    id,
+                    "suggestion_rejected",
+                    &message,
+                ))?,
+            }
+        }
+        "mcp.insights" => {
+            let limit = request
+                .params
+                .get("recent_audit_limit")
+                .and_then(|value| value.as_u64())
+                .unwrap_or_default() as usize;
+            serde_json::to_string(&response_ok(
+                id,
+                unterm_mcp::handler::insights_mcp_snapshot(limit),
+            ))?
+        }
+        "mcp.audit_gui_write" => {
+            let text = |key: &str| {
+                request
+                    .params
+                    .get(key)
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            unterm_mcp::handler::audit_gui_write(
+                &text("method"),
+                request
+                    .params
+                    .get("pane_id")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or_default(),
+                &text("detail"),
+            );
+            serde_json::to_string(&response_ok(id, serde_json::Value::Null))?
+        }
         "core.set_scrollback_lines" => {
             let lines = request
                 .params
@@ -1894,6 +1977,44 @@ impl CoreEngineClient {
             identity.pid
         );
         connection.client.request_with_params(method, params)
+    }
+
+    /// The agent-facing state the window draws: suggestions posted over
+    /// MCP, the Insights numbers, and the audit trail. All of it lives
+    /// wherever the MCP surface does, which after the move is here.
+    pub fn pending_suggestions(
+        &self,
+        pane_id: u64,
+    ) -> Result<Vec<unterm_mcp::handler::Suggestion>> {
+        self.call("mcp.suggestions", serde_json::json!({"pane_id": pane_id}))
+    }
+
+    pub fn accept_suggestion(&self, id: &str, run: bool) -> Result<String> {
+        self.call(
+            "mcp.accept_suggestion",
+            serde_json::json!({"id": id, "run": run}),
+        )
+    }
+
+    pub fn dismiss_suggestion(&self, id: &str) -> Result<()> {
+        self.call_unit("mcp.dismiss_suggestion", serde_json::json!({"id": id}))
+    }
+
+    pub fn insights(
+        &self,
+        recent_audit_limit: usize,
+    ) -> Result<unterm_mcp::handler::InsightsMcpSnapshot> {
+        self.call(
+            "mcp.insights",
+            serde_json::json!({"recent_audit_limit": recent_audit_limit}),
+        )
+    }
+
+    pub fn audit_gui_write(&self, method: &str, pane_id: u64, detail: &str) -> Result<()> {
+        self.call_unit(
+            "mcp.audit_gui_write",
+            serde_json::json!({"method": method, "pane_id": pane_id, "detail": detail}),
+        )
     }
 
     /// The pid of the Core currently on the other end. Changes when a

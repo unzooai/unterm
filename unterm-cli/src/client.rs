@@ -290,6 +290,16 @@ impl ServerEndpoint {
             });
         }
 
+        // The Core first, because that is where the sessions are and
+        // where the surface now runs. It outlives every window, so an
+        // agent connected to it keeps working across a GUI restart --
+        // which is the whole reason the surface moved.
+        if let Some(endpoint) = resolve_core_endpoint() {
+            return Ok(endpoint);
+        }
+
+        // A GUI's own server is the fallback for builds where the
+        // surface still lives in the window.
         if let Some(info) = resolve_live_instance(&dir)? {
             let identity = info.build_handshake();
             return Ok(Self {
@@ -298,14 +308,6 @@ impl ServerEndpoint {
                 http_port: info.http_port,
                 identity,
             });
-        }
-
-        // No live GUI instance — but sessions never lived in the GUI
-        // anyway. The Core process serves the same MCP surface and
-        // outlives every window; fall through to it before declaring
-        // the product absent.
-        if let Some(endpoint) = resolve_core_endpoint() {
-            return Ok(endpoint);
         }
 
         // Prefer server.json as the legacy fallback for older builds.

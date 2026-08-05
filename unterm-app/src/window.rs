@@ -1363,7 +1363,7 @@ impl App {
         self.screen_blink = screen_blink;
         self.drawn_confirmation = unterm_mcp::handler::pending_confirmation_view().map(|v| v.id);
         self.drawn_suggestions =
-            unterm_mcp::handler::pending_suggestions_for_pane(self.focused_session() as u64).len();
+            crate::engine_backend::mcp_state::pending_suggestions_for_pane(self.focused_session() as u64).len();
     }
 
     /// Offer a mouse event to the program. True when it took it.
@@ -1767,7 +1767,7 @@ impl App {
                 .flatten()
                 .find(|session| session.id == live.session_id)
         });
-        let mcp = unterm_mcp::handler::insights_mcp_snapshot(0);
+        let mcp = crate::engine_backend::mcp_state::insights_mcp_snapshot(0);
         let agents = unterm_services::cockpit::status::snapshot();
         let _ = agents;
         let directory = session
@@ -4717,7 +4717,7 @@ impl App {
     fn handle_suggestion_key(&mut self, event: &winit::event::KeyEvent) -> bool {
         use winit::keyboard::{Key as WinitKey, NamedKey};
         let pane = self.focused_session();
-        let Some(suggestion) = unterm_mcp::handler::pending_suggestions_for_pane(pane as u64)
+        let Some(suggestion) = crate::engine_backend::mcp_state::pending_suggestions_for_pane(pane as u64)
             .into_iter()
             .next()
         else {
@@ -4725,7 +4725,7 @@ impl App {
         };
         let run = self.alt_held && matches!(event.logical_key, WinitKey::Named(NamedKey::Enter));
         if matches!(event.logical_key, WinitKey::Named(NamedKey::Tab)) || run {
-            match unterm_mcp::handler::accept_suggestion(&suggestion.id, run) {
+            match crate::engine_backend::mcp_state::accept_suggestion(&suggestion.id, run) {
                 Ok(mut text) => {
                     if run {
                         text.push('\r');
@@ -4737,7 +4737,7 @@ impl App {
                 Err(err) => log::warn!("could not accept suggestion: {err}"),
             }
         } else if matches!(event.logical_key, WinitKey::Named(NamedKey::Escape)) {
-            if let Err(err) = unterm_mcp::handler::dismiss_suggestion(&suggestion.id) {
+            if let Err(err) = crate::engine_backend::mcp_state::dismiss_suggestion(&suggestion.id) {
                 log::warn!("could not dismiss suggestion: {err}");
             }
         } else {
@@ -4772,7 +4772,7 @@ impl App {
             .as_ref()
             .is_some_and(|composer| composer.mode() == crate::composer::ExecutionMode::AutoApprove);
         if auto_approve && idle && self.pane_is_asking_permission(session_id) {
-            unterm_mcp::handler::audit_gui_write(
+            crate::engine_backend::mcp_state::audit_gui_write(
                 "composer.auto_approve",
                 session_id as u64,
                 "accepted narrow affirmative confirmation",
@@ -4885,7 +4885,7 @@ impl App {
         quads: &mut unterm_render::quads::FrameQuads,
     ) {
         let pending =
-            unterm_mcp::handler::pending_suggestions_for_pane(self.focused_session() as u64);
+            crate::engine_backend::mcp_state::pending_suggestions_for_pane(self.focused_session() as u64);
         let Some(suggestion) = pending.first() else {
             return;
         };
@@ -5887,7 +5887,7 @@ impl App {
             Some(crate::statusbar::SegmentKind::Mcp) => {
                 // The chip's click exports what the bar can only count: the
                 // recent audit entries, ready to paste into a report.
-                let snapshot = unterm_mcp::handler::insights_mcp_snapshot(200);
+                let snapshot = crate::engine_backend::mcp_state::insights_mcp_snapshot(200);
                 let mut text = format!(
                     "mcp inputs: {} (agents seen: {})\n",
                     snapshot.input_count, snapshot.agents_seen
@@ -6288,7 +6288,7 @@ impl App {
             command: crate::palette::Command::Nothing,
         };
         let status = self.status();
-        let snapshot = unterm_mcp::handler::insights_mcp_snapshot(8);
+        let snapshot = crate::engine_backend::mcp_state::insights_mcp_snapshot(8);
         let mut entries = vec![
             row(t_args("insights.shell", &[("shell", &status.shell)])),
             row(t_args("insights.cwd", &[("cwd", &status.directory)])),
@@ -8842,7 +8842,7 @@ impl App {
         // drawn and the agent would wait out its timeout looking at nothing.
         self.drawn_confirmation != unterm_mcp::handler::pending_confirmation_view().map(|v| v.id)
             || self.drawn_suggestions
-                != unterm_mcp::handler::pending_suggestions_for_pane(self.focused_session() as u64)
+                != crate::engine_backend::mcp_state::pending_suggestions_for_pane(self.focused_session() as u64)
                     .len()
     }
 }

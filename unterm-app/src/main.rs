@@ -186,7 +186,7 @@ fn run() -> anyhow::Result<()> {
     // Decide Local vs Core for the whole process -- window, MCP
     // surface and background threads alike -- before the MCP server
     // starts, so every consumer sees the same session world.
-    engine_backend::init_from_environment();
+    let backend = engine_backend::init_from_environment();
     if let Some(profile) = args.profile.as_deref() {
         std::env::set_var("UNTERM_STARTUP_PROFILE", profile);
     }
@@ -198,8 +198,20 @@ fn run() -> anyhow::Result<()> {
     // connecting early finds a working surface rather than a
     // half-built one.
     mcp_host::install();
-    let (port, token) = unterm_mcp::start_mcp_server_with_version(unterm_protocol::PRODUCT_VERSION);
-    log::info!("MCP server listening on 127.0.0.1:{port}");
+    // One surface per session world. In Core mode the Core is already
+    // serving the agent API over the sessions it owns; a second server
+    // here would answer the same questions from an empty world, and an
+    // agent would have no way to tell which one it reached.
+    let served_here = matches!(backend, engine_backend::Backend::Local);
+    let (port, token) = if served_here {
+        let (port, token) =
+            unterm_mcp::start_mcp_server_with_version(unterm_protocol::PRODUCT_VERSION);
+        log::info!("MCP server listening on 127.0.0.1:{port}");
+        (port, token)
+    } else {
+        log::info!("agent surface is served by unterm-core; this window hosts its window half");
+        (0, String::new())
+    };
     match unterm_services::bridge_registry::request_incompatible_drains() {
         Ok(0) => {}
         Ok(count) => log::info!("requested drain for {count} incompatible MCP bridge(s)"),
