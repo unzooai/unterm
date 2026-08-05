@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use unterm_engine::next_core::mouse_encoding::{
     MouseButton, MouseEvent, MouseEventKind, MouseModifiers,
@@ -270,6 +270,238 @@ impl EventHub {
     }
 }
 
+/// A call the Core makes *into* a front end.
+///
+/// Everything else on this wire runs client-to-Core. This one runs the
+/// other way, because a few things only a window can do -- render text
+/// with the window's font stack, raise the window, ask the person in
+/// front of it whether an agent may type into their shell -- have to be
+/// reachable from a Core that owns the sessions but owns no screen.
+#[derive(Debug, Serialize, Deserialize)]
+struct HostCall {
+    host_call: HostCallBody,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct HostCallBody {
+    id: String,
+    method: String,
+    params: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct HostReplyFrame {
+    host_reply: HostReplyBody,
+}
+
+#[derive(Debug, Deserialize)]
+struct HostReplyBody {
+    id: String,
+    ok: bool,
+    #[serde(default)]
+    result: Option<serde_json::Value>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// The Core's end of the reverse channel to a front end.
+///
+/// At most one front end is attached at a time -- a second registration
+/// replaces the first, which is what happens when a window is closed and
+/// reopened. When none is attached, `call` fails immediately rather than
+/// blocking: a Core with no window must decline the things only a window
+/// can do, not park its worker threads until they time out.
+#[derive(Default)]
+pub struct HostChannel {
+    outgoing: std::sync::Mutex<Option<std::sync::mpsc::Sender<String>>>,
+    pending: std::sync::Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<HostReplyBody>>>,
+    next_id: std::sync::atomic::AtomicU64,
+}
+
+pub fn host_channel() -> &'static Arc<HostChannel> {
+    static CHANNEL: OnceLock<Arc<HostChannel>> = OnceLock::new();
+    CHANNEL.get_or_init(|| Arc::new(HostChannel::default()))
+}
+
+impl HostChannel {
+    /// Whether a front end is attached right now.
+    ///
+    /// The MCP surface asks this before offering capabilities that need
+    /// one, and before parking a write on a confirmation nobody could
+    /// answer.
+    pub fn is_attached(&self) -> bool {
+        self.outgoing
+            .lock()
+            .map(|slot| slot.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Attach a front end, replacing whichever one was there.
+    ///
+    /// The previous channel's pending calls are failed rather than left
+    /// hanging: their answers were going to a window that is no longer
+    /// listening.
+    fn attach(&self, sender: std::sync::mpsc::Sender<String>) {
+        *self.outgoing.lock().expect("host channel lock poisoned") = Some(sender);
+        self.fail_pending();
+    }
+
+    fn detach(&self) {
+        *self.outgoing.lock().expect("host channel lock poisoned") = None;
+        self.fail_pending();
+    }
+
+    /// Drop every waiter. Their `recv` fails, which each caller turns
+    /// into its own "no front end" answer.
+    fn fail_pending(&self) {
+        self.pending
+            .lock()
+            .expect("host channel lock poisoned")
+            .clear();
+    }
+
+    fn resolve(&self, reply: HostReplyBody) {
+        let waiter = self
+            .pending
+            .lock()
+            .expect("host channel lock poisoned")
+            .remove(&reply.id);
+        if let Some(waiter) = waiter {
+            let _ = waiter.send(reply);
+        }
+    }
+
+    /// Ask the attached front end to do something, and wait for its answer.
+    ///
+    /// `timeout` is a hard ceiling because the caller is usually an MCP
+    /// worker thread: a front end that stops answering must not be able
+    /// to hold that thread forever. The one long timeout is the
+    /// confirmation prompt, which is waiting for a person.
+    pub fn call(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+        timeout: Duration,
+    ) -> Result<serde_json::Value> {
+        let id = format!(
+            "{}",
+            self.next_id
+                .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+        );
+        let (tx, rx) = std::sync::mpsc::channel();
+        let line = serde_json::to_string(&HostCall {
+            host_call: HostCallBody {
+                id: id.clone(),
+                method: method.to_string(),
+                params,
+            },
+        })?;
+
+        {
+            let outgoing = self.outgoing.lock().expect("host channel lock poisoned");
+            let Some(sender) = outgoing.as_ref() else {
+                anyhow::bail!("no Unterm window is attached to answer {method}");
+            };
+            // Registered before the send, so a reply that arrives
+            // between them still finds its waiter.
+            self.pending
+                .lock()
+                .expect("host channel lock poisoned")
+                .insert(id.clone(), tx);
+            if sender.send(line).is_err() {
+                self.pending
+                    .lock()
+                    .expect("host channel lock poisoned")
+                    .remove(&id);
+                anyhow::bail!("the attached Unterm window stopped listening");
+            }
+        }
+
+        match rx.recv_timeout(timeout) {
+            Ok(reply) if reply.ok => Ok(reply.result.unwrap_or(serde_json::Value::Null)),
+            Ok(reply) => Err(anyhow::anyhow!(
+                "{}",
+                reply.error.unwrap_or_else(|| format!("{method} refused"))
+            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                self.pending
+                    .lock()
+                    .expect("host channel lock poisoned")
+                    .remove(&id);
+                anyhow::bail!("the Unterm window did not answer {method} in time")
+            }
+            // The waiter was dropped, which is how detach reports that
+            // the window went away mid-call.
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                anyhow::bail!("the Unterm window went away before answering {method}")
+            }
+        }
+    }
+}
+
+/// Run one connection as the reverse channel until the front end hangs
+/// up or the Core stops.
+///
+/// Two directions on one socket, so it is split: a writer thread drains
+/// queued calls, and this thread reads replies. Sharing one thread would
+/// mean a call could not be sent while a reply was being awaited, which
+/// is exactly the situation the channel exists to serve.
+fn serve_host_channel(stream: TcpStream, running: &AtomicBool) -> Result<()> {
+    let channel = host_channel().clone();
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let mut writer = stream.try_clone().context("clone host channel stream")?;
+    // No stop flag of its own: the writer ends when the channel drops
+    // the sender, which is exactly what detaching does.
+    std::thread::Builder::new()
+        .name("core-host-writer".into())
+        .spawn(move || {
+            while let Ok(line) = rx.recv() {
+                if writeln!(writer, "{line}").is_err() || writer.flush().is_err() {
+                    return;
+                }
+            }
+        })
+        .context("spawn host channel writer")?;
+
+    channel.attach(tx);
+    // A read timeout rather than a blocking read, so a stopping Core
+    // does not have to wait for the window to hang up first.
+    stream
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .ok();
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                if !line.trim().is_empty() {
+                    match serde_json::from_str::<HostReplyFrame>(line.trim()) {
+                        Ok(frame) => channel.resolve(frame.host_reply),
+                        // A frame this end cannot read is not worth
+                        // killing the channel over; the call it belonged
+                        // to times out on its own.
+                        Err(err) => log::warn!("unreadable host reply: {err}"),
+                    }
+                }
+            }
+            // The timeout is this loop's heartbeat, not a failure.
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => break,
+        }
+        if !running.load(Ordering::Acquire) {
+            break;
+        }
+    }
+    channel.detach();
+    Ok(())
+}
+
 /// Poll the engine for changes and publish them as events.
 ///
 /// The engine has no wakeup hook yet, so this is where the polling
@@ -506,6 +738,23 @@ fn handle_stream(
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
                 }
             }
+        }
+        if request.method == "core.host" {
+            // This connection becomes the reverse channel: from here on
+            // the Core writes calls down it and reads their replies. It
+            // is a separate connection from the event feed on purpose --
+            // the feed is owned by the frame cache and must stay a
+            // simple one-way loop.
+            writeln!(
+                stream,
+                "{}",
+                serde_json::to_string(&response_ok(
+                    request.id,
+                    serde_json::json!({"attached": true}),
+                ))?
+            )?;
+            stream.flush()?;
+            return serve_host_channel(stream, running);
         }
         let should_stop = request.method == "core.shutdown";
         let creates_session =
@@ -1054,6 +1303,14 @@ pub struct CoreClient {
 }
 
 impl CoreClient {
+    /// Give up request/response framing and take the raw socket.
+    ///
+    /// For connections that change protocol after a handshake -- the
+    /// reverse channel does, once `core.host` is acknowledged.
+    pub fn into_stream(self) -> TcpStream {
+        self.stream
+    }
+
     pub fn connect<A: ToSocketAddrs>(address: A, token: impl Into<String>) -> Result<Self> {
         let stream = TcpStream::connect(address).context("connect unterm-core")?;
         stream.set_nodelay(true).context("set core nodelay")?;
@@ -1200,6 +1457,99 @@ pub fn is_timeout_error(err: &anyhow::Error) -> bool {
             std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
         )
     })
+}
+
+/// What a front end must be able to do when the Core asks.
+///
+/// Deliberately expressed as raw JSON rather than the `McpHost` trait:
+/// this crate is below the MCP surface, and the set of things worth
+/// asking a window will keep growing. An unknown method is answered with
+/// an error, never a panic -- a Core newer than its window must degrade,
+/// not crash it.
+pub trait HostResponder: Send + Sync {
+    fn respond(&self, method: &str, params: &serde_json::Value) -> Result<serde_json::Value>;
+}
+
+/// The front end's end of the reverse channel.
+///
+/// Owns its own connection and a thread that serves calls from the Core
+/// until either side goes away. Dropping it detaches.
+pub struct HostChannelClient {
+    stopping: Arc<AtomicBool>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl HostChannelClient {
+    /// Register this process as the Core's front end and start serving.
+    pub fn attach<A: ToSocketAddrs>(
+        address: A,
+        token: impl Into<String>,
+        responder: Arc<dyn HostResponder>,
+    ) -> Result<Self> {
+        let token = token.into();
+        let mut client = CoreClient::connect(address, token)?;
+        let _: Response<serde_json::Value> = client.request("core.host")?;
+        let stream = client.into_stream();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .ok();
+        let mut writer = stream.try_clone().context("clone host channel stream")?;
+        let stopping = Arc::new(AtomicBool::new(false));
+        let worker_stopping = stopping.clone();
+        let worker = std::thread::Builder::new()
+            .name("core-host-client".into())
+            .spawn(move || {
+                let mut reader = BufReader::new(stream);
+                let mut line = String::new();
+                while !worker_stopping.load(Ordering::Acquire) {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let Ok(frame) = serde_json::from_str::<HostCall>(line.trim()) else {
+                                continue;
+                            };
+                            let call = frame.host_call;
+                            // Every call is answered, including the ones
+                            // that fail: a Core left waiting on a silent
+                            // window is the failure mode this whole
+                            // channel exists to avoid.
+                            let reply = match responder.respond(&call.method, &call.params) {
+                                Ok(result) => serde_json::json!({"host_reply": {
+                                    "id": call.id, "ok": true, "result": result,
+                                }}),
+                                Err(err) => serde_json::json!({"host_reply": {
+                                    "id": call.id, "ok": false, "error": format!("{err:#}"),
+                                }}),
+                            };
+                            if writeln!(writer, "{reply}").is_err() || writer.flush().is_err() {
+                                break;
+                            }
+                        }
+                        Err(err)
+                            if matches!(
+                                err.kind(),
+                                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                            ) => {}
+                        Err(_) => break,
+                    }
+                }
+            })
+            .context("spawn host channel client")?;
+        Ok(Self {
+            stopping,
+            worker: Some(worker),
+        })
+    }
+}
+
+impl Drop for HostChannelClient {
+    fn drop(&mut self) {
+        self.stopping.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }
 
 /// The Core-backed engine a GUI or CLI holds in place of a local
@@ -2012,6 +2362,139 @@ mod tests {
         let worker = std::thread::spawn(move || server.run().unwrap());
         std::thread::sleep(Duration::from_millis(20));
         (endpoint, worker)
+    }
+
+    /// Answers a fixed set of methods, and records what it was asked.
+    struct ProbeResponder {
+        seen: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl HostResponder for ProbeResponder {
+        fn respond(
+            &self,
+            method: &str,
+            params: &serde_json::Value,
+        ) -> Result<serde_json::Value> {
+            self.seen
+                .lock()
+                .expect("probe lock poisoned")
+                .push(method.to_string());
+            match method {
+                "echo" => Ok(params.clone()),
+                "refuse" => anyhow::bail!("the window said no"),
+                "silent" => {
+                    // Long enough to outlast the caller's timeout.
+                    std::thread::sleep(Duration::from_millis(600));
+                    Ok(serde_json::Value::Null)
+                }
+                other => anyhow::bail!("unknown host method {other}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_core_with_no_window_attached_fails_the_call_instead_of_waiting() {
+        // The property that keeps a headless Core usable: things only a
+        // window can do must be declined at once, not parked until they
+        // time out, or every MCP worker thread ends up blocked.
+        let channel = HostChannel::default();
+        assert!(!channel.is_attached());
+        let started = std::time::Instant::now();
+        let refused = channel.call("echo", serde_json::json!({}), Duration::from_secs(30));
+        assert!(refused.is_err());
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "a call with no window attached waited {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn the_core_can_call_into_an_attached_front_end() {
+        let (endpoint, worker) = start_server("host-token");
+        let probe = Arc::new(ProbeResponder {
+            seen: std::sync::Mutex::new(Vec::new()),
+        });
+        let attached =
+            HostChannelClient::attach(endpoint, "host-token", probe.clone()).unwrap();
+        assert!(
+            wait_for(Duration::from_secs(5), || host_channel().is_attached()),
+            "the core never saw the front end attach"
+        );
+
+        let answered = host_channel()
+            .call(
+                "echo",
+                serde_json::json!({"hello": "world"}),
+                Duration::from_secs(5),
+            )
+            .expect("the front end should have answered");
+        assert_eq!(answered["hello"], "world");
+
+        // A refusal reaches the caller as a refusal, not as a timeout:
+        // "the window said no" and "the window is not answering" are
+        // different facts and callers act on them differently.
+        let refused = host_channel()
+            .call("refuse", serde_json::json!({}), Duration::from_secs(5))
+            .expect_err("a refusal should surface as an error");
+        assert!(
+            refused.to_string().contains("the window said no"),
+            "the refusal reason was lost: {refused}"
+        );
+
+        // And a method the window does not know is an error, not a hang.
+        assert!(host_channel()
+            .call("invented", serde_json::json!({}), Duration::from_secs(5))
+            .is_err());
+
+        assert_eq!(
+            probe.seen.lock().unwrap().as_slice(),
+            &["echo".to_string(), "refuse".to_string(), "invented".to_string()]
+        );
+
+        drop(attached);
+        assert!(
+            wait_for(Duration::from_secs(5), || !host_channel().is_attached()),
+            "the core kept believing a detached window was there"
+        );
+        let _ = worker;
+    }
+
+    #[test]
+    fn a_window_that_stops_answering_cannot_hold_a_core_thread() {
+        let (endpoint, worker) = start_server("slow-token");
+        let probe = Arc::new(ProbeResponder {
+            seen: std::sync::Mutex::new(Vec::new()),
+        });
+        let attached = HostChannelClient::attach(endpoint, "slow-token", probe).unwrap();
+        assert!(wait_for(Duration::from_secs(5), || host_channel()
+            .is_attached()));
+
+        let started = std::time::Instant::now();
+        let timed_out = host_channel().call(
+            "silent",
+            serde_json::json!({}),
+            Duration::from_millis(150),
+        );
+        assert!(timed_out.is_err(), "a silent window should not succeed");
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "the timeout was not honoured; waited {:?}",
+            started.elapsed()
+        );
+        drop(attached);
+        let _ = worker;
+    }
+
+    fn wait_for(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if condition() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        false
     }
 
     #[test]
