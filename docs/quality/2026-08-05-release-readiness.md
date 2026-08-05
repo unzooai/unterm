@@ -91,6 +91,7 @@ worker 第一次超时就把活着的 Core 判成已死——由 frame_cache 收
 | unterm-core（进程 E2E） | 4 | 全过 |
 | unterm-services | 121 | 全过 |
 | unterm-cli | 31 | 全过 |
+| **workspace 合计** | **1891** | **全过，cargo 退出码 0** |
 
 **注意口径**：`unterm-core` 的库测试共享进程内全局引擎，必须按 CI 的
 Windows 口径 `--test-threads=1` 运行，否则并行测试互相看见对方的会话。
