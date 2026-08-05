@@ -384,3 +384,126 @@ fn concurrent_launches_yield_exactly_one_core() {
 
     let _ = std::fs::remove_dir_all(&state_dir);
 }
+
+/// Restores `UNTERM_STATE_DIR` on drop.
+///
+/// The reconnect path goes through `ensure_running()`, which reads the
+/// discovery record from wherever the *test process* says state lives --
+/// so unlike every test above, this one has to set it in-process. That
+/// is a process-global mutation, hence the guard.
+struct StateDirEnv(Option<std::ffi::OsString>);
+
+impl StateDirEnv {
+    fn set(dir: &std::path::Path) -> Self {
+        let previous = std::env::var_os("UNTERM_STATE_DIR");
+        std::env::set_var("UNTERM_STATE_DIR", dir);
+        Self(previous)
+    }
+}
+
+impl Drop for StateDirEnv {
+    fn drop(&mut self) {
+        match self.0.take() {
+            Some(previous) => std::env::set_var("UNTERM_STATE_DIR", previous),
+            None => std::env::remove_var("UNTERM_STATE_DIR"),
+        }
+    }
+}
+
+fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if condition() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    false
+}
+
+#[test]
+fn a_killed_core_is_replaced_without_restarting_the_client() {
+    // The failure this covers: before reconnection existed, a Core that
+    // died left the window permanently dead -- the frame cache's worker
+    // exited and the only way back was restarting Unterm. Recovery has
+    // to work while the client keeps running.
+    let state_dir = scratch_state_dir("reconnect");
+    let _env = StateDirEnv::set(&state_dir);
+
+    let mut first = spawn_core(&state_dir);
+    let discovery = wait_for_discovery(&state_dir, Duration::from_secs(10));
+    let first_pid = discovery.pid;
+
+    let cache =
+        unterm_core::FrameCache::start(discovery.endpoint.clone(), discovery.token.clone())
+            .expect("frame cache should attach to the first core");
+
+    // A pane on the first Core, so there is something to lose.
+    let mut stream = TcpStream::connect(&discovery.endpoint).unwrap();
+    let created = request(
+        &mut stream,
+        &discovery.token,
+        "session.create",
+        serde_json::json!({"cwd": null}),
+    );
+    let doomed_pane = created["result"]["id"]
+        .as_u64()
+        .expect("session.create should return a pane id") as usize;
+    assert!(
+        wait_until(Duration::from_secs(10), || cache
+            .styled_screen(doomed_pane)
+            .is_some()),
+        "the cache never saw the pane it was told about"
+    );
+    assert!(cache.is_live());
+    drop(stream);
+
+    // Kill, do not shut down: a crash leaves the stale discovery record
+    // behind, which is exactly the state reconnection has to survive.
+    first.kill().unwrap();
+    first.wait().unwrap();
+    assert!(
+        wait_until(Duration::from_secs(10), || !cache.is_live()),
+        "the cache kept claiming a killed Core was live"
+    );
+
+    let _second = spawn_core(&state_dir);
+    // The killed Core left its own record behind, so "a record exists"
+    // proves nothing -- wait for the pid to change before reading it.
+    assert!(
+        wait_until(Duration::from_secs(20), || read_discovery(&state_dir)
+            .map(|found| found.pid != first_pid)
+            .unwrap_or(false)),
+        "the replacement never published its own discovery record"
+    );
+    let replacement = read_discovery(&state_dir).expect("discovery vanished");
+
+    assert!(
+        wait_until(Duration::from_secs(30), || cache.is_live()),
+        "the cache never found the replacement Core"
+    );
+    assert!(
+        cache.styled_screen(doomed_pane).is_none(),
+        "a pane from the dead Core survived in the cache; the window would \
+         draw a terminal with nothing behind it"
+    );
+
+    // And the healed cache tracks the new Core's sessions.
+    let mut stream = TcpStream::connect(&replacement.endpoint).unwrap();
+    let created = request(
+        &mut stream,
+        &replacement.token,
+        "session.create",
+        serde_json::json!({"cwd": null}),
+    );
+    let fresh_pane = created["result"]["id"].as_u64().unwrap() as usize;
+    assert!(
+        wait_until(Duration::from_secs(10), || cache
+            .styled_screen(fresh_pane)
+            .is_some()),
+        "the reconnected cache is not following the new Core's sessions"
+    );
+
+    drop(cache);
+    let _ = std::fs::remove_dir_all(&state_dir);
+}

@@ -762,6 +762,12 @@ pub struct App {
     focused: bool,
     /// When the housekeeping last ran.
     kept_house_at: std::time::Instant,
+    /// Which Core generation this window's pane ids belong to. A change
+    /// means they belong to a process that is gone.
+    seen_session_epoch: u64,
+    /// When the Core behind this window was last replaced, so the
+    /// recovery can be reported and then stop being reported.
+    core_replaced_at: Option<std::time::Instant>,
     /// When the window last had nothing to redraw, if it still has nothing.
     ///
     /// A window that has been still for a while is asked about far less often:
@@ -942,6 +948,8 @@ impl App {
             pane_sizes: Default::default(),
             focused: true,
             kept_house_at: std::time::Instant::now(),
+            seen_session_epoch: 0,
+            core_replaced_at: None,
             font: TerminalFont::open_named(
                 family.as_deref(),
                 crate::terminal::pixels_for_points(pixel_size as f32, 1.0),
@@ -1537,9 +1545,21 @@ impl App {
         window_width: f32,
         quads: &mut unterm_render::quads::FrameQuads,
     ) {
-        if self.engine.sessions_reachable() {
+        // Red while the shells are unreachable, amber for a while after
+        // they come back. The recovery is reported in the same strip as
+        // the loss because they are one event to the person watching:
+        // "it broke" without "it is fixed" reads as still broken.
+        const RECOVERY_NOTICE: std::time::Duration = std::time::Duration::from_secs(12);
+        let (key, color) = if !self.engine.sessions_reachable() {
+            ("core.lost", [0.62, 0.16, 0.12, 1.0])
+        } else if self
+            .core_replaced_at
+            .is_some_and(|at| at.elapsed() < RECOVERY_NOTICE)
+        {
+            ("core.replaced", [0.55, 0.38, 0.05, 1.0])
+        } else {
             return;
-        }
+        };
         let metrics = self.font.metrics();
         let pt = self.chrome_pt();
         let pad = (crate::ui_tokens::STATUS_BAR_VERTICAL_PADDING * pt)
@@ -1547,23 +1567,28 @@ impl App {
             .max(2.0);
         let bar_height = (metrics.height + pad * 2.0).round().max(1.0);
         let top = self.terminal_top();
+        // Starts where the terminal does. Run full-bleed and it lies
+        // across the dock, hiding the very tab list the message is
+        // telling the user has changed.
+        let left = self.dock_width(metrics);
+        let strip_width = (window_width - left).max(0.0);
         quads.backgrounds.push(unterm_render::quads::Quad {
-            left: 0.0,
+            left,
             top,
-            width: window_width,
+            width: strip_width,
             height: bar_height,
-            color: [0.62, 0.16, 0.12, 1.0],
+            color,
         });
-        let columns = (window_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        let columns = (strip_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
         let line = crate::sidebar::fit(
-            &unterm_services::i18n::t("core.lost"),
+            &unterm_services::i18n::t(key),
             columns.saturating_sub(3),
         );
         let text_top = top
             + ((bar_height - metrics.height) / 2.0
                 + crate::ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt)
                 .max(0.0);
-        let pen = (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
+        let pen = left + (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
         self.append_mono(&line, [1.0, 0.94, 0.92, 1.0], (pen, text_top), quads);
     }
 
@@ -7187,6 +7212,56 @@ impl App {
         (self.font.metrics().height + pad * 2.0).round().max(1.0)
     }
 
+    /// Rebuild this window onto a Core that replaced the one it was
+    /// using.
+    ///
+    /// The previous Core's panes are gone -- their shells died with the
+    /// process -- so every id this window holds is stale. Dropping them
+    /// and opening one shell on the new Core is the difference between
+    /// "Unterm recovered" and the old answer, which was to tell the user
+    /// to restart the application.
+    fn recover_from_replaced_core(&mut self) {
+        log::warn!("unterm-core was replaced; rebuilding this window's sessions");
+        self.sync_tabs();
+        let has_session = unterm_engine::SessionEngine::list_sessions(&self.engine)
+            .map(|sessions| sessions.iter().any(|session| !session.is_dead))
+            .unwrap_or(false);
+        if !has_session {
+            let (cols, rows) = self
+                .state
+                .as_ref()
+                .map(|live| self.font.grid_for(live.width as f32, live.height as f32))
+                .unwrap_or((80, 24));
+            let request = CreateSessionRequest {
+                cols,
+                rows,
+                command_dir: self
+                    .start_directory
+                    .clone()
+                    .or_else(|| self.config_default_cwd.clone())
+                    .as_ref()
+                    .map(|path| path.display().to_string()),
+                command: prepare_shell(self.shell.clone()),
+                env: launch_env_for_new_pane(),
+                launch_policy: LaunchPolicySnapshot::default(),
+            };
+            match self.engine.create_session(request) {
+                Ok(session) => {
+                    if let Err(err) = self.tabs.create_tab(session.id) {
+                        log::warn!("could not show the recovered session: {err:#}");
+                    } else {
+                        self.focus_session(session.id);
+                    }
+                }
+                Err(err) => log::warn!("could not open a shell on the new core: {err:#}"),
+            }
+        }
+        // Recovering in silence would read as "my tabs vanished". The
+        // banner that reported the loss reports the recovery, in the
+        // same place, so the two halves of the story arrive together.
+        self.core_replaced_at = Some(std::time::Instant::now());
+    }
+
     /// Make the window's tabs match the engine's sessions.
     ///
     /// The engine is where sessions actually live, and it is not only this
@@ -8652,6 +8727,14 @@ impl App {
         if let Some(request) = unterm_services::theme_state::after(self.theme_request_seen) {
             self.theme_request_seen = request.generation;
             self.apply_theme(&request.id);
+        }
+        // Checked every tick rather than with the housekeeping: a window
+        // whose Core was replaced is showing tabs for shells that no
+        // longer exist, and waiting out the housekeeping interval to say
+        // so leaves the user typing into nothing.
+        if self.engine.session_epoch() != self.seen_session_epoch {
+            self.seen_session_epoch = self.engine.session_epoch();
+            self.recover_from_replaced_core();
         }
         if self.kept_house_at.elapsed() >= HOUSEKEEPING {
             self.kept_house_at = std::time::Instant::now();

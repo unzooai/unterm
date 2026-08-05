@@ -1,4 +1,5 @@
 {
+  "core.replaced": "unterm-core restarted. The shells it held are gone; a new one is ready here.",
   "confirm.wants_to_run": "wants to run",
   "confirm.allow": "allow",
   "confirm.always_allow": "always allow",

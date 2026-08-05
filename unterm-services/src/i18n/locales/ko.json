@@ -1,4 +1,5 @@
 {
+  "core.replaced": "unterm-core가 다시 시작되었습니다. 이전 셸은 사라졌으며, 새 셸을 준비했습니다.",
   "confirm.wants_to_run": "실행을 요청",
   "confirm.allow": "허용",
   "confirm.always_allow": "항상 허용",

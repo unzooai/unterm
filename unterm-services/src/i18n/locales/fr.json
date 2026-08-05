@@ -1,4 +1,5 @@
 {
+  "core.replaced": "unterm-core a redémarré. Les shells précédents sont perdus ; un nouveau est prêt ici.",
   "confirm.wants_to_run": "veut exécuter",
   "confirm.allow": "autoriser",
   "confirm.always_allow": "toujours autoriser",

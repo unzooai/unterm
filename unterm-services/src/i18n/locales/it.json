@@ -1,4 +1,5 @@
 {
+  "core.replaced": "unterm-core è stato riavviato. Le shell precedenti sono perse; qui ne trovi una nuova.",
   "confirm.wants_to_run": "vuole eseguire",
   "confirm.allow": "consenti",
   "confirm.always_allow": "consenti sempre",

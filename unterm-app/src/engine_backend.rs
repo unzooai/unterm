@@ -159,6 +159,20 @@ impl AppEngine {
         }
     }
 
+    /// How many times the sessions behind this window have been replaced
+    /// wholesale.
+    ///
+    /// Only a Core-backed window can see this change: it counts the
+    /// Cores this process has outlived. A holder of pane ids that sees a
+    /// new value is holding ids from a process that no longer exists.
+    /// In Local mode the engine dies with the window, so it is always 0.
+    pub fn session_epoch(&self) -> u64 {
+        match self {
+            Self::Local(_) => 0,
+            Self::Core { cache, .. } => cache.epoch(),
+        }
+    }
+
     /// Whether the sessions outlive this window.
     ///
     /// What the close prompt hangs on: only a Core-backed window can

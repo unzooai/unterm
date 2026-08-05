@@ -1211,7 +1211,17 @@ pub fn is_timeout_error(err: &anyhow::Error) -> bool {
 /// request/response pair atomic, so concurrent threads can never
 /// interleave one request's frame with another's reply.
 pub struct CoreEngineClient {
-    inner: std::sync::Mutex<CoreClient>,
+    inner: std::sync::Mutex<CoreConnection>,
+}
+
+/// The live connection plus the identity of the Core on the other end.
+///
+/// The pid is what makes reconnection safe to build on: it is how this
+/// client tells "the Core died and a new one took its place" from "the
+/// socket hiccupped but the same Core is still there".
+struct CoreConnection {
+    client: CoreClient,
+    core_pid: u32,
 }
 
 impl CoreEngineClient {
@@ -1219,9 +1229,12 @@ impl CoreEngineClient {
     /// hard error here for the same reason it is in `ensure_running`.
     pub fn connect<A: ToSocketAddrs>(address: A, token: impl Into<String>) -> Result<Self> {
         let mut client = CoreClient::connect(address, token)?;
-        client.handshake()?;
+        let identity = client.handshake()?;
         Ok(Self {
-            inner: std::sync::Mutex::new(client),
+            inner: std::sync::Mutex::new(CoreConnection {
+                client,
+                core_pid: identity.pid,
+            }),
         })
     }
 
@@ -1230,17 +1243,74 @@ impl CoreEngineClient {
         method: &str,
         params: serde_json::Value,
     ) -> Result<T> {
-        let mut client = self
+        let mut connection = self
             .inner
             .lock()
             .map_err(|_| anyhow::anyhow!("unterm-core client lock poisoned"))?;
-        let response: Response<T> = client.request_with_params(method, params)?;
+        // This connection has no read timeout, so an `Err` here is a
+        // genuine broken connection rather than a slow reply.
+        let response: Response<T> = match connection
+            .client
+            .request_with_params(method, params.clone())
+        {
+            Ok(response) => response,
+            Err(lost) => Self::recover(&mut connection, method, params, lost)?,
+        };
         if let Some(error) = response.error {
             anyhow::bail!("unterm-core {method} failed ({}): {}", error.code, error.message);
         }
         response
             .result
             .ok_or_else(|| anyhow::anyhow!("unterm-core {method} returned no result"))
+    }
+
+    /// Re-establish the connection after it broke, and replay the lost
+    /// request only when replaying it is provably safe.
+    ///
+    /// A Core that crashed and came back has a **new port and a new
+    /// token**, so redialling the address this client was built with is
+    /// useless -- rediscovery is the only way home, which is what
+    /// `ensure_running` does (starting a Core if none is left).
+    ///
+    /// Whether to replay turns on which Core answered. A different pid
+    /// cannot have applied the request that was lost, so replaying it
+    /// cannot apply it twice. The same live Core might have applied it
+    /// already and merely failed to say so -- replaying a `session.write`
+    /// there would type the user's command into the shell a second time,
+    /// so that case surfaces the original error and lets the caller
+    /// decide. Either way the connection is healed for the next call.
+    fn recover<T: for<'de> Deserialize<'de>>(
+        connection: &mut CoreConnection,
+        method: &str,
+        params: serde_json::Value,
+        lost: anyhow::Error,
+    ) -> Result<Response<T>> {
+        let info = ensure_running().context("reconnect to unterm-core")?;
+        let mut fresh = CoreClient::connect(&info.endpoint, &info.token)?;
+        let identity = fresh.handshake()?;
+        let replaced_a_dead_core = identity.pid != connection.core_pid;
+        connection.client = fresh;
+        connection.core_pid = identity.pid;
+
+        if !replaced_a_dead_core {
+            return Err(lost.context(format!(
+                "unterm-core {method} was interrupted; the connection has been \
+                 re-established but the request was not replayed, because the \
+                 same Core may already have applied it"
+            )));
+        }
+        log::warn!(
+            "unterm-core replaced (now pid {}); replaying {method} against the new process",
+            identity.pid
+        );
+        connection.client.request_with_params(method, params)
+    }
+
+    /// The pid of the Core currently on the other end. Changes when a
+    /// dead Core is replaced, which is how a caller notices its sessions
+    /// are gone even though the client still works.
+    pub fn core_pid(&self) -> Option<u32> {
+        self.inner.lock().ok().map(|connection| connection.core_pid)
     }
 
     fn call_unit(&self, method: &str, params: serde_json::Value) -> Result<()> {
@@ -1599,6 +1669,12 @@ struct FrameCacheInner {
     /// frozen terminal with no explanation is the worst way to
     /// report a crash.
     live: AtomicBool,
+    /// Counts how many times this cache has attached to a *replacement*
+    /// Core. A holder of pane ids compares it against what it last saw:
+    /// a change means every id it remembers belonged to a process that
+    /// no longer exists, and it must resync rather than keep drawing
+    /// tabs with nothing behind them.
+    epoch: std::sync::atomic::AtomicU64,
     client: CoreEngineClient,
     /// Called after every cache change, off the caller's thread. A GUI
     /// hangs its wake-the-event-loop hook here so a screen update
@@ -1644,6 +1720,60 @@ impl FrameCacheInner {
             notify();
         }
     }
+
+    /// Replace everything cached with what the Core has now.
+    ///
+    /// Used after a reconnect. The panes held before belonged to a
+    /// process that no longer exists -- their pids, their scrollback and
+    /// their shells all went with it -- so they are dropped rather than
+    /// merged. Keeping them would leave the window drawing terminals
+    /// that nothing is behind.
+    fn adopt_current_sessions(&self) {
+        let sessions = self.client.list_sessions().unwrap_or_default();
+        self.frames
+            .write()
+            .expect("frame cache lock poisoned")
+            .clear();
+        for session in sessions {
+            self.refresh(session.id);
+        }
+        self.bump();
+    }
+}
+
+/// Keep looking for a Core to subscribe to, until one answers or this
+/// cache is dropped.
+///
+/// Backs off to a second between tries: a Core that is coming back needs
+/// a moment to bind and publish its discovery record, and a client that
+/// spins on it during that window costs more than it gains. Returns
+/// `None` only when asked to stop, so the caller can end the worker.
+fn reconnect_events(inner: &FrameCacheInner) -> Option<CoreEventStream> {
+    let mut backoff = Duration::from_millis(100);
+    while !inner.stopping.load(Ordering::Acquire) {
+        if let Ok(info) = ensure_running() {
+            if let Ok(mut feed) = CoreEventStream::connect(&info.endpoint, &info.token) {
+                if feed
+                    .set_read_timeout(Some(Duration::from_millis(200)))
+                    .is_ok()
+                {
+                    log::warn!("unterm-core event feed re-established (pid {})", info.pid);
+                    return Some(feed);
+                }
+            }
+        }
+        // Slept in slices so a drop during the backoff is noticed
+        // promptly rather than after the whole interval.
+        let deadline = std::time::Instant::now() + backoff;
+        while std::time::Instant::now() < deadline {
+            if inner.stopping.load(Ordering::Acquire) {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        backoff = (backoff * 2).min(Duration::from_secs(1));
+    }
+    None
 }
 
 impl FrameCache {
@@ -1680,6 +1810,7 @@ impl FrameCache {
             generation: std::sync::atomic::AtomicU64::new(0),
             stopping: AtomicBool::new(false),
             live: AtomicBool::new(true),
+            epoch: std::sync::atomic::AtomicU64::new(0),
             client,
             notify,
         });
@@ -1712,14 +1843,31 @@ impl FrameCache {
                     // feed reads as a dead Core within 200ms.
                     Err(err) if is_timeout_error(&err) => continue,
                     // The feed ended without being asked to. The Core
-                    // is gone -- say so, rather than letting the last
-                    // frames sit there looking like a live terminal.
+                    // is gone -- say so at once, rather than letting the
+                    // last frames sit there looking like a live
+                    // terminal, and then go looking for its replacement.
                     Ok(None) | Err(_) => {
-                        if !worker_inner.stopping.load(Ordering::Acquire) {
-                            worker_inner.live.store(false, Ordering::Release);
-                            worker_inner.bump();
+                        if worker_inner.stopping.load(Ordering::Acquire) {
+                            break;
                         }
-                        break;
+                        worker_inner.live.store(false, Ordering::Release);
+                        worker_inner.bump();
+                        match reconnect_events(&worker_inner) {
+                            Some(feed) => {
+                                events = feed;
+                                // The old panes died with the old Core.
+                                // Adopt whatever the new one has instead
+                                // of leaving corpses in the cache.
+                                worker_inner.adopt_current_sessions();
+                                worker_inner.live.store(true, Ordering::Release);
+                                // Announced after the cache is already
+                                // consistent, so a reader woken by this
+                                // never sees the half-adopted state.
+                                worker_inner.epoch.fetch_add(1, Ordering::AcqRel);
+                                worker_inner.bump();
+                            }
+                            None => break,
+                        }
                     }
                 }
             })
@@ -1759,6 +1907,15 @@ impl FrameCache {
     /// them has to stop claiming they do.
     pub fn is_live(&self) -> bool {
         self.inner.live.load(Ordering::Acquire)
+    }
+
+    /// How many times this cache has attached to a replacement Core.
+    ///
+    /// Zero for the Core it started with. Every increment means the
+    /// previous process died and its panes went with it, so anything
+    /// holding pane ids has to throw them away and ask again.
+    pub fn epoch(&self) -> u64 {
+        self.inner.epoch.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Monotonic change counter: a renderer that saw the same value

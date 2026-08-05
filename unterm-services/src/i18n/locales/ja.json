@@ -1,4 +1,5 @@
 {
+  "core.replaced": "unterm-core が再起動しました。以前のシェルは失われましたが、新しいシェルを用意しました。",
   "confirm.wants_to_run": "の実行を要求",
   "confirm.allow": "許可",
   "confirm.always_allow": "常に許可",

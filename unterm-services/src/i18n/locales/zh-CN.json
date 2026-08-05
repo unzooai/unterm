@@ -1,4 +1,5 @@
 {
+  "core.replaced": "unterm-core 已重启。它此前持有的 shell 已中断；这里已为你开好一个新的。",
   "confirm.wants_to_run": "请求执行",
   "confirm.allow": "允许",
   "confirm.always_allow": "始终允许",
