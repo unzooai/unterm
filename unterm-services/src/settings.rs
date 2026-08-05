@@ -311,7 +311,13 @@ pub fn load(path: Option<PathBuf>) -> (Config, Vec<ConfigError>) {
         // No config is not a problem; it means the defaults.
         return (Config::default(), Vec::new());
     };
-    match unterm_engine::next_core::config::parse(&source) {
+    // Notepad, PowerShell's `Set-Content -Encoding utf8`, and several Windows
+    // editors put a BOM at the front of a UTF-8 file. Left in place it glues
+    // itself to the first key, and the whole config is quietly ignored -- on
+    // a Windows-first product, by the exact route a user is most likely to
+    // take to edit it.
+    let source = source.strip_prefix('\u{feff}').unwrap_or(&source);
+    match unterm_engine::next_core::config::parse(source) {
         // A key the schema does not know is a setting doing nothing — the
         // exact silent failure the schema was written to catch, and until
         // now nothing ever asked it.
@@ -330,6 +336,39 @@ mod tests {
 
     fn settings(source: &str) -> Settings {
         Settings::from_config(&parse(source).expect("config should parse"))
+    }
+
+    #[test]
+    fn a_config_saved_by_a_windows_editor_is_still_read() {
+        // Notepad and `Set-Content -Encoding utf8` both write this BOM. The
+        // config it prefixes used to be discarded in full, with no error --
+        // the setting simply had no effect and nothing said why.
+        let dir = std::env::temp_dir().join(format!(
+            "unterm-bom-test-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("unterm.conf");
+        std::fs::write(
+            &path,
+            "\u{feff}[mcp]\ninput_confirmation = \"never\"\n".as_bytes(),
+        )
+        .expect("write config");
+
+        let (config, errors) = load(Some(path));
+        let settings = Settings::from_config(&config);
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(errors.is_empty(), "a BOM was reported as a config error: {errors:?}");
+        assert_eq!(
+            settings.mcp_input_confirmation,
+            McpInputConfirmation::Never,
+            "the BOM swallowed the whole config"
+        );
     }
 
     #[test]
