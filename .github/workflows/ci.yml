@@ -23,7 +23,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p unterm-app -p unterm-cli
       - name: Run product tests
-        run: cargo test --release --workspace
+        # Serial on every platform, not only Windows: several suites
+        # share process-global state -- unterm-core's engine, and the
+        # single front end a Core may have attached -- so parallel test
+        # threads see each other's sessions. Windows had this flag and
+        # the others did not, which made the same defect a Windows-only
+        # rule instead of the workspace-wide one it is.
+        run: cargo test --release --workspace -- --test-threads=1
 
   check-linux:
     name: cargo check (Linux)
@@ -45,7 +51,13 @@ jobs:
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
       - run: cargo check -p unterm-app -p unterm-cli
       - name: Run product tests
-        run: cargo test --release --workspace
+        # Serial on every platform, not only Windows: several suites
+        # share process-global state -- unterm-core's engine, and the
+        # single front end a Core may have attached -- so parallel test
+        # threads see each other's sessions. Windows had this flag and
+        # the others did not, which made the same defect a Windows-only
+        # rule instead of the workspace-wide one it is.
+        run: cargo test --release --workspace -- --test-threads=1
 
   check-windows:
     name: cargo check (Windows)
