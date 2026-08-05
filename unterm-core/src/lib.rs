@@ -371,6 +371,35 @@ impl HostChannel {
         }
     }
 
+    /// Tell the attached front end something, without waiting.
+    ///
+    /// For the calls that have no answer worth having -- "paint a frame"
+    /// is the whole set so far. Blocking an MCP worker on a repaint
+    /// would make the cheapest possible request the slowest one.
+    pub fn notify(&self, method: &str, params: serde_json::Value) {
+        let id = format!(
+            "{}",
+            self.next_id
+                .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+        );
+        let Ok(line) = serde_json::to_string(&HostCall {
+            host_call: HostCallBody {
+                id,
+                method: method.to_string(),
+                params,
+            },
+        }) else {
+            return;
+        };
+        // No waiter registered, so the reply is dropped on arrival --
+        // `resolve` simply finds nothing to hand it to.
+        if let Ok(outgoing) = self.outgoing.lock() {
+            if let Some(sender) = outgoing.as_ref() {
+                let _ = sender.send(line);
+            }
+        }
+    }
+
     /// Ask the attached front end to do something, and wait for its answer.
     ///
     /// `timeout` is a hard ceiling because the caller is usually an MCP
@@ -464,6 +493,13 @@ fn serve_host_channel(stream: TcpStream, running: &AtomicBool) -> Result<()> {
         .context("spawn host channel writer")?;
 
     channel.attach(tx);
+    // Ask the new window who it is -- on another thread, because the
+    // answer comes back through the read loop below. Asking from here
+    // would block the only thread that could deliver the reply.
+    std::thread::Builder::new()
+        .name("core-host-identity".into())
+        .spawn(RemoteMcpHost::learn_identity)
+        .ok();
     // A read timeout rather than a blocking read, so a stopping Core
     // does not have to wait for the window to hang up first.
     stream
@@ -1459,6 +1495,191 @@ pub fn is_timeout_error(err: &anyhow::Error) -> bool {
     })
 }
 
+/// How long the Core waits on a window for each kind of question.
+///
+/// Split by what is actually happening on the other end. A repaint or a
+/// title change is a few microseconds of work; rendering a whole
+/// scrollback to a PNG is real work on a real font stack. Using one
+/// timeout for both would either abandon the slow one or let the fast
+/// one hang an MCP worker for a minute.
+const HOST_QUICK: Duration = Duration::from_secs(5);
+const HOST_SLOW: Duration = Duration::from_secs(60);
+
+/// The `McpHost` a Core presents when a window is attached: every call
+/// is forwarded down the reverse channel and answered by that window.
+///
+/// With no window attached each method degrades exactly the way the
+/// no-front-end defaults in `unterm-engine` already do -- bail, or
+/// report nothing -- so the MCP surface needs no special case for
+/// "headless" beyond what it already has.
+pub struct RemoteMcpHost;
+
+/// The window's identity, learned once when a front end first attaches.
+///
+/// `WindowIdentity` is made of `&'static str`, and this one arrives over
+/// a wire as owned strings. Storing it once rather than per call is what
+/// keeps that from being a leak: a GUI's identity is a property of the
+/// product, so a second window reports what the first did.
+static REMOTE_IDENTITY: OnceLock<unterm_engine::WindowIdentity> = OnceLock::new();
+
+fn remember_remote_identity(value: &serde_json::Value) {
+    if REMOTE_IDENTITY.get().is_some() {
+        return;
+    }
+    let text = |key: &str| -> Option<&'static str> {
+        value
+            .get(key)
+            .and_then(|found| found.as_str())
+            .map(|found| &*Box::leak(found.to_string().into_boxed_str()))
+    };
+    let (Some(engine), Some(window_owner), Some(native_window_lifecycle)) = (
+        text("engine"),
+        text("window_owner"),
+        text("native_window_lifecycle"),
+    ) else {
+        return;
+    };
+    let _ = REMOTE_IDENTITY.set(unterm_engine::WindowIdentity {
+        engine,
+        window_owner,
+        native_window_lifecycle,
+        uses_host_window: value
+            .get("uses_host_window")
+            .and_then(|found| found.as_bool())
+            .unwrap_or(false),
+    });
+}
+
+impl RemoteMcpHost {
+    /// Learn who the attached window is, so `window_identity` can be
+    /// answered without a round trip. Called once per attach; every
+    /// reader of the identity is on a hot path and none of them can
+    /// afford IPC.
+    pub fn learn_identity() {
+        if let Ok(value) = host_channel().call(
+            "window_identity",
+            serde_json::Value::Null,
+            HOST_QUICK,
+        ) {
+            remember_remote_identity(&value);
+        }
+    }
+}
+
+impl unterm_engine::McpHost for RemoteMcpHost {
+    fn window_identity(&self) -> unterm_engine::WindowIdentity {
+        // Only claim a window when one is actually attached: an agent
+        // reading this decides whether there is anyone to ask.
+        if !host_channel().is_attached() {
+            return unterm_engine::WindowIdentity::HEADLESS;
+        }
+        REMOTE_IDENTITY
+            .get()
+            .copied()
+            .unwrap_or(unterm_engine::WindowIdentity::HEADLESS)
+    }
+
+    /// True only while a window is attached. Between windows this host
+    /// exists but can reach nobody, and the confirmation gate has to
+    /// know the difference.
+    fn can_prompt(&self) -> bool {
+        host_channel().is_attached()
+    }
+
+    fn request_repaint(&self) {
+        host_channel().notify("request_repaint", serde_json::Value::Null);
+    }
+
+    fn set_window_title(&self, title: Option<&str>) -> bool {
+        host_channel()
+            .call(
+                "set_window_title",
+                serde_json::json!({ "title": title }),
+                HOST_QUICK,
+            )
+            .ok()
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    }
+
+    fn focus_window(&self) -> Result<()> {
+        host_channel()
+            .call("focus_window", serde_json::Value::Null, HOST_QUICK)
+            .map(|_| ())
+    }
+
+    fn key_assignments(&self) -> Vec<serde_json::Value> {
+        host_channel()
+            .call("key_assignments", serde_json::Value::Null, HOST_QUICK)
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default()
+    }
+
+    fn capture_region(
+        &self,
+        left: i32,
+        top: i32,
+        width: usize,
+        height: usize,
+        include_base64: bool,
+    ) -> Result<serde_json::Value> {
+        host_channel().call(
+            "capture_region",
+            serde_json::json!({
+                "left": left, "top": top, "width": width,
+                "height": height, "include_base64": include_base64,
+            }),
+            HOST_SLOW,
+        )
+    }
+
+    fn capture_own_window(
+        &self,
+        title: Option<&str>,
+        pid: Option<u32>,
+        include_base64: bool,
+    ) -> Result<serde_json::Value> {
+        host_channel().call(
+            "capture_own_window",
+            serde_json::json!({
+                "title": title, "pid": pid, "include_base64": include_base64,
+            }),
+            HOST_SLOW,
+        )
+    }
+
+    fn capture_external_window(
+        &self,
+        request: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        host_channel().call("capture_external_window", request.clone(), HOST_SLOW)
+    }
+
+    fn render_scrollback_png(
+        &self,
+        pane_id: Option<usize>,
+        path: &std::path::Path,
+        max_rows: usize,
+        dpi: usize,
+    ) -> Result<serde_json::Value> {
+        // The path crosses the process boundary rather than the pixels:
+        // Core and window are the same user on the same machine, and a
+        // tall scrollback render is megabytes that would otherwise be
+        // base64'd through a JSON line for no reason.
+        host_channel().call(
+            "render_scrollback_png",
+            serde_json::json!({
+                "pane_id": pane_id,
+                "path": path.display().to_string(),
+                "max_rows": max_rows,
+                "dpi": dpi,
+            }),
+            HOST_SLOW,
+        )
+    }
+}
+
 /// What a front end must be able to do when the Core asks.
 ///
 /// Deliberately expressed as raw JSON rather than the `McpHost` trait:
@@ -2380,6 +2601,12 @@ mod tests {
                 .expect("probe lock poisoned")
                 .push(method.to_string());
             match method {
+                "window_identity" => Ok(serde_json::json!({
+                    "engine": "probe",
+                    "window_owner": "probe",
+                    "native_window_lifecycle": "probe",
+                    "uses_host_window": false,
+                })),
                 "echo" => Ok(params.clone()),
                 "refuse" => anyhow::bail!("the window said no"),
                 "silent" => {
@@ -2447,9 +2674,21 @@ mod tests {
             .call("invented", serde_json::json!({}), Duration::from_secs(5))
             .is_err());
 
+        let seen = probe.seen.lock().unwrap().clone();
+        // The Core asks who the window is as soon as it attaches, on its
+        // own thread -- so it lands somewhere in here, but not at a
+        // position worth pinning down.
+        assert!(
+            seen.contains(&"window_identity".to_string()),
+            "the core never asked the new window who it was: {seen:?}"
+        );
+        let requested: Vec<_> = seen
+            .into_iter()
+            .filter(|method| method != "window_identity")
+            .collect();
         assert_eq!(
-            probe.seen.lock().unwrap().as_slice(),
-            &["echo".to_string(), "refuse".to_string(), "invented".to_string()]
+            requested,
+            ["echo".to_string(), "refuse".to_string(), "invented".to_string()]
         );
 
         drop(attached);

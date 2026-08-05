@@ -89,6 +89,40 @@ fn connect_core_shared() -> Result<()> {
         .map_err(|_| anyhow::anyhow!("core backend initialized twice"))
 }
 
+/// Held for the process's lifetime once attached; dropping it would tell
+/// the Core this window is gone.
+static HOST_CHANNEL: std::sync::OnceLock<unterm_core::HostChannelClient> =
+    std::sync::OnceLock::new();
+
+/// Offer this window to the Core as the front end it can call back into.
+///
+/// Separate from `init_from_environment` and called later on purpose:
+/// the channel is only useful once there is a window to answer with, and
+/// `AppMcpHost` reads a window handle that `main` has not filled in yet
+/// when the backend is chosen.
+///
+/// Failure is not fatal. A window that cannot attach simply leaves the
+/// Core headless, which is a state the whole surface already handles --
+/// worth a log line, not worth refusing to start.
+pub fn attach_host_channel() {
+    let Some(shared) = CORE_SHARED.get() else {
+        return;
+    };
+    match unterm_core::HostChannelClient::attach(
+        &shared.endpoint,
+        shared.token.clone(),
+        std::sync::Arc::new(crate::mcp_host::AppHostResponder),
+    ) {
+        Ok(channel) => {
+            let _ = HOST_CHANNEL.set(channel);
+            eprintln!("unterm: attached to unterm-core as its front end");
+        }
+        Err(err) => {
+            eprintln!("unterm: could not attach to unterm-core ({err:#}); it stays headless");
+        }
+    }
+}
+
 fn core_client() -> &'static std::sync::Arc<CoreEngineClient> {
     &CORE_SHARED
         .get()

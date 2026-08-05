@@ -36,6 +36,12 @@ fn main() -> Result<()> {
     // engine directly. Discovery via our own record; a GUI's MCP
     // server (transitional) keeps server.json to itself.
     unterm_engine::install_next_core_provider();
+    // Register the window-facing half of the surface before the MCP
+    // server opens. It answers "is there a window?" with the truth at
+    // the moment it is asked -- no window attached and it degrades
+    // exactly as a headless surface always did, so this is safe to
+    // install whether or not a GUI ever shows up.
+    unterm_engine::set_mcp_host(&unterm_core::RemoteMcpHost);
     let mcp_port = match unterm_mcp::start_headless_mcp_server(&token) {
         Ok(port) => Some(port),
         Err(err) => {

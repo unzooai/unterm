@@ -139,6 +139,14 @@ impl McpHost for AppMcpHost {
         pid: Option<u32>,
         include_base64: bool,
     ) -> Result<Value> {
+        // Neither filter given means "the window you host", and here is
+        // the only place that phrase has an answer: this is the process
+        // the window belongs to, whether the surface asking lives here
+        // or in a Core.
+        let pid = match (title, pid) {
+            (None, None) => Some(std::process::id()),
+            (_, given) => given,
+        };
         let shot = unterm_services::window_capture::capture_window(title, pid)?;
         write_capture(shot, include_base64)
     }
@@ -513,3 +521,69 @@ fn write_capture(
     Ok(reply)
 }
 
+
+/// Serves the Core's reverse-channel calls from this window.
+///
+/// One translation layer, not a second implementation: every method maps
+/// straight onto `AppMcpHost`, so a window answering a remote Core does
+/// exactly what it does answering an in-process one. The wire format is
+/// raw JSON because `unterm-core` sits below the MCP surface and must
+/// not depend on its types.
+pub struct AppHostResponder;
+
+impl unterm_core::HostResponder for AppHostResponder {
+    fn respond(&self, method: &str, params: &Value) -> Result<Value> {
+        let text = |key: &str| params.get(key).and_then(|value| value.as_str());
+        let number = |key: &str| params.get(key).and_then(|value| value.as_i64());
+        let flag = |key: &str| {
+            params
+                .get(key)
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false)
+        };
+        match method {
+            "window_identity" => {
+                let identity = AppMcpHost.window_identity();
+                Ok(json!({
+                    "engine": identity.engine,
+                    "window_owner": identity.window_owner,
+                    "native_window_lifecycle": identity.native_window_lifecycle,
+                    "uses_host_window": identity.uses_host_window,
+                }))
+            }
+            "request_repaint" => {
+                AppMcpHost.request_repaint();
+                Ok(Value::Null)
+            }
+            "set_window_title" => Ok(json!(AppMcpHost.set_window_title(text("title")))),
+            "focus_window" => AppMcpHost.focus_window().map(|_| Value::Null),
+            "key_assignments" => Ok(json!(AppMcpHost.key_assignments())),
+            "capture_region" => AppMcpHost.capture_region(
+                number("left").unwrap_or(0) as i32,
+                number("top").unwrap_or(0) as i32,
+                number("width").unwrap_or(0).max(0) as usize,
+                number("height").unwrap_or(0).max(0) as usize,
+                flag("include_base64"),
+            ),
+            "capture_own_window" => AppMcpHost.capture_own_window(
+                text("title"),
+                number("pid").map(|pid| pid as u32),
+                flag("include_base64"),
+            ),
+            "capture_external_window" => AppMcpHost.capture_external_window(params),
+            "render_scrollback_png" => {
+                let path = text("path").context("render_scrollback_png needs a path")?;
+                AppMcpHost.render_scrollback_png(
+                    number("pane_id").map(|pane| pane as usize),
+                    std::path::Path::new(path),
+                    number("max_rows").unwrap_or(0).max(0) as usize,
+                    number("dpi").unwrap_or(0).max(0) as usize,
+                )
+            }
+            // A Core newer than this window will ask for things it has
+            // never heard of. Saying so is the whole contract; the Core
+            // degrades from the answer.
+            other => anyhow::bail!("this Unterm window does not implement {other}"),
+        }
+    }
+}

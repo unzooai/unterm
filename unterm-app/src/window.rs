@@ -1079,6 +1079,11 @@ impl App {
         // So `instance.focus`, which arrives on the MCP thread, has a window
         // to raise.
         crate::mcp_host::remember_window(window.clone());
+        // And now that there is a window to answer with, offer it to the
+        // Core as the front end it can call back into. Ordered after
+        // `remember_window` because the first thing the Core asks for is
+        // this window's identity.
+        crate::engine_backend::attach_host_channel();
         // Without this the system never starts an input method, and a Chinese
         // or Japanese keyboard can only produce Latin letters.
         window.set_ime_allowed(true);

@@ -1380,7 +1380,11 @@ impl WindowEngine for next_core::NextCoreEngine {
 /// `selftest.run` check that watches it -- work again.
 impl CaptureEngine for next_core::NextCoreEngine {
     fn capture_screen_image(&self, include_base64: bool) -> Result<serde_json::Value> {
-        host_capture(None, Some(std::process::id()), include_base64)
+        // No pid: "our own window" has to be resolved by whoever owns
+        // one. Naming this process worked only while the surface and the
+        // window were the same process -- with the surface in a Core,
+        // that pid owns no window and the search finds nothing.
+        host_capture(None, None, include_base64)
     }
     fn capture_region_image(
         &self,
@@ -1402,14 +1406,10 @@ impl CaptureEngine for next_core::NextCoreEngine {
         pid_filter: Option<u32>,
         include_base64: bool,
     ) -> Result<serde_json::Value> {
-        // Our own process unless the caller named something else, so a bare
-        // `capture.window` means "the terminal", which is what it is for.
-        let pid = pid_filter.or(if title_filter.is_some() {
-            None
-        } else {
-            Some(std::process::id())
-        });
-        host_capture(title_filter, pid, include_base64)
+        // A bare `capture.window` means "the terminal", which is what it
+        // is for -- but which process that is belongs to the host, not
+        // to whichever process happens to be running this engine.
+        host_capture(title_filter, pid_filter, include_base64)
     }
 }
 
@@ -1463,6 +1463,19 @@ pub trait McpHost: Send + Sync {
     /// How this front end's window relates to the surface.
     fn window_identity(&self) -> WindowIdentity {
         WindowIdentity::HEADLESS
+    }
+
+    /// Whether there is a front end that can actually put a question on
+    /// a screen *right now*.
+    ///
+    /// Distinct from "an `McpHost` is installed". A Core installs one
+    /// unconditionally and then forwards to whichever window is
+    /// attached; between windows it is installed and cannot ask anyone
+    /// anything. The write-confirmation gate turns on this: with no one
+    /// to ask it must refuse at once, and parking a worker for the full
+    /// confirmation timeout instead is the failure this exists to name.
+    fn can_prompt(&self) -> bool {
+        true
     }
 
     /// Render a pane's scrollback to `path`, returning the JSON to reply with.
@@ -2312,11 +2325,15 @@ mod host_capture_tests {
         );
         let engine = next_core::NextCoreEngine::default();
 
-        // With nothing named, a capture means this terminal -- which is what
-        // an agent asking `capture.window` with no arguments means by it.
+        // With nothing named, a capture means this terminal -- and the
+        // host is left to work out which process that is. It used to be
+        // named here as `std::process::id()`, which was right only while
+        // the surface and the window shared a process: with the surface
+        // in a Core, that pid owns no window and the search matches
+        // nothing at all.
         CaptureEngine::capture_window_image(&engine, None, None, false).unwrap();
         let asked = ASKED.lock().unwrap().pop().unwrap();
-        assert_eq!(asked, (None, Some(std::process::id()), false));
+        assert_eq!(asked, (None, None, false));
 
         // A title names somebody else's window, so our pid must not be forced
         // in alongside it -- the two together match nothing.
@@ -2329,10 +2346,11 @@ mod host_capture_tests {
         let asked = ASKED.lock().unwrap().pop().unwrap();
         assert_eq!(asked, (None, Some(4242), false));
 
-        // `capture.screen` is this terminal, always.
+        // `capture.screen` is this terminal, always -- and again the
+        // host decides which process that is.
         CaptureEngine::capture_screen_image(&engine, true).unwrap();
         let asked = ASKED.lock().unwrap().pop().unwrap();
-        assert_eq!(asked, (None, Some(std::process::id()), true));
+        assert_eq!(asked, (None, None, true));
 
         // Focus reaches the same place, and reports the front end's own
         // identity rather than a guess at which one is running.

@@ -5893,7 +5893,7 @@ impl McpHandler {
         // answer it. Fail closed now, with an audit entry pointing at
         // the ways to authorize, instead of parking every caller on
         // the confirmation timeout.
-        if unterm_engine::mcp_host().is_none() {
+        if !unterm_engine::mcp_host().is_some_and(|host| host.can_prompt()) {
             self.audit(
                 "mcp.confirm.headless_block",
                 Some(&pane_id.to_string()),
