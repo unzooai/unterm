@@ -1593,6 +1593,12 @@ struct FrameCacheInner {
     frames: std::sync::RwLock<std::collections::HashMap<usize, StyledScreenSnapshot>>,
     generation: std::sync::atomic::AtomicU64,
     stopping: AtomicBool,
+    /// False once the event feed ends for a reason other than being
+    /// asked to stop -- which is how a client learns the Core died.
+    /// Without it the cached frames simply stop changing, and a
+    /// frozen terminal with no explanation is the worst way to
+    /// report a crash.
+    live: AtomicBool,
     client: CoreEngineClient,
     /// Called after every cache change, off the caller's thread. A GUI
     /// hangs its wake-the-event-loop hook here so a screen update
@@ -1673,6 +1679,7 @@ impl FrameCache {
             frames: std::sync::RwLock::new(std::collections::HashMap::new()),
             generation: std::sync::atomic::AtomicU64::new(0),
             stopping: AtomicBool::new(false),
+            live: AtomicBool::new(true),
             client,
             notify,
         });
@@ -1698,9 +1705,22 @@ impl FrameCache {
                     }
                     Ok(Some(CoreEvent::SessionDead { .. }))
                     | Ok(Some(CoreEvent::Draining)) => {}
-                    Ok(None) => break,
+                    // A read timeout is the loop's own heartbeat, not
+                    // a failure: it is how this thread gets to check
+                    // whether it has been asked to stop. It has to be
+                    // matched before the catch-all below, or an idle
+                    // feed reads as a dead Core within 200ms.
                     Err(err) if is_timeout_error(&err) => continue,
-                    Err(_) => break,
+                    // The feed ended without being asked to. The Core
+                    // is gone -- say so, rather than letting the last
+                    // frames sit there looking like a live terminal.
+                    Ok(None) | Err(_) => {
+                        if !worker_inner.stopping.load(Ordering::Acquire) {
+                            worker_inner.live.store(false, Ordering::Release);
+                            worker_inner.bump();
+                        }
+                        break;
+                    }
                 }
             })
             .expect("spawn frame cache worker");
@@ -1730,6 +1750,15 @@ impl FrameCache {
             .keys()
             .copied()
             .collect()
+    }
+
+    /// Whether the Core is still there.
+    ///
+    /// False once its event feed ends unbidden: the sessions this
+    /// cache holds frames for no longer exist, and whoever is drawing
+    /// them has to stop claiming they do.
+    pub fn is_live(&self) -> bool {
+        self.inner.live.load(Ordering::Acquire)
     }
 
     /// Monotonic change counter: a renderer that saw the same value
@@ -2325,6 +2354,34 @@ mod tests {
         let mut owner = CoreClient::connect(endpoint, "cache-token").unwrap();
         let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
         worker.join().unwrap();
+    }
+
+    /// A Core that goes away has to be reported, not merely stop
+    /// sending. The frames already drawn still look like a live
+    /// terminal; only this flag can tell a window otherwise.
+    #[test]
+    fn the_cache_reports_a_core_that_went_away() {
+        let (endpoint, worker) = start_server("lost-token");
+        let cache = FrameCache::start(endpoint, "lost-token").unwrap();
+        assert!(cache.is_live(), "a fresh cache must start live");
+
+        // Idle long enough to cross several read timeouts: the
+        // worker's own heartbeat must never read as a dead Core.
+        std::thread::sleep(Duration::from_millis(700));
+        assert!(cache.is_live(), "an idle feed is not a dead Core");
+
+        let mut owner = CoreClient::connect(endpoint, "lost-token").unwrap();
+        let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
+        worker.join().unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while cache.is_live() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the cache never noticed the core had gone"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     /// Not a correctness test: measures what a GUI frame would pay to

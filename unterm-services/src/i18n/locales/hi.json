@@ -1,4 +1,5 @@
 {
+  "core.lost": "unterm-core बंद हो गया। इसके शेल समाप्त हो गए; Unterm पुनः आरंभ करें।",
   "close.keys": "↑↓ चुनें · Enter पुष्टि · Esc Unterm में रहें",
   "close.title": "Unterm बंद करें? {sessions} सत्र चल रहे हैं",
   "close.title_waiting": "Unterm बंद करें? {waiting} एजेंट आपकी प्रतीक्षा में, {sessions} सत्र चल रहे हैं",

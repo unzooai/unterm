@@ -1,4 +1,5 @@
 {
+  "core.lost": "unterm-core si è arrestato. Le shell che conteneva sono perse; riavvia Unterm.",
   "close.keys": "↑↓ scegli · Invio conferma · Esc resta in Unterm",
   "close.title": "Chiudere Unterm? {sessions} sessione/i in esecuzione",
   "close.title_waiting": "Chiudere Unterm? {waiting} agent in attesa, {sessions} sessione/i in esecuzione",

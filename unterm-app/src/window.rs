@@ -1291,6 +1291,7 @@ impl App {
         // group: appended after the raise it would sit beneath the bar it is
         // supposed to cover, which is an invisible question.
         self.append_confirmation_banner(window_width, &mut quads);
+        self.append_core_lost_banner(window_width, &mut quads);
         self.append_pane_close_buttons(&mut quads);
         quads.raise_since(overlays);
         // The true modals, above the docks as well: a tier is
@@ -1525,6 +1526,47 @@ impl App {
 
     /// The parked-agent question, painted over the status row the way 0.57.4
     /// painted it: the whole bar inverts, and one line asks and names its keys.
+    /// Say when the Core has gone, across the width of the window.
+    ///
+    /// The frames on screen were real a moment ago and still look it;
+    /// nothing about them says the shells behind them are gone. A
+    /// crash that leaves a window looking healthy is the crash getting
+    /// reported as normal, which is the one thing the gate forbids.
+    fn append_core_lost_banner(
+        &mut self,
+        window_width: f32,
+        quads: &mut unterm_render::quads::FrameQuads,
+    ) {
+        if self.engine.sessions_reachable() {
+            return;
+        }
+        let metrics = self.font.metrics();
+        let pt = self.chrome_pt();
+        let pad = (crate::ui_tokens::STATUS_BAR_VERTICAL_PADDING * pt)
+            .round()
+            .max(2.0);
+        let bar_height = (metrics.height + pad * 2.0).round().max(1.0);
+        let top = self.terminal_top();
+        quads.backgrounds.push(unterm_render::quads::Quad {
+            left: 0.0,
+            top,
+            width: window_width,
+            height: bar_height,
+            color: [0.62, 0.16, 0.12, 1.0],
+        });
+        let columns = (window_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
+        let line = crate::sidebar::fit(
+            &unterm_services::i18n::t("core.lost"),
+            columns.saturating_sub(3),
+        );
+        let text_top = top
+            + ((bar_height - metrics.height) / 2.0
+                + crate::ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt)
+                .max(0.0);
+        let pen = (crate::ui_tokens::CHROME_PANEL_INSET * pt).round();
+        self.append_mono(&line, [1.0, 0.94, 0.92, 1.0], (pen, text_top), quads);
+    }
+
     fn append_confirmation_banner(
         &mut self,
         window_width: f32,

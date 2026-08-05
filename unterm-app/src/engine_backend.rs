@@ -145,6 +145,20 @@ impl AppEngine {
         AppEngine::Local(NextCoreEngine)
     }
 
+    /// Whether the process holding the sessions is still there.
+    ///
+    /// Always true in Local mode -- the engine is this process, and if
+    /// it were gone there would be nobody to ask. In Core mode it goes
+    /// false when the Core dies, which is the difference between a
+    /// terminal that has nothing new to show and one that will never
+    /// show anything again.
+    pub fn sessions_reachable(&self) -> bool {
+        match self {
+            Self::Local(_) => true,
+            Self::Core { cache, .. } => cache.is_live(),
+        }
+    }
+
     /// Whether the sessions outlive this window.
     ///
     /// What the close prompt hangs on: only a Core-backed window can
