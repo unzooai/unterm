@@ -207,6 +207,29 @@ fn run() -> anyhow::Result<()> {
         Ok(count) => log::info!("requested drain for {count} incompatible MCP bridge(s)"),
         Err(error) => log::warn!("could not inspect MCP bridge lifecycle records: {error:#}"),
     }
+    // The enforcement half of the cooperative replacement: bridges
+    // that predate the registry get terminated right away (they will
+    // never hear a drain request), and drained ones get a grace
+    // period before force applies.
+    std::thread::Builder::new()
+        .name("bridge-drain-enforcer".into())
+        .spawn(|| {
+            use std::time::Duration;
+            match unterm_services::bridge_registry::drain_unregistered_bridges(
+                Duration::from_secs(300),
+            ) {
+                Ok(0) | Err(_) => {}
+                Ok(count) => log::warn!("terminated {count} pre-registry MCP bridge(s)"),
+            }
+            std::thread::sleep(Duration::from_secs(30));
+            match unterm_services::bridge_registry::terminate_overdue_drains(
+                Duration::from_secs(30),
+            ) {
+                Ok(0) | Err(_) => {}
+                Ok(count) => log::warn!("force-terminated {count} overdue MCP bridge(s)"),
+            }
+        })
+        .ok();
 
     // The settings UI, on the same token. `unterm-cli settings` opens it.
     let settings_port = unterm_settings::start_web_settings_server(token);

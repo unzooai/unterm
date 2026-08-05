@@ -150,7 +150,7 @@ M7 门禁：不启动 UI 仍可工作；进程独立健康；升级失败恢复�
 | 切片 | 状态 | 已有证据 | 未完成 |
 |---|---|---|---|
 | M0-01 | 已完成（源码切片） | Protocol 4、Services 116、MCP 66、CLI 23、GUI probe 1；release build 与真实握手通过 | CI/签名安装制品随发布验收 |
-| M0-02 | 开发中 | product/protocol/schema 判定、CLI/Bridge 双向身份、持久 Bridge registry、GUI drain 请求、`-32010` 进程测试 | pre-registry 旧进程扫描、owner 自动重启 E2E、超时强退 |
+| M0-02 | 已完成（源码切片） | 协议判定、双向身份、持久 registry、协作 drain、`-32010`；超时强退（30s 宽限后 terminate + 记录清理）、pre-registry 旧桥扫描（长寿命+无记录判别，Windows Toolhelp）、owner 重启 E2E（drain 退出清记录、重生全新注册）；GUI 启动接 bridge-drain-enforcer 线程 | 跨平台证据随 M0-03 |
 | M0-03 | 未开始 | 0.61.1 Windows 本机安装记录 | 12 项跨平台台账与回滚矩阵 |
 | M1-01/02 | 已完成（源码切片，`1148e8d7` + `core.events`） | unterm-core 进程：认证 IPC、discovery、single-instance 锁、drain、session.* 驱动 next-core、core.events 推送流；8 项测试含真实 PTY 往返与事件全生命周期 | 服务化安装（LaunchAgent/后台进程）随 M7 |
 | M1-03 | 开发中 | IPC 面 36 方法（含交互/录制/引擎健康）；`CoreEngineClient` 满足完整 TerminalEngine；`CoreEventStream` 订阅端；TCP_NODELAY + IPC 成本基准（全量 styled 5.2ms/未变化探询 291µs）；UNTERM_STATE_DIR 隔离；真实进程 E2E 含 8 进程竞锁；单元 9 + E2E 2 通过 | MCP server 迁入 Core 进程；GUI 重连 adopt、事件唤醒、MCP/statsbar 本地引擎缺口（见架构文档 M1-04b 节） |
