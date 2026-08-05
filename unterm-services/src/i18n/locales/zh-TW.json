@@ -1,4 +1,5 @@
 {
+  "close.keys": "↑↓ 選擇 · Enter 確認 · Esc 留在 Unterm",
   "close.title": "結束 Unterm？{sessions} 個工作階段執行中",
   "close.title_waiting": "結束 Unterm？{waiting} 個 agent 在等你，{sessions} 個工作階段執行中",
   "close.background": "在背景繼續執行",

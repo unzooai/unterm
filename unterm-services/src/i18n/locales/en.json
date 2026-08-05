@@ -1,4 +1,5 @@
 {
+  "close.keys": "↑↓ choose · Enter confirm · Esc stay in Unterm",
   "close.title": "Close Unterm? {sessions} session(s) running",
   "close.title_waiting": "Close Unterm? {waiting} agent(s) waiting for you, {sessions} session(s) running",
   "close.background": "Keep running in the background",

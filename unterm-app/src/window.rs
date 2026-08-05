@@ -5620,9 +5620,7 @@ impl App {
                 crate::palette::Command::ConfirmCloseWindow,
             )]
         };
-        let mut palette = crate::palette::Palette::new(entries);
-        palette.title = Some(subject);
-        self.palette = Some(palette);
+        self.palette = Some(crate::palette::Palette::confirm(entries, subject));
         self.drawn_revision = None;
     }
 
@@ -6551,6 +6549,14 @@ impl App {
         let metrics = self.font.metrics();
         let rows = palette.visible().len().min(crate::palette::MAX_ROWS);
         Some(match palette.view {
+            // The same arithmetic the paint uses, so a row is pressed
+            // where it is drawn.
+            crate::palette::View::Confirm => crate::palette::Geometry::confirming(
+                live.width as f32,
+                (metrics.width, metrics.height),
+                rows,
+                palette.error.is_some(),
+            ),
             crate::palette::View::Search => {
                 let geometry = if palette.title.is_some() {
                     crate::palette::Geometry::titled
@@ -7548,12 +7554,33 @@ impl App {
             crate::palette::View::ShellSelector => {
                 self.shell_selector_card(rows.len(), error.is_some())
             }
+            crate::palette::View::Confirm => crate::palette::Geometry::confirming(
+                window_width,
+                (metrics.width, metrics.height),
+                rows.len(),
+                error.is_some(),
+            ),
         };
         let (left, top, width, height) = (card.left, card.top, card.width, card.height);
+        // Cut every row to the card it is drawn in. Without this a long
+        // label and its description ran straight out past the card's
+        // edge and over the terminal behind it -- text with no card
+        // under it, which reads as a rendering fault rather than as a
+        // row that was too long.
+        let columns = ((width / metrics.width.max(1.0)) as usize).saturating_sub(2);
+        let rows: Vec<(String, bool)> = rows
+            .into_iter()
+            .map(|(text, selected)| (crate::sidebar::fit(&text, columns), selected))
+            .collect();
 
-        if view == crate::palette::View::ShellSelector {
+        if matches!(
+            view,
+            crate::palette::View::ShellSelector | crate::palette::View::Confirm
+        ) {
             // Match the old selector's dimmed stage: it reads as a modal
             // choice, not as terminal output that happened to be highlighted.
+            // A close prompt gets it for a stronger reason -- it is the one
+            // question that must not be dismissed by habit.
             quads.backgrounds.push(unterm_render::quads::Quad {
                 left: self.terminal_left(),
                 top: self.terminal_top(),
@@ -7600,6 +7627,42 @@ impl App {
                 height: 1.0,
                 color: mix(self.colors.background, foreground, 0.25),
             });
+        } else if view == crate::palette::View::Confirm {
+            // The question, then a rule, then the answers. Nothing to
+            // type into: the heading is the whole prompt.
+            if let Some(title) = palette.title.as_deref() {
+                crate::terminal::append_text(
+                    title,
+                    &mut self.font,
+                    &mut self.atlas,
+                    foreground,
+                    (left + metrics.width, top),
+                    quads,
+                );
+            }
+            quads.backgrounds.push(unterm_render::quads::Quad {
+                left: left + metrics.width,
+                top: top + metrics.height * 1.5,
+                width: (width - metrics.width * 2.0).max(0.0),
+                height: 1.0,
+                color: mix(self.colors.background, foreground, 0.25),
+            });
+            // And the keys, under the answers: a prompt that can only
+            // be answered with the mouse is one a keyboard user is
+            // stuck in.
+            let help = unterm_services::i18n::t("close.keys");
+            crate::terminal::append_text(
+                &help,
+                &mut self.font,
+                &mut self.atlas,
+                mix(foreground, self.colors.background, 0.45),
+                (
+                    left + metrics.width,
+                    top + metrics.height * (rows.len() + card.leading_rows) as f32
+                        + metrics.height * 0.4,
+                ),
+                quads,
+            );
         } else {
             if let Some(title) = palette.title.as_deref() {
                 crate::terminal::append_text(
@@ -7647,27 +7710,54 @@ impl App {
                     top: row_top,
                     width: width - metrics.width,
                     height: metrics.height,
-                    color: if view == crate::palette::View::ShellSelector {
-                        [0.176, 0.176, 0.176, 1.0]
-                    } else {
-                        mix(self.colors.background, self.colors.foreground, 0.30)
+                    color: match view {
+                        crate::palette::View::ShellSelector => [0.176, 0.176, 0.176, 1.0],
+                        // A decision's default answer has to be obvious
+                        // at a glance: this is the one that Enter takes.
+                        crate::palette::View::Confirm => {
+                            mix(self.colors.background, self.colors.foreground, 0.42)
+                        }
+                        crate::palette::View::Search => {
+                            mix(self.colors.background, self.colors.foreground, 0.30)
+                        }
                     },
                 });
-                if view == crate::palette::View::ShellSelector {
+                if matches!(
+                    view,
+                    crate::palette::View::ShellSelector | crate::palette::View::Confirm
+                ) {
                     quads.backgrounds.push(unterm_render::quads::Quad {
                         left: left + metrics.width * 0.5,
                         top: row_top,
                         width: (metrics.width * 0.22).max(2.0),
                         height: metrics.height,
-                        color: [0.38, 0.69, 0.94, 1.0],
+                        color: if view == crate::palette::View::Confirm {
+                            crate::cockpit::Badge::NeedsYou.color()
+                        } else {
+                            [0.38, 0.69, 0.94, 1.0]
+                        },
                     });
                 }
             }
+            // The answer that cannot be taken back is drawn as one:
+            // a row that ends every running shell must not look like
+            // the row above it, which merely closes a window.
+            let irreversible = palette
+                .visible()
+                .get(window_start + index)
+                .is_some_and(|entry| {
+                    entry.command == crate::palette::Command::CancelAndExit
+                });
+            let ink = if irreversible {
+                [0.95, 0.42, 0.35, 1.0]
+            } else {
+                foreground
+            };
             crate::terminal::append_text(
                 text,
                 &mut self.font,
                 &mut self.atlas,
-                foreground,
+                ink,
                 (left + metrics.width, row_top),
                 quads,
             );
@@ -8561,17 +8651,20 @@ impl App {
         let Some(live) = self.state.as_ref() else {
             return false;
         };
-        // Summed across panes: any one of them moving is a reason to redraw,
-        // and a sum changes whenever a term does.
+        // One number across the panes on screen: any of them moving is
+        // a reason to redraw, and the backend answers it the cheapest
+        // way it can -- per-pane revisions in this process, the frame
+        // cache's own counter when the sessions are in a Core.
         let placements = self.placements();
-        let revision = if placements.is_empty() {
-            self.engine.screen_revision(live.session_id).unwrap_or(0)
+        let panes: Vec<usize> = if placements.is_empty() {
+            vec![live.session_id]
         } else {
             placements
                 .iter()
-                .filter_map(|placement| self.engine.screen_revision(placement.session_id).ok())
-                .fold(0u64, |sum, value| sum.wrapping_add(value))
+                .map(|placement| placement.session_id)
+                .collect()
         };
+        let revision = self.engine.render_generation(&panes);
         if Some(revision) != self.drawn_revision {
             return true;
         }

@@ -180,6 +180,25 @@ impl AppEngine {
         route!(self, engine => engine.screen_revision(pane_id))
     }
 
+    /// One number that changes whenever anything drawn has.
+    ///
+    /// The idle loop asks this on every tick. In Local mode that is a
+    /// revision read per pane against process memory -- cheap. Over
+    /// IPC it would be a round trip per pane per tick, twenty of them
+    /// on a twenty-pane window, purely to ask whether anything moved.
+    /// The cache already knows, because the Core told it: answering
+    /// from its counter is one atomic load and no wire at all, and it
+    /// is what makes the event-driven path actually pay.
+    pub fn render_generation(&self, panes: &[usize]) -> u64 {
+        match self {
+            Self::Local(engine) => panes
+                .iter()
+                .filter_map(|pane| engine.screen_revision(*pane).ok())
+                .fold(0u64, |sum, value| sum.wrapping_add(value)),
+            Self::Core { cache, .. } => cache.generation(),
+        }
+    }
+
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
         route!(self, engine => engine.scroll_viewport_to(pane_id, target))
     }

@@ -1,4 +1,5 @@
 {
+  "close.keys": "↑↓ 选择 · Enter 确认 · Esc 留在 Unterm",
   "close.title": "退出 Unterm？{sessions} 个会话正在运行",
   "close.title_waiting": "退出 Unterm？{waiting} 个 agent 在等你，{sessions} 个会话运行中",
   "close.background": "后台继续运行",

@@ -1,4 +1,5 @@
 {
+  "close.keys": "↑↓ 選択 · Enter 決定 · Esc Unterm に留まる",
   "close.title": "Unterm を終了しますか？{sessions} 個のセッションが実行中",
   "close.title_waiting": "Unterm を終了しますか？{waiting} 個のエージェントが応答待ち、{sessions} 個実行中",
   "close.background": "バックグラウンドで続行",

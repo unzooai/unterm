@@ -138,6 +138,13 @@ pub enum View {
     #[default]
     Search,
     ShellSelector,
+    /// A question with a short list of answers, over a dimmed screen.
+    ///
+    /// No query line: a decision is not something you search for, and
+    /// a prompt that looks like the command palette is one people
+    /// dismiss out of habit. The one irreversible answer is drawn in
+    /// the danger colour so it cannot be picked for the safe one.
+    Confirm,
 }
 
 /// An open palette.
@@ -208,6 +215,19 @@ impl Palette {
     pub fn characters(entries: Vec<Entry>) -> Self {
         let mut palette = Self::new(entries);
         palette.source = Source::Characters;
+        palette
+    }
+
+    /// A question over a dimmed screen, answered from a short list.
+    ///
+    /// The line is text rather than a filter, so a stray keystroke
+    /// cannot narrow the answers away and leave a prompt with nothing
+    /// to press.
+    pub fn confirm(entries: Vec<Entry>, title: String) -> Self {
+        let mut palette = Self::new(entries);
+        palette.view = View::Confirm;
+        palette.source = Source::Text;
+        palette.title = Some(title);
         palette
     }
 
@@ -777,6 +797,12 @@ impl Geometry {
     /// A search palette with a heading above its query line.
     pub fn titled(window_width: f32, cell: (f32, f32), rows: usize, has_error: bool) -> Self {
         Self::framed(window_width, cell, rows, has_error, 2, 0)
+    }
+
+    /// A confirmation: a heading, the answers, and a line of keyboard
+    /// help under them. No query line -- there is nothing to search.
+    pub fn confirming(window_width: f32, cell: (f32, f32), rows: usize, has_error: bool) -> Self {
+        Self::framed(window_width, cell, rows, has_error, 2, 2)
     }
 
     /// Lay out a card with a known number of non-selectable lines around its

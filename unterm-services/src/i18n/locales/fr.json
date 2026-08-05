@@ -1,4 +1,5 @@
 {
+  "close.keys": "↑↓ choisir · Entrée confirmer · Échap rester dans Unterm",
   "close.title": "Quitter Unterm ? {sessions} session(s) en cours",
   "close.title_waiting": "Quitter Unterm ? {waiting} agent(s) vous attendent, {sessions} session(s) en cours",
   "close.background": "Continuer en arrière-plan",
