@@ -119,7 +119,15 @@ impl AppEngine {
     /// terminal -- the flag is experimental, the user's shell is not.
     pub fn from_environment() -> Self {
         if let Some(shared) = CORE_SHARED.get() {
-            match FrameCache::start(shared.endpoint.as_str(), shared.token.clone()) {
+            // The cache's update thread wakes the event loop, so a
+            // screen change becomes a redraw now rather than at the
+            // next timer tick -- the Core-mode replacement for the
+            // engine sharing this process's memory.
+            match FrameCache::start_with_notify(
+                shared.endpoint.as_str(),
+                shared.token.clone(),
+                crate::mcp_host::request_repaint,
+            ) {
                 Ok(cache) => {
                     return AppEngine::Core {
                         client: shared.client.clone(),

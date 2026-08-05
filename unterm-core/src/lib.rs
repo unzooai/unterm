@@ -1530,6 +1530,10 @@ struct FrameCacheInner {
     generation: std::sync::atomic::AtomicU64,
     stopping: AtomicBool,
     client: CoreEngineClient,
+    /// Called after every cache change, off the caller's thread. A GUI
+    /// hangs its wake-the-event-loop hook here so a screen update
+    /// becomes a redraw now, not at the next timer tick.
+    notify: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl FrameCacheInner {
@@ -1566,6 +1570,9 @@ impl FrameCacheInner {
     fn bump(&self) {
         self.generation
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        if let Some(notify) = &self.notify {
+            notify();
+        }
     }
 }
 
@@ -1574,7 +1581,25 @@ impl FrameCache {
     /// Subscription begins before seeding, so a screen that changes
     /// mid-seed is refetched rather than missed.
     pub fn start<A: ToSocketAddrs + Clone>(address: A, token: impl Into<String>) -> Result<Self> {
-        let token = token.into();
+        Self::start_inner(address, token.into(), None)
+    }
+
+    /// Like `start`, plus a hook called after every cache change (from
+    /// the worker thread). Keep it cheap and non-blocking: it runs on
+    /// the same thread that applies updates.
+    pub fn start_with_notify<A: ToSocketAddrs + Clone>(
+        address: A,
+        token: impl Into<String>,
+        notify: impl Fn() + Send + Sync + 'static,
+    ) -> Result<Self> {
+        Self::start_inner(address, token.into(), Some(Box::new(notify)))
+    }
+
+    fn start_inner<A: ToSocketAddrs + Clone>(
+        address: A,
+        token: String,
+        notify: Option<Box<dyn Fn() + Send + Sync>>,
+    ) -> Result<Self> {
         let client = CoreEngineClient::connect(address.clone(), token.clone())?;
         let mut events = CoreEventStream::connect(address, token)?;
         // The worker must notice `stopping` even when the feed is
@@ -1585,6 +1610,7 @@ impl FrameCache {
             generation: std::sync::atomic::AtomicU64::new(0),
             stopping: AtomicBool::new(false),
             client,
+            notify,
         });
         if let Ok(sessions) = inner.client.list_sessions() {
             for session in sessions {
@@ -2175,7 +2201,14 @@ mod tests {
     fn frame_cache_converges_via_events_and_evicts_on_close() {
         let (endpoint, worker) = start_server("cache-token");
         let facade = CoreEngineClient::connect(endpoint, "cache-token").unwrap();
-        let cache = FrameCache::start(endpoint, "cache-token").unwrap();
+        let notified = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let cache = {
+            let notified = notified.clone();
+            FrameCache::start_with_notify(endpoint, "cache-token", move || {
+                notified.fetch_add(1, Ordering::AcqRel);
+            })
+            .unwrap()
+        };
 
         let session = facade
             .create_session(CreateSessionRequest {
@@ -2220,6 +2253,9 @@ mod tests {
         }
         assert!(evicted, "closed pane was never evicted from the cache");
         assert!(cache.generation() > generation);
+        // Every generation bump must have fired the wake hook: that is
+        // what turns a Core-side screen change into a GUI redraw.
+        assert_eq!(notified.load(Ordering::Acquire), cache.generation());
 
         drop(cache);
         let mut owner = CoreClient::connect(endpoint, "cache-token").unwrap();

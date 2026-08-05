@@ -210,11 +210,18 @@ create/split` 经 GUI 的 MCP server 创建的 pane 全部落在 Core 进程
 M1-03c 的后续阶段。写入确认门（gate_pty_write）行为与引擎后端无关，
 全新实例首次写入需 GUI 批准是既有设计。
 
+事件唤醒（M1-04d）已接通：FrameCache 支持 on-change 通知
+（`start_with_notify`），Core 模式下回调直连
+`window.request_redraw()`——Core 侧屏幕一变，缓存更新完成即唤醒
+事件循环重绘，输出延迟不再受 `about_to_wait` 定时节拍限制。链路：
+PTY 输出 -> Core watcher（25ms）-> core.events 推送 -> FrameCache
+拉增量 -> request_redraw -> 绘制读缓存。
+
 实验开关下的已知缺口（后续切片）：
 - 布局（split 树）仍在 GUI 进程，重开后 split 关系靠 split_from
   降级重建，比例/方向不保真——布局入 Core 是后续设计决策
-- GUI 渲染循环仍轮询 revision，未接 core.events 唤醒
 - MCP server 生命周期随 GUI（见上）
+- 退出三语义模态提醒（M1-04 原定验收）未实现
 
 scrollback 配置已打通：connect_core 时经 `core.set_scrollback_lines`
 把 GUI 的配置值回传 Core（配置文件在客户端侧；对既有 pane 不生效，

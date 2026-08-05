@@ -94,6 +94,15 @@ pub fn remember_window(window: std::sync::Arc<winit::window::Window>) {
     let _ = WINDOW.set(window);
 }
 
+/// Ask the window to paint, from any thread. A no-op until the window
+/// exists; whoever calls before then loses nothing, because the first
+/// frame is on its way regardless.
+pub fn request_repaint() {
+    if let Some(window) = WINDOW.get() {
+        window.request_redraw();
+    }
+}
+
 /// The default colours a cell falls back to when it names none.
 const DEFAULT_FG: Rgb = Rgb {
     red: 0xd0,
@@ -150,9 +159,7 @@ impl McpHost for AppMcpHost {
     }
 
     fn request_repaint(&self) {
-        if let Some(window) = WINDOW.get() {
-            window.request_redraw();
-        }
+        request_repaint();
     }
 
     /// A rectangle of the desktop.
