@@ -34,6 +34,37 @@ pub struct Theme {
 
 /// Every theme, in the order the picker lists them.
 pub const THEMES: &[Theme] = &[
+    // The inbox design's own scheme, and the default: the deep neutral
+    // ground the amber status language was tuned against.
+    Theme {
+        id: "agent-inbox",
+        name: "Agent Inbox",
+        background: srgb(0x16, 0x18, 0x1d),
+        foreground: srgb(0xd6, 0xd3, 0xcc),
+        cursor: srgb(0xe8, 0xb3, 0x4b),
+        selection: srgb(0x2c, 0x31, 0x3a),
+        selection_text: srgb(0xf0, 0xed, 0xe6),
+        divider: srgb(0x27, 0x2b, 0x33),
+        scrollbar: srgb(0x6c, 0x72, 0x80),
+        ansi: [
+            srgb(0x23, 0x25, 0x2a),
+            srgb(0xd1, 0x6a, 0x5a),
+            srgb(0x7d, 0xb3, 0x7f),
+            srgb(0xe8, 0xb3, 0x4b),
+            srgb(0x7a, 0xa2, 0xd6),
+            srgb(0xb1, 0x89, 0xc9),
+            srgb(0x6f, 0xb3, 0xa8),
+            srgb(0xd6, 0xd3, 0xcc),
+            srgb(0x3a, 0x3f, 0x49),
+            srgb(0xe0, 0x85, 0x73),
+            srgb(0x9c, 0xcf, 0x9e),
+            srgb(0xf0, 0xc7, 0x78),
+            srgb(0x9d, 0xbd, 0xe4),
+            srgb(0xc9, 0xa8, 0xdd),
+            srgb(0x92, 0xca, 0xbf),
+            srgb(0xf0, 0xed, 0xe6),
+        ],
+    },
     Theme {
         id: "standard",
         name: "Standard",
@@ -269,11 +300,12 @@ mod tests {
     /// The six the product documents, under the ids the CLI and the settings
     /// page already use.
     #[test]
-    fn the_six_bundled_themes_are_all_here() {
+    fn the_bundled_themes_are_all_here() {
         let ids: Vec<&str> = THEMES.iter().map(|theme| theme.id).collect();
         assert_eq!(
             ids,
             vec![
+                "agent-inbox",
                 "standard",
                 "midnight",
                 "daylight",

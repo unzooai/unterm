@@ -375,7 +375,9 @@ impl Badge {
         match self {
             // Amber: the one colour on the bar that should pull an eye.
             Badge::NeedsYou => [0.98, 0.70, 0.20, 1.0],
-            Badge::Working => [0.35, 0.65, 0.98, 1.0],
+            // Muted blue-grey: working is the normal state, and a
+            // normal state must not compete with the amber that asks.
+            Badge::Working => [0.49, 0.56, 0.63, 1.0],
             Badge::Done => [0.35, 0.80, 0.45, 1.0],
         }
     }

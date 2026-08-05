@@ -71,12 +71,14 @@ pub fn chrome(background: [f32; 4], foreground: [f32; 4]) -> Chrome {
         selected_bg,
         group_bg: mix(surface, foreground, if is_light { 0.018 } else { 0.016 }),
         footer_bg: surface,
-        // Signal Jade, in a darker optical variant on light surfaces so the
-        // focus rail stays crisp instead of glowing.
+        // The waiting amber, in a darker optical variant on light
+        // surfaces so the focus rail stays crisp instead of glowing.
+        // One accent for the whole chrome, and it is the same colour
+        // the status language uses for "needs you".
         focus_rail: if is_light {
-            srgb(0x18, 0x7a, 0x68)
+            srgb(0x8a, 0x65, 0x19)
         } else {
-            srgb(0x67, 0xcd, 0xb6)
+            srgb(0xe8, 0xb3, 0x4b)
         },
         is_light,
     }

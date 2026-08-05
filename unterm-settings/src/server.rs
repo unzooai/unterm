@@ -1541,6 +1541,11 @@ fn theme_presets() -> &'static [ThemePreset] {
             scheme: "Unterm Daylight",
         },
         ThemePreset {
+            id: "agent-inbox",
+            name: "Agent Inbox",
+            scheme: "Agent Inbox",
+        },
+        ThemePreset {
             id: "classic",
             name: "Classic",
             scheme: "Classic Dark",

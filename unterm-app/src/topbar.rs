@@ -142,9 +142,20 @@ pub fn layout(
     stats: &str,
     cockpit: &str,
     project_open: bool,
+    quiet: bool,
     measure: &mut dyn FnMut(&str) -> f32,
 ) -> Vec<Placed> {
-    let density = density(logical_width);
+    let mut density = density(logical_width);
+    // The quiet bar is the inbox design's default: the brand, the
+    // cockpit tally, the menu chevron and the window buttons — every
+    // action keeps its chord, its palette row and its menu entry, so
+    // nothing is lost, only unhung from the chrome. `top_bar = "full"`
+    // in the config restores the action row and the facts line.
+    if quiet {
+        density.show_split = false;
+        density.show_navigation = false;
+        density.show_labels = false;
+    }
     let mut placed = Vec::new();
     if width <= 0.0 {
         return placed;
@@ -211,10 +222,14 @@ pub fn layout(
     );
 
     for (action, icon, label_key) in ACTIONS.iter().rev() {
-        let wanted = match action {
-            Action::SplitRight => density.show_split,
-            Action::DirJump | Action::Search => density.show_navigation,
-            _ => true,
+        let wanted = if quiet {
+            false
+        } else {
+            match action {
+                Action::SplitRight => density.show_split,
+                Action::DirJump | Action::Search => density.show_navigation,
+                _ => true,
+            }
         };
         if !wanted {
             continue;
@@ -290,7 +305,8 @@ pub fn layout(
 
     // And the facts, in whatever is between. Right-aligned against the
     // actions, because that is where the eye goes back to after reading them.
-    let stats = stats.trim();
+    // The quiet bar leaves them to the shell's own prompt.
+    let stats = if quiet { "" } else { stats.trim() };
     if !stats.is_empty() {
         let wide = measure(stats);
         let start = right - wide - (8.0 * pt).round();
@@ -368,7 +384,7 @@ mod tests {
 
     fn bar(width: f32) -> Vec<Placed> {
         let mut measure = measurer();
-        layout(width, width, 1.33, "", "", true, &mut measure)
+        layout(width, width, 1.33, "", "", true, false, &mut measure)
     }
 
     fn has(bar: &[Placed], item: Item) -> bool {
@@ -423,6 +439,7 @@ mod tests {
                 "\u{26A1} claude    main *3    8.0% cpu  1.4G",
                 "",
                 true,
+                false,
                 &mut measure,
             );
             for (index, piece) in bar.iter().enumerate() {
@@ -475,7 +492,7 @@ mod tests {
     #[test]
     fn labels_appear_only_on_the_two_that_have_them() {
         let mut measure = measurer();
-        let wide = layout(1600.0, 1600.0, 1.33, "", "", true, &mut measure);
+        let wide = layout(1600.0, 1600.0, 1.33, "", "", true, false, &mut measure);
         let labelled: Vec<Action> = wide
             .iter()
             .filter(|piece| !piece.label.is_empty())
@@ -487,7 +504,7 @@ mod tests {
         assert_eq!(labelled, vec![Action::CommandPalette, Action::TreeSidebar]);
 
         let mut measure = measurer();
-        let narrow = layout(900.0, 900.0, 1.33, "", "", true, &mut measure);
+        let narrow = layout(900.0, 900.0, 1.33, "", "", true, false, &mut measure);
         assert!(
             narrow
                 .iter()
@@ -502,7 +519,7 @@ mod tests {
     #[test]
     fn an_icon_with_no_words_has_something_to_say_on_hover() {
         let mut measure = measurer();
-        let bar = layout(900.0, 900.0, 1.33, "", "", true, &mut measure);
+        let bar = layout(900.0, 900.0, 1.33, "", "", true, false, &mut measure);
         for piece in &bar {
             if matches!(piece.item, Item::Action(_)) && piece.label.is_empty() {
                 let tooltip = piece.tooltip.as_deref().unwrap_or("");
@@ -516,7 +533,7 @@ mod tests {
     #[test]
     fn the_actions_read_in_the_declared_order() {
         let mut measure = measurer();
-        let bar = layout(1600.0, 1600.0, 1.33, "", "", true, &mut measure);
+        let bar = layout(1600.0, 1600.0, 1.33, "", "", true, false, &mut measure);
         let order: Vec<Item> = bar
             .iter()
             .filter(|piece| matches!(piece.item, Item::Action(_) | Item::Menu))
@@ -571,6 +588,7 @@ mod tests {
             "8.0% cpu  1.4G  4m",
             "",
             true,
+            false,
             &mut measure,
         );
         let stats = bar
@@ -604,6 +622,7 @@ mod tests {
             "\u{26A1} claude    main *3    8.0% cpu  1.4G  4m",
             "",
             true,
+            false,
             &mut measure,
         );
         assert!(!has(&bar, Item::Stats));
@@ -617,7 +636,7 @@ mod tests {
     #[test]
     fn the_text_drags_and_the_controls_do_not() {
         let mut measure = measurer();
-        let bar = layout(1600.0, 1600.0, 1.33, "8.0% cpu", "", true, &mut measure);
+        let bar = layout(1600.0, 1600.0, 1.33, "8.0% cpu", "", true, false, &mut measure);
         for piece in &bar {
             let middle = piece.left + piece.width / 2.0;
             let expected = matches!(piece.item, Item::Wordmark);

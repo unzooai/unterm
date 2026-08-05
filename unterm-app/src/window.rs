@@ -596,6 +596,12 @@ pub struct App {
     /// Whether the pane scrollbar is drawn at all — `enable_scroll_bar`,
     /// which the schema promised and nothing read until now.
     scrollbar_enabled: bool,
+    /// Whether the resident bottom status bar is on. Off by default in
+    /// the inbox design; a pending confirmation shows the strip anyway.
+    status_bar_enabled: bool,
+    /// Whether the top bar hides its action row and facts line. On by
+    /// default; `top_bar = "full"` in the config restores them.
+    top_bar_quiet: bool,
     /// The hyperlink rules in force: the config's own `hyperlink_rules`, or
     /// the built-in set when it writes none.
     link_rules: crate::links::Rules,
@@ -820,6 +826,17 @@ impl App {
                 .bool_of("enable_scroll_bar")
                 .ok()
                 .flatten()
+                .unwrap_or(true),
+            status_bar_enabled: config
+                .bool_of("status_bar")
+                .ok()
+                .flatten()
+                .unwrap_or(false),
+            top_bar_quiet: config
+                .str_of("top_bar")
+                .ok()
+                .flatten()
+                .map(|mode| mode != "full")
                 .unwrap_or(true),
             link_rules: crate::links::Rules::from_config(config),
             audible_bell: config
@@ -1872,16 +1889,30 @@ impl App {
                             })
                             .unwrap_or_default()
                     }),
-                    agent: facts.as_ref().and_then(|facts| {
-                        // The segment leads with a lightning bolt; the row
-                        // wants the name that follows it.
-                        facts
-                            .agent
-                            .trim()
-                            .strip_prefix('\u{26A1}')
-                            .map(|name| name.trim().to_string())
-                            .filter(|name| !name.is_empty())
-                    }),
+                    agent: facts
+                        .as_ref()
+                        .and_then(|facts| {
+                            // The segment leads with a lightning bolt; the row
+                            // wants the name that follows it.
+                            facts
+                                .agent
+                                .trim()
+                                .strip_prefix('\u{26A1}')
+                                .map(|name| name.trim().to_string())
+                                .filter(|name| !name.is_empty())
+                        })
+                        .or_else(|| {
+                            // The cockpit knows the agent even when the
+                            // stats cache has not looked at this pane:
+                            // a waiting row must name who is waiting.
+                            pane_ids.iter().find_map(|pane| {
+                                statuses
+                                    .iter()
+                                    .find(|status| status.pane_id == *pane as u64)
+                                    .map(|status| status.agent.clone())
+                                    .filter(|agent| !agent.is_empty())
+                            })
+                        }),
                     cwd: session.and_then(|session| session.shell.cwd.clone()),
                     foreground: session
                         .map(|session| session.shell.process_name.clone())
@@ -2626,9 +2657,12 @@ impl App {
                     // The count sits against the right edge in a rounded pill,
                     // so a project size is readable without counting rows.
                     let badge = count.to_string();
-                    let badge_width = self.chrome_width(&badge) + 10.0 * pt;
-                    let badge_left = content_left + content_width - badge_width - 4.0 * pt;
                     let badge_height = (row_height - 6.0 * pt).max(2.0);
+                    // Never narrower than it is tall: a one-digit count
+                    // in a pill thinner than its height reads as an
+                    // upright ellipse, not a pill.
+                    let badge_width = (self.chrome_width(&badge) + 10.0 * pt).max(badge_height);
+                    let badge_left = content_left + content_width - badge_width - 4.0 * pt;
                     quads.backgrounds.extend(unterm_render::rounded::panel(
                         badge_left,
                         row_top + 3.0 * pt,
@@ -2660,13 +2694,13 @@ impl App {
                             quads,
                         );
                     }
+                    // Group headers are wayfinding, not content: a
+                    // fainter voice than the rows they organise, active
+                    // or not.
+                    let mut faint = chrome.dim_text;
+                    faint[3] *= if *active { 0.80 } else { 0.60 };
                     let shown = self.chrome_fit(label, badge_left - pen);
-                    self.append_chrome(
-                        &shown,
-                        if *active { foreground } else { chrome.dim_text },
-                        (pen, row_top + text_offset),
-                        quads,
-                    );
+                    self.append_chrome(&shown, faint, (pen, row_top + text_offset), quads);
                 }
                 crate::sidebar::Row::Tab {
                     index,
@@ -2975,6 +3009,7 @@ impl App {
             &stats,
             &cockpit,
             open,
+            self.top_bar_quiet,
             &mut measure,
         )
     }
@@ -3096,6 +3131,35 @@ impl App {
                 ));
             }
 
+            // The cockpit tally is a pill even at rest — the window's
+            // one aggregate view of the agents — and it turns the
+            // waiting amber the moment any of them needs an answer.
+            let cockpit_waiting = piece.item == crate::topbar::Item::Cockpit
+                && crate::cockpit::attention_count(
+                    &unterm_services::cockpit::status::snapshot(),
+                ) > 0;
+            if piece.item == crate::topbar::Item::Cockpit && !piece.label.is_empty() {
+                let inset = 3.0 * pt;
+                let mut fill = if cockpit_waiting {
+                    let mut amber = crate::cockpit::Badge::NeedsYou.color();
+                    amber[3] = 0.16;
+                    amber
+                } else {
+                    chrome.hover_bg
+                };
+                if is_hovered {
+                    fill[3] = (fill[3] + 0.10).min(1.0);
+                }
+                quads.backgrounds.extend(unterm_render::rounded::panel(
+                    piece.left,
+                    inset,
+                    piece.width,
+                    height - inset * 2.0,
+                    (height - inset * 2.0) / 2.0,
+                    fill,
+                ));
+            }
+
             let text = match (piece.icon, piece.label.is_empty()) {
                 (Some(icon), true) => icon.to_string(),
                 (Some(icon), false) => format!("{icon}  {}", piece.label),
@@ -3127,6 +3191,9 @@ impl App {
                 // full strength, as 0.57.4 set it.
                 crate::topbar::Item::Wordmark => foreground,
                 crate::topbar::Item::Stats => chrome.dim_text,
+                crate::topbar::Item::Cockpit if cockpit_waiting => {
+                    crate::cockpit::Badge::NeedsYou.color()
+                }
                 _ if is_hovered => foreground,
                 _ => chrome.dim_text,
             };
@@ -6846,6 +6913,17 @@ impl App {
 
     /// How tall the line along the bottom is.
     fn status_bar_height(&self) -> f32 {
+        // Hidden by default in the inbox design: the facts it carried
+        // (cwd, branch, shell) live in the top bar's stats line, and a
+        // resident strip under every terminal is chrome that says the
+        // same thing twice. `status_bar = true` in the config brings it
+        // back, and a pending MCP confirmation always gets the strip —
+        // a question must never be invisible.
+        let confirmation_pending =
+            unterm_mcp::handler::pending_confirmation_view().is_some();
+        if !self.status_bar_enabled && !confirmation_pending {
+            return 0.0;
+        }
         // The bar is one terminal cell plus the slight vertical padding the
         // previous front end gave it — its text is set in the terminal face.
         let pt = self.chrome_pt();

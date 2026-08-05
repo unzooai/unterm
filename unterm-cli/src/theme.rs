@@ -12,8 +12,14 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use serde_json::json;
 
-/// Keep this list in sync with `wezterm-gui/src/overlay/theme_selector.rs::theme_presets()`.
+/// Keep this list in sync with `unterm-app/src/theme.rs::THEMES`.
 const PRESETS: &[ThemePreset] = &[
+    ThemePreset {
+        id: "agent-inbox",
+        name: "Agent Inbox",
+        scheme: "Agent Inbox",
+        desc: "The inbox design's own deep neutral with amber status",
+    },
     ThemePreset {
         id: "standard",
         name: "Standard",
@@ -72,7 +78,7 @@ pub enum ThemeSubCommand {
     /// Switch to the named theme preset.
     #[command(alias = "set")]
     Switch {
-        /// Preset id (standard, midnight, daylight, classic, notion-dark, notion-light).
+        /// Preset id (agent-inbox, standard, midnight, daylight, classic, notion-dark, notion-light).
         name: String,
     },
 }
