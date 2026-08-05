@@ -1888,6 +1888,19 @@ impl App {
                         .map(|name| crate::statusbar::short_name(&name)),
                     active: Some(tab) == active,
                     indicators,
+                    waiting_secs: pane_ids
+                        .iter()
+                        .filter_map(|pane| {
+                            unterm_services::cockpit::status::status_for_pane(*pane as u64)
+                        })
+                        .filter(|status| {
+                            matches!(
+                                status.state,
+                                unterm_services::cockpit::status::AgentState::WaitingForUser
+                            )
+                        })
+                        .map(|status| status.since.elapsed().as_secs())
+                        .max(),
                 }
             })
             .collect();
@@ -2381,6 +2394,9 @@ impl App {
                     self.sidebar_collapsed.insert(key);
                 }
             }
+            // The inbox header is a label, not a control: its rows are
+            // the things to press.
+            crate::sidebar::Row::PinnedHeader { .. } => {}
         }
         self.drawn_revision = None;
         true
@@ -2493,18 +2509,17 @@ impl App {
             });
         }
 
-        // Preserve the working-agent breathing cue from the previous front
-        // end, but let the phase drive repaints instead of a timer: the paint
-        // records which quantised step it drew, and the idle tick asks for a
-        // frame only when that step has moved on.
-        let breath_step = rows
+        // A working agent's row turns a quarter-circle spinner. Same
+        // repaint discipline as the breath it replaces: the paint
+        // records which quantised phase it drew, and the idle tick
+        // asks for a frame only when that phase has moved on.
+        let spin_step = rows
             .iter()
             .any(|row| {
                 matches!(
                     row,
                     crate::sidebar::Row::Tab {
                         badge: Some(crate::cockpit::Badge::Working),
-                        active: false,
                         ..
                     }
                 )
@@ -2513,10 +2528,10 @@ impl App {
                 let elapsed = unterm_services::cockpit::status::breath_epoch()
                     .elapsed()
                     .as_millis() as u64;
-                crate::sidebar::breath_step(elapsed)
+                crate::sidebar::spin_step(elapsed)
             });
-        self.drawn_breath_step = breath_step;
-        let breath = breath_step.map(crate::sidebar::breath_alpha).unwrap_or(1.0);
+        self.drawn_breath_step = spin_step;
+        let spin = spin_step.unwrap_or(0);
 
         let content_left = left + inset;
         let content_width = width - inset * 2.0;
@@ -2529,6 +2544,46 @@ impl App {
         for (offset, row) in rows.iter().skip(scroll).take(visible).enumerate() {
             let row_top = first_row + offset as f32 * row_height;
             match row {
+                crate::sidebar::Row::PinnedHeader { count } => {
+                    // The inbox header: the hand and the count in the
+                    // waiting amber, so the section reads as the same
+                    // question its rows are asking.
+                    let amber = crate::cockpit::Badge::NeedsYou.color();
+                    let mut pen = content_left + 4.0 * pt;
+                    pen = self.append_chrome(
+                        "\u{270B}",
+                        amber,
+                        (pen, row_top + text_offset),
+                        quads,
+                    );
+                    pen += 5.0 * pt;
+                    let badge = count.to_string();
+                    let badge_width = self.chrome_width(&badge) + 10.0 * pt;
+                    let badge_left = content_left + content_width - badge_width - 4.0 * pt;
+                    let badge_height = (row_height - 6.0 * pt).max(2.0);
+                    let mut pill = amber;
+                    pill[3] = 0.18;
+                    quads.backgrounds.extend(unterm_render::rounded::panel(
+                        badge_left,
+                        row_top + 3.0 * pt,
+                        badge_width,
+                        badge_height,
+                        badge_height / 2.0,
+                        pill,
+                    ));
+                    let badge_text = self.chrome_width(&badge);
+                    self.append_chrome(
+                        &badge,
+                        amber,
+                        (
+                            badge_left + (badge_width - badge_text) / 2.0,
+                            row_top + text_offset,
+                        ),
+                        quads,
+                    );
+                    let shown = self.chrome_fit("waiting for you", badge_left - pen);
+                    self.append_chrome(&shown, amber, (pen, row_top + text_offset), quads);
+                }
                 crate::sidebar::Row::Group {
                     label,
                     hint,
@@ -2632,6 +2687,7 @@ impl App {
                     grouped,
                     badge,
                     indicators,
+                    pinned,
                 } => {
                     // Children are inset under their header, so tabs and
                     // projects read as parent and child rather than as peers.
@@ -2639,6 +2695,17 @@ impl App {
                     let row_left = content_left + indent;
                     let row_width = (content_width - indent).max(1.0);
 
+                    // A pinned row carries a faint wash of the waiting
+                    // amber under everything else: the section colour,
+                    // not a highlight, so hover and selection still
+                    // read on top of it.
+                    if *pinned {
+                        let mut wash = crate::cockpit::Badge::NeedsYou.color();
+                        wash[3] = 0.08;
+                        quads.backgrounds.extend(unterm_render::rounded::panel(
+                            row_left, row_top, row_width, row_height, radius, wash,
+                        ));
+                    }
                     if *active {
                         quads.backgrounds.extend(unterm_render::rounded::panel(
                             row_left,
@@ -2665,9 +2732,11 @@ impl App {
                         ));
                     }
                     // The rail: the one place the accent is used, and what the
-                    // eye finds first. A faint one on every grouped row keeps
-                    // the children aligned under their header.
-                    let rail = if *active {
+                    // eye finds first. Pinned rows take the waiting amber —
+                    // the strip's loudest mark for its most urgent rows.
+                    let rail = if *pinned {
+                        Some((crate::cockpit::Badge::NeedsYou.color(), 2.0 * pt))
+                    } else if *active {
                         Some((chrome.focus_rail, 2.0 * pt))
                     } else if *grouped {
                         Some((chrome.outer_edge, 1.0))
@@ -2706,32 +2775,23 @@ impl App {
                     );
                     pen += 7.0 * pt;
 
-                    // One indicator against the right edge, as 0.57.4 drew it,
-                    // and only on rows not in front: the active row is the one
-                    // being looked at, so it explains nothing. Agent state
-                    // first, then a sticky error, then unread output — never
-                    // more than one, and no mark at all for an idle shell.
+                    // One mark against the right edge — the row's whole
+                    // status vocabulary: ✋ asks, a spinner works, ✓
+                    // finished, ▲ errored, • has unread output, and an
+                    // idle shell shows nothing. On every row including
+                    // the active one: the state is about the agent, not
+                    // about which row is being looked at.
                     let mut right = row_left + row_width - 6.0 * pt;
                     let indicator: Option<(&str, [f32; 4])> = if let Some(badge) = badge {
-                        let (glyph, mut color) = match badge {
-                            crate::cockpit::Badge::NeedsYou => ("!", badge.color()),
-                            crate::cockpit::Badge::Working => {
-                                (crate::cockpit::BADGE, badge.color())
-                            }
-                            crate::cockpit::Badge::Done => ("\u{2713}", badge.color()),
-                        };
-                        if matches!(*badge, crate::cockpit::Badge::Working) {
-                            color[3] *= breath;
-                        }
-                        Some((glyph, color))
+                        Some((badge.glyph(spin), badge.color()))
                     } else if indicators.error {
-                        Some(("\u{00D7}", [0.95, 0.35, 0.35, 1.0]))
+                        Some(("\u{25B2}", [0.95, 0.35, 0.35, 1.0]))
                     } else if indicators.unread {
-                        Some(("\u{2022}", [0.35, 0.65, 0.98, 1.0]))
+                        Some(("\u{2022}", crate::cockpit::Badge::NeedsYou.color()))
                     } else {
                         None
                     };
-                    if let Some((glyph, color)) = indicator.filter(|_| !*active) {
+                    if let Some((glyph, color)) = indicator {
                         let wide = self.chrome_width(glyph);
                         right -= wide + 4.0 * pt;
                         self.append_chrome(
@@ -8188,13 +8248,13 @@ impl App {
                 return true;
             }
         }
-        // A breathing working badge is animation with no screen change
+        // A turning working spinner is animation with no screen change
         // underneath: one frame per phase step, and none once nothing works.
         if self.drawn_breath_step.is_some_and(|drawn| {
             let elapsed = unterm_services::cockpit::status::breath_epoch()
                 .elapsed()
                 .as_millis() as u64;
-            crate::sidebar::breath_step(elapsed) != drawn
+            crate::sidebar::spin_step(elapsed) != drawn
         }) {
             return true;
         }

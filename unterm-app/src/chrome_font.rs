@@ -142,6 +142,16 @@ mod tests {
             ("ellipsis", '\u{2026}'),
             ("branch", '\u{E0A0}'),
             ("folder", '\u{F07B}'),
+            // The inbox sidebar's status vocabulary. Each row says its
+            // state with exactly one of these.
+            ("raised hand", '\u{270B}'),
+            ("warning triangle", '\u{25B2}'),
+            ("dot", '\u{2022}'),
+            ("plus", '\u{FF0B}'),
+            ("spinner q1", '\u{25D0}'),
+            ("spinner q2", '\u{25D3}'),
+            ("spinner q3", '\u{25D1}'),
+            ("spinner q4", '\u{25D2}'),
         ] {
             if !stack.covers(ch) {
                 missing.push(format!("{name} ({ch:?})"));
@@ -194,6 +204,14 @@ mod raster_tests {
             ("terminal", '\u{EA85}'),
             ("three bars", '\u{EB6A}'),
             ("gear", '\u{EB51}'),
+            ("raised hand", '\u{270B}'),
+            ("warning triangle", '\u{25B2}'),
+            ("dot", '\u{2022}'),
+            ("plus", '\u{FF0B}'),
+            ("spinner q1", '\u{25D0}'),
+            ("spinner q2", '\u{25D3}'),
+            ("spinner q3", '\u{25D1}'),
+            ("spinner q4", '\u{25D2}'),
         ] {
             let drawn = font
                 .stack_mut()

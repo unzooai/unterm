@@ -379,6 +379,21 @@ impl Badge {
             Badge::Done => [0.35, 0.80, 0.45, 1.0],
         }
     }
+
+    /// The one mark a sidebar row shows for this state. A raised hand
+    /// asks, a spinner works, a tick finished — the row's whole story
+    /// in a single glyph, which is what lets twenty rows be read as a
+    /// glance instead of a paragraph. Working animates, so it takes
+    /// the current spinner phase.
+    pub fn glyph(self, spin: u8) -> &'static str {
+        match self {
+            Badge::NeedsYou => "\u{270B}",
+            Badge::Working => {
+                crate::sidebar::SPIN_GLYPHS[(spin as usize) % crate::sidebar::SPIN_GLYPHS.len()]
+            }
+            Badge::Done => "\u{2713}",
+        }
+    }
 }
 
 /// The badge for a state, if it has one.
