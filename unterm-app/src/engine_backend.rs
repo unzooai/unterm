@@ -54,15 +54,17 @@ static CORE_SHARED: std::sync::OnceLock<CoreShared> = std::sync::OnceLock::new()
 /// came up on the local engine while the window talks to a Core
 /// would split the world in two.
 pub fn init_from_environment() -> Backend {
-    // Still opt-in via `UNTERM_CORE_CLIENT=1`, despite the surface now
-    // living in the Core and everything around it being verified on
-    // real hardware. One thing holds the default back: an agent's
-    // `session.focus` reaches the Core and is reported back correctly,
-    // and the window does not act on it -- so a peer asking to be
-    // looked at is not looked at. Making this the default before that
-    // works would ship a regression against the arrangement it
-    // replaces.
-    let wants_core = std::env::var("UNTERM_CORE_CLIENT").is_ok_and(|value| value == "1");
+    // Core by default: the agent surface lives there now, so sessions
+    // survive closing the window and an agent's connection survives
+    // with them. `UNTERM_CORE_CLIENT=0` opts back out for anyone who
+    // needs the old single-process arrangement.
+    //
+    // Known wart, cosmetic: reopening onto a Core that kept its
+    // sessions puts the adopted-active session in the first tab, so tab
+    // *order* is not preserved across a restart even though every
+    // session, its scrollback and its splits are. The focused pane and
+    // its contents are correct either way.
+    let wants_core = !std::env::var("UNTERM_CORE_CLIENT").is_ok_and(|value| value == "0");
     if wants_core {
         match connect_core_shared() {
             Ok(()) => {

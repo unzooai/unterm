@@ -1,5 +1,54 @@
 # Changelog
 
+## v0.62.0 — 2026-08-05
+
+Your shells stop belonging to the window. A per-user `unterm-core` process
+holds the sessions and serves the agent API, so closing the window no longer
+ends what was running in it, and an agent connected to Unterm stays connected
+across a restart of the window it was watching.
+
+### Sessions outlive the window
+
+- **`unterm-core` owns the terminals.** Sessions, scrollback and split
+  arrangements live in a process of their own. Close the window and reopen it
+  and they are still there, contents and layout intact. Set
+  `UNTERM_CORE_CLIENT=0` to keep the old single-process arrangement.
+- **The agent API moved with them.** One MCP server, in the Core, serving the
+  sessions it owns. Previously the window hosted it, so quitting the window
+  disconnected every agent — even though the shells they were driving had
+  nothing to do with that window.
+- **A crashed Core no longer means restarting Unterm.** The window notices,
+  says so, finds the replacement Core and rebuilds itself onto it. The shells
+  the dead Core held are gone — nothing can bring those back — but the window
+  recovers by itself and opens a fresh one.
+
+### The confirmation before an agent types into your shell
+
+- **It now shows you the command.** It used to lead with a byte count, so the
+  one thing you needed in order to decide was also the first thing cut when
+  the row ran out of room: `exec.run: len=22…`.
+- **A newline hidden mid-command is flagged.** Approving `ls` and getting
+  `rm -rf /` along with it is the shape this catches. An ordinary trailing
+  newline is not flagged, because a warning that is always on is not a warning.
+- **It is translated, and it fits.** Measured in display columns rather than
+  characters — the Chinese labels are twice as wide as they look, and the key
+  that refuses used to be the first thing pushed off the edge.
+- **Being blocked tells you which kind.** "No window is open to approve this",
+  "the user refused" and "nobody answered in time" are three different things
+  to do next; all three used to arrive as the word *denied*.
+
+### Fixed
+
+- The CLI no longer reports "Unterm is not running" at an Unterm that is
+  running and waiting for you to approve something. Its read timeout now
+  outlasts the confirmation it is waiting on, so the real verdict arrives.
+- A `unterm.conf` saved by Notepad or `Set-Content -Encoding utf8` is read
+  instead of silently ignored — the UTF-8 byte-order mark used to swallow the
+  whole file.
+- Recordings, exports, trust lists and registries all honour
+  `UNTERM_STATE_DIR`. 49 places had each worked out where state lives on their
+  own, and most of them ignored it.
+
 ## v0.61.1 — 2026-08-02
 
 A hotfix for Windows installs. If v0.61.0 would not open after upgrading,
