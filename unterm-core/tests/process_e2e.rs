@@ -142,8 +142,10 @@ fn real_process_serves_sessions_and_cleans_up() {
 
 #[test]
 fn concurrent_launches_yield_exactly_one_core() {
+    // 20 is the M1 gate's number: "20 concurrent clients must not
+    // produce a duplicate Core or fight over ports".
     let state_dir = scratch_state_dir("race");
-    let mut children: Vec<Child> = (0..8).map(|_| spawn_core(&state_dir)).collect();
+    let mut children: Vec<Child> = (0..20).map(|_| spawn_core(&state_dir)).collect();
 
     let discovery = wait_for_discovery(&state_dir, Duration::from_secs(10));
     let winner_pid = discovery.pid;
