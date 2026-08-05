@@ -198,9 +198,13 @@ impl FleetPaneSpawner for EngineFleetPanes {
     fn spawn_member(&mut self, cwd: &Path, command: &str) -> Result<u64> {
         let mut builder = portable_pty::CommandBuilder::new_default_prog();
         builder.cwd(cwd);
-        let engine = unterm_engine::next_core();
+        // Through the installed provider, not a bare next-core handle:
+        // with the sessions living in a Core process, a fleet spawned
+        // against this process's own engine lands in an empty world no
+        // window is looking at.
+        let engine = unterm_engine::host_engine();
         let session = unterm_engine::SessionEngine::create_session(
-            &engine,
+            &*engine,
             unterm_engine::CreateSessionRequest {
                 cols: 120,
                 rows: 40,
@@ -212,14 +216,17 @@ impl FleetPaneSpawner for EngineFleetPanes {
         )?;
         // The agent's own command, typed into the shell that was started --
         // the same thing a person launching a fleet member would do.
-        unterm_engine::InputEngine::write_input(&engine, session.id, &format!("{command}\r"))?;
+        unterm_engine::InputEngine::write_input(&*engine, session.id, &format!("{command}\r"))?;
         Ok(session.id as u64)
     }
 }
 
 impl FleetPaneRemover for EngineFleetPanes {
     fn remove_member(&mut self, pane_id: u64) -> Result<()> {
-        unterm_engine::SessionEngine::destroy_session(&unterm_engine::next_core(), pane_id as usize)
+        unterm_engine::SessionEngine::destroy_session(
+            &*unterm_engine::host_engine(),
+            pane_id as usize,
+        )
     }
 }
 
