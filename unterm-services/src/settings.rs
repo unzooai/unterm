@@ -287,6 +287,15 @@ fn scrollback_override(path: Option<&std::path::Path>) -> Option<usize> {
 
 /// Where the config file lives when the user does not say.
 pub fn default_path() -> Option<PathBuf> {
+    // UNTERM_STATE_DIR replaces ~/.unterm wholesale (same contract as
+    // the instance and bridge registries), and the config file lives
+    // there too — a test or headless Core must read the config it was
+    // given, never the real user's.
+    if let Some(dir) = std::env::var_os("UNTERM_STATE_DIR") {
+        if !dir.is_empty() {
+            return Some(PathBuf::from(dir).join("unterm.conf"));
+        }
+    }
     dirs_next::home_dir().map(|home| home.join(".unterm").join("unterm.conf"))
 }
 

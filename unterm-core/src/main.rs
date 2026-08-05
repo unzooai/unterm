@@ -15,6 +15,22 @@ fn main() -> Result<()> {
     let server = CoreServer::bind(("127.0.0.1", 0), &token)?;
     let endpoint = server.endpoint()?;
 
+    // The agent surface enforces the user's policy — trusted agents,
+    // confirmation mode, scrollback size. A Core that skipped the
+    // config would judge every write by defaults instead of by what
+    // the user chose in it.
+    let (config, config_errors) = unterm_services::settings::load(None);
+    for error in &config_errors {
+        eprintln!(
+            "unterm-core: config line {}: {}",
+            error.line, error.message
+        );
+    }
+    unterm_services::settings::set_current(&config);
+    unterm_engine::next_core::NextCoreEngine::set_new_session_scrollback_lines(
+        unterm_services::settings::scrollback_lines(&config),
+    );
+
     // The agent surface lives here, not in any GUI: sessions belong to
     // this process, so the 103-method MCP server drives the local
     // engine directly. Discovery via our own record; a GUI's MCP

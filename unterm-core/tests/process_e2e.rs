@@ -31,13 +31,44 @@ fn scratch_state_dir(label: &str) -> std::path::PathBuf {
     dir
 }
 
-fn spawn_core(state_dir: &std::path::Path) -> Child {
+/// Kills the child when dropped, so a panicking assertion cannot leave
+/// an orphan core holding the executable's file lock — which would
+/// break every rebuild after a failed run.
+struct CoreGuard(Child);
+
+impl Drop for CoreGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+impl std::ops::Deref for CoreGuard {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for CoreGuard {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+
+fn spawn_core(state_dir: &std::path::Path) -> CoreGuard {
+    // HOME/USERPROFILE point into the scratch dir too: the Core reads
+    // the user's config (~/.unterm/unterm.conf) for write policy, and
+    // a test must see the config it wrote, never the real user's.
     Command::new(env!("CARGO_BIN_EXE_unterm-core"))
         .env("UNTERM_STATE_DIR", state_dir)
+        .env("USERPROFILE", state_dir)
+        .env("HOME", state_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
+        .map(CoreGuard)
         .expect("spawn unterm-core binary")
 }
 
@@ -212,12 +243,89 @@ fn headless_mcp_serves_sessions_without_any_gui() {
     let _ = std::fs::remove_dir_all(&state_dir);
 }
 
+/// The authorized half of the headless story: with the user's config
+/// saying `input_confirmation = "never"`, an agent's write goes
+/// through with no GUI anywhere — proof the Core reads and enforces
+/// the same config file the GUI does.
+#[test]
+fn headless_write_is_allowed_when_the_config_says_never() {
+    let state_dir = scratch_state_dir("mcp-allow");
+    // UNTERM_STATE_DIR replaces ~/.unterm wholesale; the config file
+    // lives at its root, exactly where the Core will look.
+    std::fs::write(
+        state_dir.join("unterm.conf"),
+        "[mcp]\ninput_confirmation = \"never\"\n",
+    )
+    .unwrap();
+
+    let mut child = spawn_core(&state_dir);
+    let discovery = wait_for_discovery(&state_dir, Duration::from_secs(10));
+    let mcp_port = discovery.mcp_port.expect("core must publish an MCP port");
+
+    let mut stream = TcpStream::connect(("127.0.0.1", mcp_port)).unwrap();
+    stream.set_nodelay(true).unwrap();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut mcp = |method: &str, params: serde_json::Value| -> serde_json::Value {
+        let frame = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+        writeln!(stream, "{frame}").unwrap();
+        stream.flush().unwrap();
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    };
+
+    let auth = mcp("auth.login", serde_json::json!({"token": discovery.token}));
+    assert_eq!(auth["result"]["status"], "ok");
+    let created = mcp("session.create", serde_json::json!({"cols": 80, "rows": 24}));
+    let pane_id = created["result"]["id"].as_u64().unwrap();
+
+    let sent = mcp(
+        "exec.run",
+        serde_json::json!({"id": pane_id, "command": "echo headless-authorized"}),
+    );
+    assert_eq!(
+        sent["result"]["sent"], true,
+        "configured-never write must pass headless: {sent}"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let text = mcp("screen.text", serde_json::json!({"id": pane_id}));
+        let body = text["result"]["lines"]
+            .as_array()
+            .map(|lines| {
+                lines
+                    .iter()
+                    .filter_map(|line| line.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+        if body.contains("headless-authorized") {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "echoed output never reached the screen: {text}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let _ = mcp("session.destroy", serde_json::json!({"id": pane_id}));
+    let mut core = TcpStream::connect(&discovery.endpoint).unwrap();
+    let frame = serde_json::json!({"id": "x", "method": "core.shutdown", "token": discovery.token, "params": null});
+    writeln!(core, "{frame}").unwrap();
+    core.flush().unwrap();
+    assert!(wait_for_exit(&mut child, Duration::from_secs(10)));
+    let _ = std::fs::remove_dir_all(&state_dir);
+}
+
 #[test]
 fn concurrent_launches_yield_exactly_one_core() {
     // 20 is the M1 gate's number: "20 concurrent clients must not
     // produce a duplicate Core or fight over ports".
     let state_dir = scratch_state_dir("race");
-    let mut children: Vec<Child> = (0..20).map(|_| spawn_core(&state_dir)).collect();
+    let mut children: Vec<CoreGuard> = (0..20).map(|_| spawn_core(&state_dir)).collect();
 
     let discovery = wait_for_discovery(&state_dir, Duration::from_secs(10));
     let winner_pid = discovery.pid;
