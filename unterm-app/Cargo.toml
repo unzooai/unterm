@@ -43,6 +43,12 @@ winit = "0.30"
 arboard = "3"
 pollster = "0.4"
 
+[target.'cfg(windows)'.dependencies]
+# Asking DWM to round the window's corners: a frameless window is not
+# rounded by default, and square corners next to every other Windows 11
+# window read as a window that did not finish loading.
+winapi = { workspace = true, features = ["dwmapi", "windef", "minwindef", "winerror"] }
+
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = { workspace = true }
 

@@ -76,6 +76,41 @@ const FALLBACK_GPU_BACKEND: Option<wgpu::Backends> = None;
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 const FALLBACK_GPU_BACKEND: Option<wgpu::Backends> = Some(wgpu::Backends::GL);
 
+/// Ask the compositor for the platform's own rounded corners.
+///
+/// A window that draws its own frame gets square ones by default,
+/// which next to every other Windows 11 window reads as a window that
+/// has not finished loading. The radius is the system's rather than
+/// one of ours: a corner that disagrees with the shadow around it
+/// looks wrong in a way nobody can point at.
+#[cfg(windows)]
+fn round_window_corners(window: &Window) {
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWCP_ROUND: u32 = 2;
+    let Ok(handle) = window.window_handle() else {
+        return;
+    };
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return;
+    };
+    let preference = DWMWCP_ROUND;
+    // Windows 10 does not know this attribute and answers with an
+    // error, which is the whole response needed: square corners there
+    // are the platform's own look.
+    unsafe {
+        winapi::um::dwmapi::DwmSetWindowAttribute(
+            win32.hwnd.get() as winapi::shared::windef::HWND,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &preference as *const u32 as *const std::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn round_window_corners(_window: &Window) {}
+
 /// A graphics stack that has already produced one frame.
 struct Graphics {
     surface: wgpu::Surface<'static>,
@@ -1016,6 +1051,9 @@ impl App {
                 .with_inner_size(winit::dpi::PhysicalSize::new(saved.width, saved.height));
         }
         let window = Arc::new(event_loop.create_window(attributes)?);
+        if !self.system_decorations {
+            round_window_corners(&window);
+        }
         if self.restore.as_ref().map(|saved| saved.maximized) == Some(true) {
             window.set_maximized(true);
         }
@@ -2212,7 +2250,11 @@ impl App {
 
     /// How tall the bar along the top is.
     fn top_bar_height(&self) -> f32 {
-        crate::topbar::height(self.chrome_row_height(), self.chrome_pt())
+        crate::topbar::height(
+            self.chrome_row_height(),
+            self.chrome_pt(),
+            self.top_bar_quiet,
+        )
     }
 
     /// Where the terminal's first row starts, below the bar.

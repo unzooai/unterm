@@ -21,15 +21,17 @@
 use crate::keys::Action;
 
 /// How tall the bar is: one chrome row with a little air around it.
-pub fn height(_row_height: f32, pt: f32) -> f32 {
+pub fn height(_row_height: f32, pt: f32, quiet: bool) -> f32 {
     // v0.57.4 reserved 1.6 title-font cells for the integrated chrome. The
     // first next-core version added a fully padded sidebar row *and* another
     // 8pt around it, producing the visibly oversized ~77px strip at 150% DPI.
     let cell = crate::ui_tokens::UI_FONT_SIZE as f32 * pt;
-    // Measured off v0.57.4 rather than derived: its bar stood 2.42 title
-    // cells tall (58px over a 24px em), padding included. 1.6 cells was the
-    // tab's own height inside that bar, not the bar.
-    let base = cell * 2.4;
+    // 2.42 cells was measured off v0.57.4, whose bar held a full row of
+    // action chips and needed the room. The quiet bar holds a wordmark,
+    // one tally and a chevron: two cells puts it at the platform's own
+    // title bar height -- 32 logical pixels at any scale -- instead of
+    // a fifth taller than the window frames beside it.
+    let base = cell * if quiet { 2.0 } else { 2.4 };
     // The v0.57.4 quick-action cells were the taller constraint: one title
     // cell plus 0.18-cell margins and 0.22-cell padding on both sides, with a
     // physical-pixel border. At 150% DPI this is ~49px.
@@ -38,8 +40,8 @@ pub fn height(_row_height: f32, pt: f32) -> f32 {
 }
 
 /// Where the terminal starts, below the bar.
-pub fn terminal_top(row_height: f32, pt: f32) -> f32 {
-    height(row_height, pt) + (crate::ui_tokens::CHROME_PANEL_INSET * pt).round()
+pub fn terminal_top(row_height: f32, pt: f32, quiet: bool) -> f32 {
+    height(row_height, pt, quiet) + (crate::ui_tokens::CHROME_PANEL_INSET * pt).round()
 }
 
 /// What the bar shows at a given width, in logical pixels.
@@ -883,8 +885,8 @@ mod geometry_tests {
     #[test]
     fn the_terminal_starts_below_the_bar_with_a_gap() {
         for (row, pt) in [(24.0, 1.0), (31.0, 1.33), (46.0, 2.0)] {
-            let bar = height(row, pt);
-            let top = terminal_top(row, pt);
+            let bar = height(row, pt, true);
+            let top = terminal_top(row, pt, true);
             assert!(bar >= 20.0 * pt, "the bar is too short at {pt}x: {bar}");
             assert!(top > bar, "the terminal starts inside the bar at {pt}x");
         }
@@ -895,8 +897,8 @@ mod geometry_tests {
     /// machine.
     #[test]
     fn the_bar_grows_with_the_display() {
-        let one = height(24.0, 1.0);
-        let bigger = height(36.0, 1.5);
+        let one = height(24.0, 1.0, true);
+        let bigger = height(36.0, 1.5, true);
         assert!(bigger > one, "{one} then {bigger}");
     }
 
@@ -906,7 +908,7 @@ mod geometry_tests {
     #[test]
     fn the_bar_stays_a_small_share_of_a_short_window() {
         let pt = 1.33;
-        let bar = height(31.0, pt);
+        let bar = height(31.0, pt, true);
         for window in [400.0, 600.0, 900.0] {
             assert!(
                 bar < window * 0.2,

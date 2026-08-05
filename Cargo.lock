@@ -5644,6 +5644,7 @@ dependencies = [
  "unterm-services",
  "unterm-settings",
  "wgpu",
+ "winapi",
  "winit",
 ]
 
