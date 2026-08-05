@@ -599,6 +599,9 @@ pub struct App {
     /// Whether the resident bottom status bar is on. Off by default in
     /// the inbox design; a pending confirmation shows the strip anyway.
     status_bar_enabled: bool,
+    /// The pointer shape currently asked for, so a move that changes
+    /// nothing does not talk to the window system at all.
+    cursor_icon: winit::window::CursorIcon,
     /// Whether the top bar hides its action row and facts line. On by
     /// default; `top_bar = "full"` in the config restores them.
     top_bar_quiet: bool,
@@ -832,6 +835,7 @@ impl App {
                 .ok()
                 .flatten()
                 .unwrap_or(false),
+            cursor_icon: winit::window::CursorIcon::Default,
             top_bar_quiet: config
                 .str_of("top_bar")
                 .ok()
@@ -2214,6 +2218,59 @@ impl App {
     /// Where the terminal's first row starts, below the bar.
     fn terminal_top(&self) -> f32 {
         self.top_bar_height() + self.terminal_padding_top()
+    }
+
+    /// Which window edge the pointer is on, if it may grab one.
+    ///
+    /// The window buttons are excluded: a press aimed at closing the
+    /// window must never start a resize instead, and they sit against
+    /// the very corner the band would otherwise own.
+    fn resize_edge_at_pointer(&self) -> Option<winit::window::ResizeDirection> {
+        let live = self.state.as_ref()?;
+        let size = (live.width as f32, live.height as f32);
+        let pt = self.chrome_pt();
+        if self.pointer.1 < self.top_bar_height()
+            && self.pointer.0 >= size.0 - crate::topbar::window_button_band(pt)
+        {
+            return None;
+        }
+        crate::topbar::resize_edge(self.pointer, size, pt)
+    }
+
+    /// Say what the pointer can do here, by its shape.
+    ///
+    /// The window draws its own frame, so its resize band is invisible:
+    /// an edge that leaves the arrow alone is an edge nobody discovers,
+    /// and the window reads as one that cannot be resized. The grid
+    /// takes an I-beam for the same reason every terminal does -- that
+    /// is where text is selected.
+    fn apply_cursor(&mut self) {
+        use winit::window::CursorIcon;
+        let Some((width, height)) = self
+            .state
+            .as_ref()
+            .map(|live| (live.width as f32, live.height as f32))
+        else {
+            return;
+        };
+        let icon = if let Some(direction) = self.resize_edge_at_pointer() {
+            crate::topbar::resize_cursor(direction)
+        } else if self.pointer.0 >= self.terminal_left()
+            && self.pointer.0 < width - self.git_panel_width()
+            && self.pointer.1 >= self.terminal_top()
+            && self.pointer.1 < height - self.status_bar_height()
+        {
+            CursorIcon::Text
+        } else {
+            CursorIcon::Default
+        };
+        if self.cursor_icon == icon {
+            return;
+        }
+        self.cursor_icon = icon;
+        if let Some(live) = self.state.as_ref() {
+            live.window.set_cursor(icon);
+        }
     }
 
     fn terminal_padding_left(&self) -> f32 {
@@ -8804,6 +8861,7 @@ impl ApplicationHandler for App {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = (position.x as f32, position.y as f32);
+                self.apply_cursor();
                 if self.dragging_scrollbar {
                     self.scroll_to_pointer();
                     return;
@@ -9094,9 +9152,8 @@ impl ApplicationHandler for App {
                 // The edges first: a borderless window has no system resize
                 // handles, so a press there has to start one.
                 if state == ElementState::Pressed {
-                    if let Some(live) = self.state.as_ref() {
-                        let size = (live.width as f32, live.height as f32);
-                        if let Some(direction) = crate::topbar::resize_edge(self.pointer, size) {
+                    if let Some(direction) = self.resize_edge_at_pointer() {
+                        if let Some(live) = self.state.as_ref() {
                             let _ = live.window.drag_resize_window(direction);
                             return;
                         }

@@ -163,9 +163,7 @@ pub fn layout(
 
     // The window buttons, from the right edge inwards, in the order the
     // platform puts them.
-    // The Windows caption width, 46px at 96dpi: a close button narrower
-    // than the system's misses the corner muscle memory aims at.
-    let button = (34.5 * pt).round();
+    let button = button_width(pt);
     let mut right = width;
     let mut buttons = Vec::new();
     if !native_traffic_lights() {
@@ -723,26 +721,79 @@ mod number_key_tests {
 pub fn resize_edge(
     pointer: (f32, f32),
     size: (f32, f32),
+    pt: f32,
 ) -> Option<winit::window::ResizeDirection> {
     use winit::window::ResizeDirection;
 
-    const BAND: f32 = 6.0;
-    let left = pointer.0 <= BAND;
-    let right = pointer.0 >= size.0 - BAND;
-    let top = pointer.1 <= BAND;
-    let bottom = pointer.1 >= size.1 - BAND;
+    // Measured in points, not device pixels: six device pixels is four
+    // logical ones on a 150% display, a target missed often enough that
+    // the window reads as one that cannot be resized at all. Corners
+    // reach further along both of their edges, the way every window
+    // manager grows them, because a corner is what anyone resizing two
+    // dimensions at once aims for.
+    let band = (6.0 * pt).max(6.0);
+    let corner = band * 2.5;
+    let left = pointer.0 <= band;
+    let right = pointer.0 >= size.0 - band;
+    let top = pointer.1 <= band;
+    let bottom = pointer.1 >= size.1 - band;
+    let near_left = pointer.0 <= corner;
+    let near_right = pointer.0 >= size.0 - corner;
+    let near_top = pointer.1 <= corner;
+    let near_bottom = pointer.1 >= size.1 - corner;
 
-    Some(match (top, bottom, left, right) {
-        (true, _, true, _) => ResizeDirection::NorthWest,
-        (true, _, _, true) => ResizeDirection::NorthEast,
-        (_, true, true, _) => ResizeDirection::SouthWest,
-        (_, true, _, true) => ResizeDirection::SouthEast,
-        (true, ..) => ResizeDirection::North,
-        (_, true, ..) => ResizeDirection::South,
-        (_, _, true, _) => ResizeDirection::West,
-        (_, _, _, true) => ResizeDirection::East,
-        _ => return None,
+    Some(if (top && near_left) || (left && near_top) {
+        ResizeDirection::NorthWest
+    } else if (top && near_right) || (right && near_top) {
+        ResizeDirection::NorthEast
+    } else if (bottom && near_left) || (left && near_bottom) {
+        ResizeDirection::SouthWest
+    } else if (bottom && near_right) || (right && near_bottom) {
+        ResizeDirection::SouthEast
+    } else if top {
+        ResizeDirection::North
+    } else if bottom {
+        ResizeDirection::South
+    } else if left {
+        ResizeDirection::West
+    } else if right {
+        ResizeDirection::East
+    } else {
+        return None;
     })
+}
+
+/// The arrow that says which way an edge will move.
+///
+/// Without one the band is invisible: an edge that does not change the
+/// pointer is an edge nobody knows is there.
+pub fn resize_cursor(direction: winit::window::ResizeDirection) -> winit::window::CursorIcon {
+    use winit::window::{CursorIcon, ResizeDirection};
+    match direction {
+        ResizeDirection::North | ResizeDirection::South => CursorIcon::NsResize,
+        ResizeDirection::East | ResizeDirection::West => CursorIcon::EwResize,
+        ResizeDirection::NorthEast | ResizeDirection::SouthWest => CursorIcon::NeswResize,
+        ResizeDirection::NorthWest | ResizeDirection::SouthEast => CursorIcon::NwseResize,
+    }
+}
+
+/// How wide one window button is.
+pub fn button_width(pt: f32) -> f32 {
+    // The Windows caption width, 46px at 96dpi: a close button narrower
+    // than the system's misses the corner muscle memory aims at.
+    (34.5 * pt).round()
+}
+
+/// How far in from the right edge the window buttons reach.
+///
+/// The resize band has to keep out of this: a press meant to close the
+/// window must never start a drag instead.
+pub fn window_button_band(pt: f32) -> f32 {
+    if native_traffic_lights() {
+        0.0
+    } else {
+        button_width(pt) * 3.0
+    }
 }
 
 #[cfg(test)]
@@ -754,22 +805,22 @@ mod resize_tests {
 
     #[test]
     fn the_middle_of_the_window_is_not_an_edge() {
-        assert_eq!(resize_edge((400.0, 300.0), SIZE), None);
+        assert_eq!(resize_edge((400.0, 300.0), SIZE, 1.0), None);
     }
 
     #[test]
     fn each_side_reports_its_own_direction() {
-        assert_eq!(resize_edge((0.0, 300.0), SIZE), Some(ResizeDirection::West));
+        assert_eq!(resize_edge((0.0, 300.0), SIZE, 1.0), Some(ResizeDirection::West));
         assert_eq!(
-            resize_edge((799.0, 300.0), SIZE),
+            resize_edge((799.0, 300.0), SIZE, 1.0),
             Some(ResizeDirection::East)
         );
         assert_eq!(
-            resize_edge((400.0, 0.0), SIZE),
+            resize_edge((400.0, 0.0), SIZE, 1.0),
             Some(ResizeDirection::North)
         );
         assert_eq!(
-            resize_edge((400.0, 599.0), SIZE),
+            resize_edge((400.0, 599.0), SIZE, 1.0),
             Some(ResizeDirection::South)
         );
     }
@@ -779,19 +830,19 @@ mod resize_tests {
     #[test]
     fn each_corner_resizes_in_two_directions() {
         assert_eq!(
-            resize_edge((1.0, 1.0), SIZE),
+            resize_edge((1.0, 1.0), SIZE, 1.0),
             Some(ResizeDirection::NorthWest)
         );
         assert_eq!(
-            resize_edge((799.0, 1.0), SIZE),
+            resize_edge((799.0, 1.0), SIZE, 1.0),
             Some(ResizeDirection::NorthEast)
         );
         assert_eq!(
-            resize_edge((1.0, 599.0), SIZE),
+            resize_edge((1.0, 599.0), SIZE, 1.0),
             Some(ResizeDirection::SouthWest)
         );
         assert_eq!(
-            resize_edge((799.0, 599.0), SIZE),
+            resize_edge((799.0, 599.0), SIZE, 1.0),
             Some(ResizeDirection::SouthEast)
         );
     }
@@ -803,11 +854,11 @@ mod resize_tests {
         for offset in 0..=5 {
             let at = offset as f32;
             assert!(
-                resize_edge((at, 300.0), SIZE).is_some(),
+                resize_edge((at, 300.0), SIZE, 1.0).is_some(),
                 "{at} from the left"
             );
             assert!(
-                resize_edge((SIZE.0 - at, 300.0), SIZE).is_some(),
+                resize_edge((SIZE.0 - at, 300.0), SIZE, 1.0).is_some(),
                 "{at} from the right"
             );
         }
@@ -818,7 +869,7 @@ mod resize_tests {
     /// resize the window instead of closing it.
     #[test]
     fn the_edge_does_not_reach_the_window_buttons() {
-        assert_eq!(resize_edge((SIZE.0 - 20.0, 20.0), SIZE), None);
+        assert_eq!(resize_edge((SIZE.0 - 20.0, 20.0), SIZE, 1.0), None);
     }
 }
 
