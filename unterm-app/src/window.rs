@@ -3198,10 +3198,10 @@ impl App {
                 _ => chrome.dim_text,
             };
             if piece.item == crate::topbar::Item::Wordmark {
-                // The icon's mark, in the icon's three colours -- the hook in
-                // the chrome's foreground, the dot and arrowhead in the teals.
-                // A one-colour stand-in here is what got called out, in as
-                // many words, as the logo being wrong.
+                // The icon's mark, in the icon's two colours — the
+                // prompt chevron in the chrome's foreground, the status
+                // dot in the icon's amber. Same geometry the installer
+                // and taskbar icons are generated from.
                 let cell_width = self.chrome_width("M");
                 let em = crate::ui_tokens::UI_FONT_SIZE as f32 * pt;
                 let mark_height = (em * 0.95).round().max(8.0);
@@ -3216,14 +3216,12 @@ impl App {
                 if self.atlas.get(key_for(0)).is_none() {
                     let mark =
                         crate::brand::rasterize(mark_width as usize, mark_height as usize);
-                    self.atlas.insert(key_for(0), &mark.hook);
+                    self.atlas.insert(key_for(0), &mark.chevron);
                     self.atlas.insert(key_for(1), &mark.dot);
-                    self.atlas.insert(key_for(2), &mark.arrow);
                 }
                 for (part, tint) in [
                     (0, foreground),
                     (1, crate::brand::DOT_COLOR),
-                    (2, crate::brand::ARROW_COLOR),
                 ] {
                     if let Some(slot) = self.atlas.get(key_for(part)) {
                         quads.glyphs.push(unterm_render::quads::glyph_quad(
