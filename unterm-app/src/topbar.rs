@@ -100,6 +100,9 @@ pub const MENU: char = '\u{eab4}';
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Item {
     Wordmark,
+    /// What this window is showing, across the middle. Text, not a
+    /// control: pressing it drags the window, as any title bar does.
+    Title,
     /// The line of facts about the pane in front. Text, not a control.
     Stats,
     /// The Agent Cockpit tally: agents seen, and how many wait for a person.
@@ -143,6 +146,7 @@ pub fn layout(
     pt: f32,
     stats: &str,
     cockpit: &str,
+    title: &str,
     project_open: bool,
     quiet: bool,
     measure: &mut dyn FnMut(&str) -> f32,
@@ -303,6 +307,29 @@ pub fn layout(
         }
     }
 
+    // The middle: what this window is showing. A bar with a brand at
+    // one end, controls at the other and nothing in between reads as
+    // an empty band -- and which window this is happens to be the one
+    // thing anybody ever wanted from a title bar. The full bar gives
+    // the room to its facts line instead.
+    let title = title.trim();
+    if quiet && !title.is_empty() {
+        let air = (12.0 * pt).round();
+        let room_left = left + air;
+        let room_right = right - air;
+        let wide = measure(title);
+        if wide <= (room_right - room_left).max(0.0) {
+            placed.push(Placed {
+                item: Item::Title,
+                left: ((width - wide) / 2.0).clamp(room_left, room_right - wide),
+                width: wide,
+                icon: None,
+                label: title.to_string(),
+                tooltip: None,
+            });
+        }
+    }
+
     // And the facts, in whatever is between. Right-aligned against the
     // actions, because that is where the eye goes back to after reading them.
     // The quiet bar leaves them to the shell's own prompt.
@@ -354,7 +381,7 @@ pub fn hit(placed: &[Placed], x: f32) -> Option<Item> {
 /// thing anyone notices about a window that has none.
 pub fn is_drag_handle(placed: &[Placed], x: f32) -> bool {
     match hit(placed, x) {
-        None | Some(Item::Wordmark) => true,
+        None | Some(Item::Wordmark) | Some(Item::Title) => true,
         Some(_) => false,
     }
 }
@@ -384,7 +411,7 @@ mod tests {
 
     fn bar(width: f32) -> Vec<Placed> {
         let mut measure = measurer();
-        layout(width, width, 1.33, "", "", true, false, &mut measure)
+        layout(width, width, 1.33, "", "", "", true, false, &mut measure)
     }
 
     fn has(bar: &[Placed], item: Item) -> bool {
@@ -437,6 +464,7 @@ mod tests {
                 width as f32,
                 1.33,
                 "\u{26A1} claude    main *3    8.0% cpu  1.4G",
+                "",
                 "",
                 true,
                 false,
@@ -492,7 +520,7 @@ mod tests {
     #[test]
     fn labels_appear_only_on_the_two_that_have_them() {
         let mut measure = measurer();
-        let wide = layout(1600.0, 1600.0, 1.33, "", "", true, false, &mut measure);
+        let wide = layout(1600.0, 1600.0, 1.33, "", "", "", true, false, &mut measure);
         let labelled: Vec<Action> = wide
             .iter()
             .filter(|piece| !piece.label.is_empty())
@@ -504,7 +532,7 @@ mod tests {
         assert_eq!(labelled, vec![Action::CommandPalette, Action::TreeSidebar]);
 
         let mut measure = measurer();
-        let narrow = layout(900.0, 900.0, 1.33, "", "", true, false, &mut measure);
+        let narrow = layout(900.0, 900.0, 1.33, "", "", "", true, false, &mut measure);
         assert!(
             narrow
                 .iter()
@@ -519,7 +547,7 @@ mod tests {
     #[test]
     fn an_icon_with_no_words_has_something_to_say_on_hover() {
         let mut measure = measurer();
-        let bar = layout(900.0, 900.0, 1.33, "", "", true, false, &mut measure);
+        let bar = layout(900.0, 900.0, 1.33, "", "", "", true, false, &mut measure);
         for piece in &bar {
             if matches!(piece.item, Item::Action(_)) && piece.label.is_empty() {
                 let tooltip = piece.tooltip.as_deref().unwrap_or("");
@@ -533,7 +561,7 @@ mod tests {
     #[test]
     fn the_actions_read_in_the_declared_order() {
         let mut measure = measurer();
-        let bar = layout(1600.0, 1600.0, 1.33, "", "", true, false, &mut measure);
+        let bar = layout(1600.0, 1600.0, 1.33, "", "", "", true, false, &mut measure);
         let order: Vec<Item> = bar
             .iter()
             .filter(|piece| matches!(piece.item, Item::Action(_) | Item::Menu))
@@ -587,6 +615,7 @@ mod tests {
             1.33,
             "8.0% cpu  1.4G  4m",
             "",
+            "",
             true,
             false,
             &mut measure,
@@ -621,6 +650,7 @@ mod tests {
             1.33,
             "\u{26A1} claude    main *3    8.0% cpu  1.4G  4m",
             "",
+            "",
             true,
             false,
             &mut measure,
@@ -636,7 +666,7 @@ mod tests {
     #[test]
     fn the_text_drags_and_the_controls_do_not() {
         let mut measure = measurer();
-        let bar = layout(1600.0, 1600.0, 1.33, "8.0% cpu", "", true, false, &mut measure);
+        let bar = layout(1600.0, 1600.0, 1.33, "8.0% cpu", "", "", true, false, &mut measure);
         for piece in &bar {
             let middle = piece.left + piece.width / 2.0;
             let expected = matches!(piece.item, Item::Wordmark);

@@ -637,6 +637,9 @@ pub struct App {
     /// The pointer shape currently asked for, so a move that changes
     /// nothing does not talk to the window system at all.
     cursor_icon: winit::window::CursorIcon,
+    /// What the top bar's centre says: the window title without the
+    /// product name after it.
+    bar_title: String,
     /// Whether the top bar hides its action row and facts line. On by
     /// default; `top_bar = "full"` in the config restores them.
     top_bar_quiet: bool,
@@ -871,6 +874,7 @@ impl App {
                 .flatten()
                 .unwrap_or(false),
             cursor_icon: winit::window::CursorIcon::Default,
+            bar_title: String::new(),
             top_bar_quiet: config
                 .str_of("top_bar")
                 .ok()
@@ -3076,6 +3080,7 @@ impl App {
         let pt = self.chrome_pt();
         let logical = window_width / self.scale.max(0.1);
         let stats = self.stats_line(window_width);
+        let title = self.bar_title.clone();
         // The tally: how many agents the Cockpit sees, and how many wait.
         let cockpit = {
             let statuses = unterm_services::cockpit::status::snapshot();
@@ -3107,6 +3112,7 @@ impl App {
             pt,
             &stats,
             &cockpit,
+            &title,
             open,
             self.top_bar_quiet,
             &mut measure,
@@ -3201,7 +3207,12 @@ impl App {
 
             // An action under the pointer gets a rounded surface, inset from
             // the bar's edges so it reads as a button rather than as a column.
-            if is_hovered && !matches!(piece.item, crate::topbar::Item::Wordmark) {
+            if is_hovered
+                && !matches!(
+                    piece.item,
+                    crate::topbar::Item::Wordmark | crate::topbar::Item::Title
+                )
+            {
                 let inset = 3.0 * pt;
                 quads.backgrounds.extend(unterm_render::rounded::panel(
                     piece.left,
@@ -3290,6 +3301,14 @@ impl App {
                 // full strength, as 0.57.4 set it.
                 crate::topbar::Item::Wordmark => foreground,
                 crate::topbar::Item::Stats => chrome.dim_text,
+                // The title is context, not a label to read first: it
+                // sits below the brand and the tally in the bar's own
+                // order of voices.
+                crate::topbar::Item::Title => {
+                    let mut quiet = chrome.dim_text;
+                    quiet[3] *= 0.66;
+                    quiet
+                }
                 crate::topbar::Item::Cockpit if cockpit_waiting => {
                     crate::cockpit::Badge::NeedsYou.color()
                 }
@@ -3435,8 +3454,8 @@ impl App {
         };
 
         match item {
-            // Both of these are handles, and were taken above.
-            crate::topbar::Item::Wordmark => {}
+            // These are handles, and were taken above.
+            crate::topbar::Item::Wordmark | crate::topbar::Item::Title => {}
             crate::topbar::Item::Cockpit => {
                 self.inbox_open = !self.inbox_open;
                 self.inbox_selected = 0;
@@ -7815,6 +7834,10 @@ impl App {
         } else {
             format!(" ({instance})")
         };
+        // The bar's centre gets the same subject without the product
+        // name: the window already says "Unterm" in its own corner, and
+        // a title bar that repeats it has said nothing twice.
+        self.bar_title = format!("{position}{project}{rendered}");
         let title = format!("{position}{project}{rendered} — Unterm{instance}");
         if self.window_title.as_deref() == Some(title.as_str()) {
             return;
