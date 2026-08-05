@@ -1535,8 +1535,16 @@ impl App {
         };
         let metrics = self.font.metrics();
         let height = self.state.as_ref().map(|live| live.height).unwrap_or(600) as f32;
-        let bar_height = self.status_bar_height();
-        let top = height - bar_height;
+        // Its own strip, laid over the last row rather than taken out
+        // of the grid: a question that reflows the shell underneath it
+        // moves the cursor away from where the program left it, and
+        // every row after that is drawn a line off.
+        let pt = self.chrome_pt();
+        let pad = (crate::ui_tokens::STATUS_BAR_VERTICAL_PADDING * pt)
+            .round()
+            .max(2.0);
+        let bar_height = (metrics.height + pad * 2.0).round().max(1.0);
+        let top = height - bar_height - self.status_bar_height();
         let columns = (window_width / metrics.width.max(1.0)).floor().max(0.0) as usize;
         // Less the inset the pen starts at, or the last hint runs off the edge.
         let line = crate::confirm::status_line(
@@ -1556,7 +1564,6 @@ impl App {
             height: bar_height,
             color: foreground,
         });
-        let pt = self.chrome_pt();
         let text_top = top
             + ((bar_height - metrics.height) / 2.0
                 + crate::ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt)
@@ -2431,7 +2438,7 @@ impl App {
         if y < first {
             return None;
         }
-        let footer_top = top + height - 2.0 * row_height;
+        let footer_top = top + height - row_height;
         let visible = (((footer_top - first) / row_height).floor()).max(1.0) as usize;
         let offset = ((y - first) / row_height) as usize;
         if offset >= visible {
@@ -2443,12 +2450,12 @@ impl App {
         (at < rows.len()).then_some(at)
     }
 
-    /// 0 = new session, 1 = the shell picker on its trailing split,
-    /// 2 = settings. Pure geometry: the footer is pinned to the bottom
+    /// 0 = new session, 1 = the shell picker, 2 = settings — one row,
+    /// three zones. Pure geometry: the footer is pinned to the bottom
     /// edge, so no session list has to be walked to find it.
     fn sidebar_footer_action_at(&self, x: f32, y: f32) -> Option<usize> {
         let (left, top, width, height, row_height) = self.sidebar_dock()?;
-        let footer_top = top + height - 2.0 * row_height;
+        let footer_top = top + height - row_height;
         if x < left || x >= left + width || y < footer_top || y >= top + height {
             return None;
         }
@@ -2457,15 +2464,20 @@ impl App {
         if x < left + inset || x >= left + width - inset {
             return None;
         }
-        if y < footer_top + row_height {
-            // The trailing square of the new-session row is the shell
-            // picker, the way a browser's new-tab button carries its
-            // dropdown.
-            let picker_left = left + width - inset - row_height;
-            Some(if x >= picker_left { 1 } else { 0 })
+        // Two marks against the trailing edge -- the shell picker
+        // beside the new-session row it belongs to, then settings.
+        // Narrower than they are tall, so the one action with words
+        // keeps room for them.
+        let square = crate::sidebar::footer_mark_width(row_height);
+        let settings_left = left + width - inset - square;
+        let picker_left = settings_left - square;
+        Some(if x >= settings_left {
+            2
+        } else if x >= picker_left {
+            1
         } else {
-            Some(2)
-        }
+            0
+        })
     }
 
     /// A press on the tab strip. Returns true when the strip took it.
@@ -2576,9 +2588,9 @@ impl App {
             color: chrome.outer_edge,
         });
 
-        // The bottom two rows are reserved for the actions, so the list
-        // never draws under them even when it fills the strip.
-        let footer_reserve = top + height - 2.0 * row_height;
+        // The bottom row is reserved for the actions, so the list never
+        // draws under them even when it fills the strip.
+        let footer_reserve = top + height - row_height;
         let rows = self.sidebar_rows();
         let first_row = top + crate::ui_tokens::CHROME_SECTION_GAP * pt;
         let visible = (((footer_reserve - first_row) / row_height).floor()).max(1.0) as usize;
@@ -2964,92 +2976,63 @@ impl App {
             color: chrome.inner_highlight,
         });
         let hovered = self.sidebar_footer_action_at(self.pointer.0, self.pointer.1);
-        let picker_width = row_height;
-        let main_width = (footer_width - picker_width).max(1.0);
-
-        // Row one: ＋ new session, ▾ shell picker on its trailing end.
-        let row_top = footer_top;
-        if hovered == Some(0) {
-            quads.backgrounds.extend(unterm_render::rounded::panel(
-                footer_left,
-                row_top + 2.0 * pt,
-                main_width,
-                row_height - 4.0 * pt,
-                radius,
-                chrome.hover_bg,
-            ));
-        }
-        if hovered == Some(1) {
-            quads.backgrounds.extend(unterm_render::rounded::panel(
-                footer_left + main_width,
-                row_top + 2.0 * pt,
-                picker_width,
-                row_height - 4.0 * pt,
-                radius,
-                chrome.hover_bg,
-            ));
-        }
+        let square = crate::sidebar::footer_mark_width(row_height);
+        let settings_left = footer_left + footer_width - square;
+        let picker_left = settings_left - square;
+        let main_width = (picker_left - footer_left).max(1.0);
         let ink = |on: bool| if on { foreground } else { chrome.dim_text };
+        let mut lift = |left: f32, width: f32, on: bool, quads: &mut unterm_render::quads::FrameQuads| {
+            if on {
+                quads.backgrounds.extend(unterm_render::rounded::panel(
+                    left,
+                    footer_top + 2.0 * pt,
+                    width,
+                    row_height - 4.0 * pt,
+                    radius,
+                    chrome.hover_bg,
+                ));
+            }
+        };
+        lift(footer_left, main_width, hovered == Some(0), quads);
+        lift(picker_left, square, hovered == Some(1), quads);
+        lift(settings_left, square, hovered == Some(2), quads);
+
+        // The one action with words -- everything else on this row is
+        // a square with a mark in it, which is what keeps three
+        // controls in the height of one.
         let mut pen = footer_left + 7.0 * pt;
         pen = self.append_chrome(
             "\u{FF0B}",
             ink(hovered == Some(0)),
-            (pen, row_top + text_offset),
+            (pen, footer_top + text_offset),
             quads,
         );
         pen += 6.0 * pt;
         let new_label = self.chrome_fit(
             &t("sidebar.new_session"),
-            footer_left + main_width - pen - 4.0 * pt,
+            (picker_left - pen - 4.0 * pt).max(0.0),
         );
         self.append_chrome(
             &new_label,
             ink(hovered == Some(0)),
-            (pen, row_top + text_offset),
+            (pen, footer_top + text_offset),
             quads,
         );
-        let picker_glyph = "\u{25BE}";
-        let picker_text = self.chrome_width(picker_glyph);
-        self.append_chrome(
-            picker_glyph,
-            ink(hovered == Some(1)),
-            (
-                footer_left + main_width + ((picker_width - picker_text) / 2.0).max(0.0),
-                row_top + text_offset,
-            ),
-            quads,
-        );
-
-        // Row two: settings.
-        let row_top = footer_top + row_height;
-        if hovered == Some(2) {
-            quads.backgrounds.extend(unterm_render::rounded::panel(
-                footer_left,
-                row_top + 2.0 * pt,
-                footer_width,
-                row_height - 4.0 * pt,
-                radius,
-                chrome.hover_bg,
-            ));
+        for (left, glyph, on) in [
+            (picker_left, "\u{25BE}", hovered == Some(1)),
+            (settings_left, "\u{EB51}", hovered == Some(2)),
+        ] {
+            let wide = self.chrome_width(glyph);
+            self.append_chrome(
+                glyph,
+                ink(on),
+                (
+                    left + ((square - wide) / 2.0).max(0.0),
+                    footer_top + text_offset,
+                ),
+                quads,
+            );
         }
-        let mut pen = footer_left + 7.0 * pt;
-        pen = self.append_chrome(
-            "\u{EB51}",
-            ink(hovered == Some(2)),
-            (pen, row_top + text_offset),
-            quads,
-        );
-        pen += 6.0 * pt;
-        let settings_label = self.chrome_fit(
-            &t("sidebar.settings"),
-            footer_left + footer_width - pen - 4.0 * pt,
-        );
-        self.append_chrome(
-            &settings_label,
-            ink(hovered == Some(2)),
-            (pen, row_top + text_offset),
-            quads,
-        );
     }
 
     /// The line of facts about the pane in front, for the top bar.
@@ -7030,14 +7013,17 @@ impl App {
     /// How tall the line along the bottom is.
     fn status_bar_height(&self) -> f32 {
         // Hidden by default in the inbox design: the facts it carried
-        // (cwd, branch, shell) live in the top bar's stats line, and a
+        // (cwd, branch, shell) live in the top bar's title, and a
         // resident strip under every terminal is chrome that says the
         // same thing twice. `status_bar = true` in the config brings it
-        // back, and a pending MCP confirmation always gets the strip —
-        // a question must never be invisible.
-        let confirmation_pending =
-            unterm_mcp::handler::pending_confirmation_view().is_some();
-        if !self.status_bar_enabled && !confirmation_pending {
+        // back.
+        //
+        // Config alone decides this, never anything transient. Letting
+        // a pending confirmation add the strip changed the terminal's
+        // row count without telling the shell, and every row below the
+        // cursor was then drawn one line off from where the program
+        // believed it was. The banner draws over the grid instead.
+        if !self.status_bar_enabled {
             return 0.0;
         }
         // The bar is one terminal cell plus the slight vertical padding the

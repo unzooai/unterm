@@ -152,6 +152,15 @@ mod tests {
             ("spinner q2", '\u{25D3}'),
             ("spinner q3", '\u{25D1}'),
             ("spinner q4", '\u{25D2}'),
+            // One mark per agent, so a row says who is in it before
+            // its text is read.
+            ("claude asterisk", '\u{273B}'),
+            ("codex hexagon", '\u{2B22}'),
+            ("gemini sparkle", '\u{2726}'),
+            ("aider pencil", '\u{270E}'),
+            ("opencode diamond", '\u{25C7}'),
+            ("kimi moon", '\u{263E}'),
+            ("cursor triangle", '\u{27A4}'),
         ] {
             if !stack.covers(ch) {
                 missing.push(format!("{name} ({ch:?})"));
@@ -212,6 +221,15 @@ mod raster_tests {
             ("spinner q2", '\u{25D3}'),
             ("spinner q3", '\u{25D1}'),
             ("spinner q4", '\u{25D2}'),
+            // One mark per agent, so a row says who is in it before
+            // its text is read.
+            ("claude asterisk", '\u{273B}'),
+            ("codex hexagon", '\u{2B22}'),
+            ("gemini sparkle", '\u{2726}'),
+            ("aider pencil", '\u{270E}'),
+            ("opencode diamond", '\u{25C7}'),
+            ("kimi moon", '\u{263E}'),
+            ("cursor triangle", '\u{27A4}'),
         ] {
             let drawn = font
                 .stack_mut()

@@ -58,21 +58,8 @@ pub fn adaptive_default_width(tab_count: usize) -> f32 {
 pub fn shell_icon(title: &str) -> char {
     let lower = title.to_lowercase();
     let has = |name: &str| lower.contains(name);
-    if [
-        "claude",
-        "codex",
-        "gemini",
-        "kimi",
-        "aider",
-        "opencode",
-        "trae",
-        "zcode",
-        "cursor agent",
-    ]
-    .iter()
-    .any(|name| has(name))
-    {
-        return ROBOT;
+    if let Some(mark) = agent_icon(&lower) {
+        return mark;
     }
     if has("pwsh") || has("powershell") {
         '\u{ebc7}'
@@ -89,7 +76,50 @@ pub fn shell_icon(title: &str) -> char {
     }
 }
 
-/// An AI agent's pane.
+/// The mark for the agent running in a pane, if one is.
+///
+/// One per agent rather than one robot for all of them: with several
+/// agents open at once, the row's own mark is what says *which* is
+/// waiting, before any of its text is read. The shapes follow each
+/// tool's own sign where it has one -- Claude's asterisk, Gemini's
+/// four-pointed sparkle -- and are plain geometry otherwise. Every one
+/// of them is guarded by `chrome_font`'s reachability tests: a mark no
+/// face carries draws nothing at all, which reads as a broken row.
+pub fn agent_icon(lower_title: &str) -> Option<char> {
+    let has = |name: &str| lower_title.contains(name);
+    Some(if has("claude") {
+        '\u{273B}'
+    } else if has("codex") {
+        '\u{2B22}'
+    } else if has("gemini") {
+        '\u{2726}'
+    } else if has("aider") {
+        '\u{270E}'
+    } else if has("opencode") {
+        '\u{25C7}'
+    } else if has("kimi") {
+        '\u{263E}'
+    } else if has("cursor agent") {
+        '\u{27A4}'
+    } else if has("trae") || has("zcode") {
+        // Known agents with no sign of their own: the generic robot
+        // still says "an agent lives here", which is the point.
+        ROBOT
+    } else {
+        return None;
+    })
+}
+
+/// How wide one icon-only control in the strip's footer is.
+///
+/// Narrower than the row is tall: three controls share that row, and
+/// the only one with words has to keep them. Drawing and hit-testing
+/// both read it here so a press lands on what the eye sees.
+pub fn footer_mark_width(row_height: f32) -> f32 {
+    (row_height * 0.72).round().max(16.0)
+}
+
+/// An AI agent's pane, when the agent has no mark of its own.
 pub const ROBOT: char = '\u{f06a9}';
 /// The folder a project row leads with.
 pub const FOLDER: char = '\u{f07b}';
