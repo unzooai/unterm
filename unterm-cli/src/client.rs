@@ -262,6 +262,14 @@ impl ServerEndpoint {
             });
         }
 
+        // No live GUI instance — but sessions never lived in the GUI
+        // anyway. The Core process serves the same MCP surface and
+        // outlives every window; fall through to it before declaring
+        // the product absent.
+        if let Some(endpoint) = resolve_core_endpoint() {
+            return Ok(endpoint);
+        }
+
         // Prefer server.json as the legacy fallback for older builds.
         let server_json = dir.join("server.json");
         if let Ok(raw) = fs::read_to_string(&server_json) {
@@ -306,6 +314,32 @@ impl ServerEndpoint {
             identity: None,
         })
     }
+}
+
+/// The Core process's discovery record: `core.json` under
+/// `%LOCALAPPDATA%\Unterm` (or `UNTERM_STATE_DIR`), written by
+/// `unterm-core`. Its `mcp_port` is the agent surface that keeps
+/// working with no GUI alive; the token doubles for MCP auth.
+fn resolve_core_endpoint() -> Option<ServerEndpoint> {
+    let dir = match std::env::var_os("UNTERM_STATE_DIR") {
+        Some(path) if !path.is_empty() => PathBuf::from(path),
+        Some(_) => return None,
+        None => dirs_next::data_local_dir()?.join("Unterm"),
+    };
+    let raw = fs::read_to_string(dir.join("core.json")).ok()?;
+    let info: Value = serde_json::from_str(&raw).ok()?;
+    let pid = info.get("pid")?.as_u64()? as u32;
+    let port = info.get("mcp_port")?.as_u64()? as u16;
+    let token = info.get("token")?.as_str()?.to_string();
+    if pid == 0 || !pid_alive(pid) || port == 0 || token.is_empty() {
+        return None;
+    }
+    Some(ServerEndpoint {
+        token,
+        port,
+        http_port: 0,
+        identity: identity_from_value(&info),
+    })
 }
 
 fn identity_from_value(value: &Value) -> Option<BuildHandshake> {

@@ -205,10 +205,25 @@ create/split` 经 GUI 的 MCP server 创建的 pane 全部落在 Core 进程
 （client.rs）、bridge registry、Core discovery 的隔离契约对齐——此前
 测试实例会污染真实用户注册表。
 
-注意：MCP server 的**生命周期**仍在 GUI 进程内（GUI 退出则 agent 面
-断开）；把 server 本体迁入 Core 进程（含 McpHost 反向 IPC）是
-M1-03c 的后续阶段。写入确认门（gate_pty_write）行为与引擎后端无关，
-全新实例首次写入需 GUI 批准是既有设计。
+**Core 托管 MCP（M1-03c 第二阶段第一步）已落地**：unterm-core 进程
+启动即在临时端口起 headless MCP server（同一 token，103 方法驱动
+本进程引擎），端口写入 core.json 的 `mcp_port` 字段——不碰
+server.json，GUI 的实例注册互不冲突。unterm-cli 的端点解析新增
+回退级：活 GUI 实例 > **活 Core 的 MCP** > 旧版 server.json/token。
+真机验证：无任何 GUI 时 `unterm-cli session create/list` 直接工作；
+E2E `headless_mcp_serves_sessions_without_any_gui` 把 M1 门禁
+「不启动 GUI 可经 MCP 执行命令」固化为自动化测试。
+
+headless 安全语义：无窗口时确认门立即 fail-closed（审计
+`mcp.confirm.headless_block`，提示 trust/never 两条授权路径），
+不再让调用者挂在无人应答的确认超时上。`server.info` 在无实例
+记录时自报进程自身 BuildHandshake（ProcessRole::Core），版本
+握手不再把沉默当不兼容。
+
+过渡期形态：GUI 在场时 agent 走 GUI 的 MCP（完整确认 UI），GUI
+缺席时故障转移到 Core 的 MCP（fail-closed）。剩余缺口：Core 进程
+尚不读用户配置（settings 用默认值，trusted agents 不生效）；单一
+MCP + McpHost 反向 IPC（GUI 在场时也由 Core 服务）为最终形态。
 
 事件唤醒（M1-04d）已接通：FrameCache 支持 on-change 通知
 （`start_with_notify`），Core 模式下回调直连

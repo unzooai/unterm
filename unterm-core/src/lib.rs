@@ -36,6 +36,11 @@ pub struct DiscoveryInfo {
     pub token: String,
     pub pid: u32,
     pub product_version: String,
+    /// The Core-hosted MCP surface, when serving. Same token as the
+    /// engine IPC. This is how agents reach sessions with no GUI
+    /// alive; a GUI's own MCP server keeps `server.json` untouched.
+    #[serde(default)]
+    pub mcp_port: Option<u16>,
 }
 
 /// Where this Core keeps its discovery record and instance lock.
@@ -68,7 +73,7 @@ pub fn read_discovery() -> Result<Option<DiscoveryInfo>> {
     )?))
 }
 
-pub fn write_discovery(endpoint: &str, token: &str) -> Result<()> {
+pub fn write_discovery(endpoint: &str, token: &str, mcp_port: Option<u16>) -> Result<()> {
     let Some(path) = discovery_path() else {
         return Ok(());
     };
@@ -80,6 +85,7 @@ pub fn write_discovery(endpoint: &str, token: &str) -> Result<()> {
         token: token.into(),
         pid: std::process::id(),
         product_version: unterm_protocol::PRODUCT_VERSION.into(),
+        mcp_port,
     };
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(&info)?)?;

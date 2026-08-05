@@ -18,6 +18,8 @@ struct Discovery {
     token: String,
     pid: u32,
     product_version: String,
+    #[serde(default)]
+    mcp_port: Option<u16>,
 }
 
 fn scratch_state_dir(label: &str) -> std::path::PathBuf {
@@ -137,6 +139,76 @@ fn real_process_serves_sessions_and_cleans_up() {
         "shutdown must clear the discovery record"
     );
 
+    let _ = std::fs::remove_dir_all(&state_dir);
+}
+
+/// The M1 gate, as an automated test: no GUI anywhere, and the MCP
+/// surface still creates a PTY, reads its screen, and refuses an
+/// unauthorized write immediately instead of hanging on a banner no
+/// window will ever paint.
+#[test]
+fn headless_mcp_serves_sessions_without_any_gui() {
+    let state_dir = scratch_state_dir("mcp");
+    let mut child = spawn_core(&state_dir);
+    let discovery = wait_for_discovery(&state_dir, Duration::from_secs(10));
+    let mcp_port = discovery.mcp_port.expect("core must publish an MCP port");
+
+    let mut stream = TcpStream::connect(("127.0.0.1", mcp_port)).unwrap();
+    stream.set_nodelay(true).unwrap();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut mcp = |method: &str, params: serde_json::Value| -> serde_json::Value {
+        let frame = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+        writeln!(stream, "{frame}").unwrap();
+        stream.flush().unwrap();
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    };
+
+    let auth = mcp("auth.login", serde_json::json!({"token": discovery.token}));
+    assert_eq!(auth["result"]["status"], "ok", "auth failed: {auth}");
+
+    let created = mcp("session.create", serde_json::json!({"cols": 80, "rows": 24}));
+    let pane_id = created["result"]["id"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("session.create failed headless: {created}"));
+
+    let listed = mcp("session.list", serde_json::json!({}));
+    assert!(
+        serde_json::to_string(&listed["result"]).unwrap().contains(&pane_id.to_string()),
+        "created pane missing from list: {listed}"
+    );
+
+    // Unauthorized first write must fail closed *now* — a hang here
+    // would mean the gate parked on a confirmation banner that no
+    // window exists to answer.
+    let started = Instant::now();
+    let denied = mcp(
+        "exec.run",
+        serde_json::json!({"id": pane_id, "command": "echo should-not-run"}),
+    );
+    assert!(
+        denied.get("error").is_some(),
+        "headless untrusted write must be denied: {denied}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "headless denial must be immediate, took {:?}",
+        started.elapsed()
+    );
+
+    let closed = mcp("session.destroy", serde_json::json!({"id": pane_id}));
+    assert!(closed.get("error").is_none(), "session.destroy failed: {closed}");
+
+    // Shut the core down over its own IPC.
+    let mut core = TcpStream::connect(&discovery.endpoint).unwrap();
+    let frame = serde_json::json!({"id": "x", "method": "core.shutdown", "token": discovery.token, "params": null});
+    writeln!(core, "{frame}").unwrap();
+    core.flush().unwrap();
+    assert!(
+        wait_for_exit(&mut child, Duration::from_secs(10)),
+        "core did not exit after shutdown"
+    );
     let _ = std::fs::remove_dir_all(&state_dir);
 }
 

@@ -213,6 +213,27 @@ fn apply_startup_profile_binding() {
     log::info!("Instance bound to profile {id}");
 }
 
+/// Serve MCP without a front end and without registry side effects:
+/// bind an ephemeral port, authenticate with the caller's token, and
+/// dispatch on a background thread. The Core process hosts the agent
+/// surface this way — discovery goes through the Core's own record,
+/// not `server.json`, so a GUI's instance registration is never
+/// contested and the two servers can coexist during the migration.
+pub fn start_headless_mcp_server(auth_token: &str) -> Result<u16> {
+    let listener = TcpListener::bind((SERVER_BIND, 0))?;
+    let port = listener.local_addr()?.port();
+    let token = auth_token.to_string();
+    thread::Builder::new()
+        .name("mcp-server".into())
+        .spawn(move || {
+            if let Err(e) = run_server(listener, &token) {
+                log::error!("headless MCP server error: {}", e);
+            }
+        })?;
+    log::info!("headless MCP server listening on {}:{}", SERVER_BIND, port);
+    Ok(port)
+}
+
 fn run_server(listener: TcpListener, auth_token: &str) -> Result<()> {
     let handler = Arc::new(McpHandler::new());
 

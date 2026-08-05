@@ -14,6 +14,9 @@ dirs-next.workspace = true
 portable-pty.workspace = true
 unterm-protocol.workspace = true
 unterm-engine.workspace = true
+unterm-mcp.workspace = true
+unterm-services.workspace = true
+log.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

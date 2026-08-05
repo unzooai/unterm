@@ -5063,10 +5063,23 @@ impl McpHandler {
     fn server_info(&self) -> Result<Value> {
         let instance = unterm_services::server_info::read_current();
         let window = unterm_engine::window_identity();
+        let mut build = instance.build_handshake();
+        if build.product_version.is_empty() {
+            // No instance record to speak for us: a headless Core
+            // serves MCP without registering as a GUI instance. The
+            // process still knows exactly what it is, and a client
+            // that validates identity must not read silence as an
+            // incompatible peer.
+            build = unterm_protocol::BuildHandshake::current(
+                unterm_protocol::ProcessRole::Core,
+                std::process::id(),
+                "",
+            );
+        }
         Ok(json!({
             "name": "Unterm MCP Server",
-            "version": instance.build_handshake().product_version,
-            "build": instance.build_handshake(),
+            "version": build.product_version,
+            "build": build,
             "engine": self.engine_label(),
             "window_engine": window.engine,
             "uses_host_window": window.uses_host_window,
@@ -5798,6 +5811,21 @@ impl McpHandler {
         };
         if !needs_banner {
             return Ok(GateOutcome::Allow);
+        }
+
+        // Headless: no front end will ever paint the banner, let alone
+        // answer it. Fail closed now, with an audit entry pointing at
+        // the ways to authorize, instead of parking every caller on
+        // the confirmation timeout.
+        if unterm_engine::mcp_host().is_none() {
+            self.audit(
+                "mcp.confirm.headless_block",
+                Some(&pane_id.to_string()),
+                &format!(
+                    "agent={agent} {preview} (no window to confirm; trust the agent or set mcp_input_confirmation=never)"
+                ),
+            );
+            return Ok(GateOutcome::Block);
         }
 
         // Park on a confirmation banner. Capacity is intentionally

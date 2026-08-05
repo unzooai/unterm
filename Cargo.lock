@@ -5684,11 +5684,14 @@ dependencies = [
  "chrono",
  "dirs-next",
  "libc",
+ "log",
  "portable-pty",
  "serde",
  "serde_json",
  "unterm-engine",
+ "unterm-mcp",
  "unterm-protocol",
+ "unterm-services",
  "uuid",
 ]
 
