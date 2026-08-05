@@ -1,4 +1,9 @@
 {
+  "sidebar.waiting_for_you": "आपकी प्रतीक्षा में",
+  "sidebar.new_session": "नया सत्र",
+  "sidebar.settings": "सेटिंग्स",
+  "menu.shell_selector": "शेल चुनकर नया टैब…",
+  "menu.tab_navigator": "सत्र पर जाएँ…",
   "admin.failed": "व्यवस्थापक प्रारंभ विफल: {err}",
   "admin.requested": "व्यवस्थापक PowerShell माँगी गई। UAC संकेत स्वीकार करें।",
   "cli.lang.current": "वर्तमान भाषा: {code} ({name})",

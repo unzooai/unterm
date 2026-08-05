@@ -1,4 +1,9 @@
 {
+  "sidebar.waiting_for_you": "等待你",
+  "sidebar.new_session": "新增工作階段",
+  "sidebar.settings": "設定",
+  "menu.shell_selector": "選擇 shell 新增…",
+  "menu.tab_navigator": "工作階段快跳…",
   "admin.failed": "系統管理員啟動失敗:{err}",
   "admin.requested": "已要求系統管理員 PowerShell。請在 UAC 視窗中確認。",
   "cli.lang.current": "目前語言:{code}({name})",

@@ -35,6 +35,8 @@ pub enum Command {
     ExportSession,
     /// Open the web settings page in a browser.
     OpenSettings,
+    /// Open the shell picker: a new tab running the shell you choose.
+    OpenShellSelector,
     /// Show the directories under a path, so one can be picked.
     Browse { path: String, then: BrowseThen },
     /// Switch to a named theme.

@@ -1,4 +1,9 @@
 {
+  "sidebar.waiting_for_you": "응답 대기 중",
+  "sidebar.new_session": "새 세션",
+  "sidebar.settings": "설정",
+  "menu.shell_selector": "셸 선택하여 새 탭…",
+  "menu.tab_navigator": "세션으로 이동…",
   "admin.failed": "관리자 실행 실패: {err}",
   "admin.requested": "관리자 PowerShell을 요청했습니다. UAC 메시지를 수락하세요.",
   "cli.lang.current": "현재 언어: {code} ({name})",

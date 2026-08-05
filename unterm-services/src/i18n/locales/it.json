@@ -1,4 +1,9 @@
 {
+  "sidebar.waiting_for_you": "In attesa di te",
+  "sidebar.new_session": "Nuova sessione",
+  "sidebar.settings": "Impostazioni",
+  "menu.shell_selector": "Nuova scheda con shell…",
+  "menu.tab_navigator": "Vai alla sessione…",
   "admin.failed": "Avvio admin non riuscito: {err}",
   "admin.requested": "Richiesta PowerShell come amministratore. Conferma il prompt UAC.",
   "cli.lang.current": "Lingua attuale: {code} ({name})",

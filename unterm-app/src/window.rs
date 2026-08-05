@@ -2297,7 +2297,7 @@ impl App {
         if y < first {
             return None;
         }
-        let footer_top = top + height - row_height;
+        let footer_top = top + height - 2.0 * row_height;
         let visible = (((footer_top - first) / row_height).floor()).max(1.0) as usize;
         let offset = ((y - first) / row_height) as usize;
         if offset >= visible {
@@ -2309,43 +2309,29 @@ impl App {
         (at < rows.len()).then_some(at)
     }
 
+    /// 0 = new session, 1 = the shell picker on its trailing split,
+    /// 2 = settings. Pure geometry: the footer is pinned to the bottom
+    /// edge, so no session list has to be walked to find it.
     fn sidebar_footer_action_at(&self, x: f32, y: f32) -> Option<usize> {
         let (left, top, width, height, row_height) = self.sidebar_dock()?;
-        // Out of the strip entirely: answer before walking the session list.
-        // This ran on every click anywhere, and the row list is not free.
-        if x < left || x >= left + width || y < top || y >= top + height {
-            return None;
-        }
-        // The same arithmetic the paint uses: the action row follows the last
-        // visible row and stops at the bottom, so the hit test and the pixels
-        // can never disagree about where the buttons are.
-        let pt = crate::chrome_font::point(self.scale);
-        let first_row = top + crate::ui_tokens::CHROME_SECTION_GAP * pt;
-        let footer_reserve = top + height - row_height;
-        let visible = (((footer_reserve - first_row) / row_height).floor()).max(1.0) as usize;
-        let rows = self.sidebar_rows();
-        let mut scroll = self.sidebar_scroll;
-        if let Some(active) = rows
-            .iter()
-            .position(|row| matches!(row, crate::sidebar::Row::Tab { active: true, .. }))
-        {
-            scroll = crate::sidebar::scroll_to_show(scroll, active, visible);
-        }
-        let scroll = crate::sidebar::clamp_scroll(scroll, rows.len(), visible);
-        let shown = rows.len().saturating_sub(scroll).min(visible);
-        let footer_top = (first_row + shown as f32 * row_height).min(footer_reserve);
-        if x < left || x >= left + width || y < footer_top || y >= footer_top + row_height {
+        let footer_top = top + height - 2.0 * row_height;
+        if x < left || x >= left + width || y < footer_top || y >= top + height {
             return None;
         }
         let pt = crate::chrome_font::point(self.scale);
         let inset = crate::ui_tokens::CHROME_PANEL_INSET * pt;
-        let first = left + inset;
-        let usable = (width - inset * 2.0).max(0.0);
-        if x < first || usable <= 0.0 {
+        if x < left + inset || x >= left + width - inset {
             return None;
         }
-        let slot = ((x - first) / (usable / 3.0).max(1.0)) as usize;
-        (slot < 3).then_some(slot)
+        if y < footer_top + row_height {
+            // The trailing square of the new-session row is the shell
+            // picker, the way a browser's new-tab button carries its
+            // dropdown.
+            let picker_left = left + width - inset - row_height;
+            Some(if x >= picker_left { 1 } else { 0 })
+        } else {
+            Some(2)
+        }
     }
 
     /// A press on the tab strip. Returns true when the strip took it.
@@ -2358,7 +2344,10 @@ impl App {
             match action {
                 0 => self.new_tab(),
                 1 => self.open_shell_selector(),
-                2 => self.open_tab_navigator(),
+                2 => self.run_palette_command(
+                    crate::palette::Command::OpenSettings,
+                    "sidebar-settings",
+                ),
                 _ => unreachable!(),
             }
             self.drawn_revision = None;
@@ -2453,9 +2442,9 @@ impl App {
             color: chrome.outer_edge,
         });
 
-        // The bottom row is reserved for the actions, so the list never draws
-        // under them even when it fills the strip.
-        let footer_reserve = top + height - row_height;
+        // The bottom two rows are reserved for the actions, so the list
+        // never draws under them even when it fills the strip.
+        let footer_reserve = top + height - 2.0 * row_height;
         let rows = self.sidebar_rows();
         let first_row = top + crate::ui_tokens::CHROME_SECTION_GAP * pt;
         let visible = (((footer_reserve - first_row) / row_height).floor()).max(1.0) as usize;
@@ -2470,10 +2459,10 @@ impl App {
             scroll = crate::sidebar::scroll_to_show(scroll, active, visible);
         }
         let scroll = crate::sidebar::clamp_scroll(scroll, rows.len(), visible);
-        // The actions sit right under the last row, as 0.57.4 placed them,
-        // and land against the bottom edge once the list fills the strip.
-        let shown = rows.len().saturating_sub(scroll).min(visible);
-        let footer_top = (first_row + shown as f32 * row_height).min(footer_reserve);
+        // The actions are pinned to the bottom edge: controls that
+        // wander with the list length have to be found again every
+        // time one is added.
+        let footer_top = footer_reserve;
 
         // A list longer than the strip says so: a slim track on the right
         // edge with the visible span as its thumb.
@@ -2581,7 +2570,8 @@ impl App {
                         ),
                         quads,
                     );
-                    let shown = self.chrome_fit("waiting for you", badge_left - pen);
+                    let label = unterm_services::i18n::t("sidebar.waiting_for_you");
+                    let shown = self.chrome_fit(&label, badge_left - pen);
                     self.append_chrome(&shown, amber, (pen, row_top + text_offset), quads);
                 }
                 crate::sidebar::Row::Group {
@@ -2821,17 +2811,14 @@ impl App {
             }
         }
 
-        // A new tab, the shell picker, and search. Along the bottom because
-        // that is where the controls of a list belong: above it they push the
-        // list down every time one is added.
+        // Two full-width actions pinned to the bottom: new session
+        // (with the shell picker on its trailing split, the way a
+        // browser's new-tab button carries its dropdown) and settings.
+        // The tab navigator moved into the chevron menu and the
+        // palette — relocated, never dropped.
+        use unterm_services::i18n::t;
         let footer_left = left + inset;
         let footer_width = (width - inset * 2.0).max(0.0);
-        let slot_width = footer_width / 3.0;
-        // v0.57.4 used three compact, equally distinct glyph controls. Keep
-        // their full third-width hit targets, but do not turn the middle one
-        // into a text label that makes this footer visibly denser than the
-        // baseline.
-        let labels = ["+", "\u{25BE}", "\u{2315}"];
         quads.backgrounds.push(unterm_render::quads::Quad {
             left: footer_left,
             top: footer_top,
@@ -2840,33 +2827,92 @@ impl App {
             color: chrome.inner_highlight,
         });
         let hovered = self.sidebar_footer_action_at(self.pointer.0, self.pointer.1);
-        for (index, label) in labels.iter().enumerate() {
-            let slot_left = footer_left + slot_width * index as f32;
-            if hovered == Some(index) {
-                quads.backgrounds.extend(unterm_render::rounded::panel(
-                    slot_left,
-                    footer_top + 2.0 * pt,
-                    slot_width,
-                    row_height - 4.0 * pt,
-                    radius,
-                    chrome.hover_bg,
-                ));
-            }
-            let text_width = self.chrome_width(label);
-            self.append_chrome(
-                label,
-                if hovered == Some(index) {
-                    foreground
-                } else {
-                    chrome.dim_text
-                },
-                (
-                    slot_left + ((slot_width - text_width) / 2.0).max(0.0),
-                    footer_top + text_offset,
-                ),
-                quads,
-            );
+        let picker_width = row_height;
+        let main_width = (footer_width - picker_width).max(1.0);
+
+        // Row one: ＋ new session, ▾ shell picker on its trailing end.
+        let row_top = footer_top;
+        if hovered == Some(0) {
+            quads.backgrounds.extend(unterm_render::rounded::panel(
+                footer_left,
+                row_top + 2.0 * pt,
+                main_width,
+                row_height - 4.0 * pt,
+                radius,
+                chrome.hover_bg,
+            ));
         }
+        if hovered == Some(1) {
+            quads.backgrounds.extend(unterm_render::rounded::panel(
+                footer_left + main_width,
+                row_top + 2.0 * pt,
+                picker_width,
+                row_height - 4.0 * pt,
+                radius,
+                chrome.hover_bg,
+            ));
+        }
+        let ink = |on: bool| if on { foreground } else { chrome.dim_text };
+        let mut pen = footer_left + 7.0 * pt;
+        pen = self.append_chrome(
+            "\u{FF0B}",
+            ink(hovered == Some(0)),
+            (pen, row_top + text_offset),
+            quads,
+        );
+        pen += 6.0 * pt;
+        let new_label = self.chrome_fit(
+            &t("sidebar.new_session"),
+            footer_left + main_width - pen - 4.0 * pt,
+        );
+        self.append_chrome(
+            &new_label,
+            ink(hovered == Some(0)),
+            (pen, row_top + text_offset),
+            quads,
+        );
+        let picker_glyph = "\u{25BE}";
+        let picker_text = self.chrome_width(picker_glyph);
+        self.append_chrome(
+            picker_glyph,
+            ink(hovered == Some(1)),
+            (
+                footer_left + main_width + ((picker_width - picker_text) / 2.0).max(0.0),
+                row_top + text_offset,
+            ),
+            quads,
+        );
+
+        // Row two: settings.
+        let row_top = footer_top + row_height;
+        if hovered == Some(2) {
+            quads.backgrounds.extend(unterm_render::rounded::panel(
+                footer_left,
+                row_top + 2.0 * pt,
+                footer_width,
+                row_height - 4.0 * pt,
+                radius,
+                chrome.hover_bg,
+            ));
+        }
+        let mut pen = footer_left + 7.0 * pt;
+        pen = self.append_chrome(
+            "\u{EB51}",
+            ink(hovered == Some(2)),
+            (pen, row_top + text_offset),
+            quads,
+        );
+        pen += 6.0 * pt;
+        let settings_label = self.chrome_fit(
+            &t("sidebar.settings"),
+            footer_left + footer_width - pen - 4.0 * pt,
+        );
+        self.append_chrome(
+            &settings_label,
+            ink(hovered == Some(2)),
+            (pen, row_top + text_offset),
+            quads,
+        );
     }
 
     /// The line of facts about the pane in front, for the top bar.
@@ -5833,6 +5879,19 @@ impl App {
             action(t("menu.tree_sidebar"), crate::keys::Action::TreeSidebar),
             action(t("menu.git_panel"), crate::keys::Action::GitPanel),
             action(t("menu.left_tabs"), crate::keys::Action::LeftTabBar),
+            // The two controls the sidebar footer used to carry as its
+            // own glyphs. Still one click away — from here and from the
+            // new-session row's split — never dropped.
+            crate::palette::Entry {
+                label: t("menu.shell_selector"),
+                hint: String::new(),
+                command: crate::palette::Command::OpenShellSelector,
+            },
+            crate::palette::Entry {
+                label: t("menu.tab_navigator"),
+                hint: String::new(),
+                command: crate::palette::Command::OpenTabNavigator,
+            },
             action(t("menu.find"), crate::keys::Action::Search),
             action(
                 t("menu.command_palette"),
@@ -5872,9 +5931,12 @@ impl App {
                 hint: t("settings.menu.web_settings.hint"),
                 command: crate::palette::Command::OpenSettings,
             },
+            // Who this is: the studio's existing caption, the site, and
+            // the version — the menu's quiet last line, clicking through
+            // to the website.
             crate::palette::Entry {
-                label: format!("Unterm v{}", env!("CARGO_PKG_VERSION")),
-                hint: "unterm.app".to_string(),
+                label: format!("Unterm · {}", t("sidebar.author_caption")),
+                hint: format!("unterm.app · v{}", env!("CARGO_PKG_VERSION")),
                 command: crate::palette::Command::OpenUrl {
                     url: "https://unterm.app".to_string(),
                 },
@@ -6554,6 +6616,7 @@ impl App {
                 self.new_tab_running(&program, &args)
             }
             crate::palette::Command::ChangeDirectory { path } => self.change_directory(&path),
+            crate::palette::Command::OpenShellSelector => self.open_shell_selector(),
             crate::palette::Command::NewTabIn { path } => self.new_tab_in(&path),
             crate::palette::Command::RestoreWorkspace { name } => self.restore_workspace(&name),
             crate::palette::Command::OpenDirectoryPicker { then } => {

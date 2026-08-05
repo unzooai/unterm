@@ -1,4 +1,9 @@
 {
+  "sidebar.waiting_for_you": "Wartet auf dich",
+  "sidebar.new_session": "Neue Sitzung",
+  "sidebar.settings": "Einstellungen",
+  "menu.shell_selector": "Neuer Tab mit Shell…",
+  "menu.tab_navigator": "Zu Sitzung springen…",
   "admin.failed": "Admin-Start fehlgeschlagen: {err}",
   "admin.requested": "Admin-PowerShell angefordert. Bitte UAC-Aufforderung bestätigen.",
   "cli.lang.current": "Aktuelle Sprache: {code} ({name})",

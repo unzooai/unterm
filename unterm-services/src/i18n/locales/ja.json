@@ -1,4 +1,9 @@
 {
+  "sidebar.waiting_for_you": "あなたの応答待ち",
+  "sidebar.new_session": "新しいセッション",
+  "sidebar.settings": "設定",
+  "menu.shell_selector": "シェルを選んで新規タブ…",
+  "menu.tab_navigator": "セッションへジャンプ…",
   "admin.failed": "管理者起動に失敗しました:{err}",
   "admin.requested": "管理者 PowerShell を要求しました。UAC ダイアログで承認してください。",
   "cli.lang.current": "現在の言語:{code}({name})",
