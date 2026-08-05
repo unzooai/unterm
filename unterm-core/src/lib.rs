@@ -1590,6 +1590,25 @@ impl unterm_engine::McpHost for RemoteMcpHost {
         host_channel().notify("request_repaint", serde_json::Value::Null);
     }
 
+    fn ask_confirmation(
+        &self,
+        request: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        // Waits longer than the question itself does, so the window's
+        // own timeout is what decides -- one clock, at the end that can
+        // see the banner. A margin shorter than that would report "the
+        // window is not answering" while it was still on screen.
+        let window_timeout = request
+            .get("timeout_ms")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(30_000);
+        host_channel().call(
+            "ask_confirmation",
+            request.clone(),
+            Duration::from_millis(window_timeout) + Duration::from_secs(10),
+        )
+    }
+
     fn set_window_title(&self, title: Option<&str>) -> bool {
         host_channel()
             .call(

@@ -1478,6 +1478,18 @@ pub trait McpHost: Send + Sync {
         true
     }
 
+    /// Put a write-confirmation question in front of the person at the
+    /// window and return their answer as one of `allow` / `block` /
+    /// `always_allow`.
+    ///
+    /// Raw JSON rather than typed, because the types belong to the MCP
+    /// surface and this trait sits underneath it. Blocking is the whole
+    /// point: the caller is a worker thread that must not write to a pty
+    /// until a person has said so.
+    fn ask_confirmation(&self, _request: &serde_json::Value) -> Result<serde_json::Value> {
+        anyhow::bail!("no front end can ask for confirmation")
+    }
+
     /// Render a pane's scrollback to `path`, returning the JSON to reply with.
     fn render_scrollback_png(
         &self,

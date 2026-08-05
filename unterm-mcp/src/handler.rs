@@ -3858,6 +3858,97 @@ pub enum ConfirmationDecision {
     AlwaysAllow,
 }
 
+impl ConfirmationDecision {
+    /// How a decision crosses a process boundary. Spelled out rather
+    /// than derived so a rename in the enum cannot silently change the
+    /// wire format between a Core and a window of different versions.
+    pub fn to_wire(self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Block => "block",
+            Self::AlwaysAllow => "always_allow",
+        }
+    }
+
+    pub fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "allow" => Some(Self::Allow),
+            "block" => Some(Self::Block),
+            "always_allow" => Some(Self::AlwaysAllow),
+            _ => None,
+        }
+    }
+}
+
+/// Put a write-confirmation question on this process's queue and wait
+/// for whoever is drawing that queue to answer it.
+///
+/// Public because both hosts need it and neither should reimplement it:
+/// a GUI answers straight from here, and a window serving a remote Core
+/// answers by calling this too. One queue, one timeout, one place where
+/// "nobody answered" is decided.
+pub fn prompt_locally(request: &Value) -> Option<ConfirmationDecision> {
+    let text = |key: &str| {
+        request
+            .get(key)
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    let timeout_ms = request
+        .get("timeout_ms")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(30_000)
+        .max(1_000);
+
+    // Capacity of one: the asking thread blocks until this is resolved.
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let id = {
+        let mut state = mcp_state().lock();
+        state.confirmation_seq = state.confirmation_seq.saturating_add(1);
+        let id = state.confirmation_seq;
+        state.pending_confirmations.push(PendingConfirmation {
+            id,
+            agent: text("agent"),
+            input_preview: text("input_preview"),
+            pane_id: request
+                .get("pane_id")
+                .and_then(|value| value.as_u64())
+                .unwrap_or_default(),
+            method: text("method"),
+            requested_at: chrono::Local::now().to_rfc3339(),
+            responder: tx,
+        });
+        id
+    };
+
+    // The question only exists on screen once a frame is painted; an
+    // idle window would otherwise leave the asker parked on an
+    // invisible banner until some event happened to repaint.
+    if let Some(host) = unterm_engine::mcp_host() {
+        host.request_repaint();
+    }
+
+    let answer = rx
+        .recv_timeout(std::time::Duration::from_millis(timeout_ms))
+        .ok();
+    if answer.is_none() {
+        // Clean up the still-queued banner: the window may not have
+        // painted it yet, and a question nobody is waiting on must not
+        // stay on screen.
+        mcp_state()
+            .lock()
+            .pending_confirmations
+            .retain(|pending| pending.id != id);
+    }
+    // Whatever happened, paint again: a banner the keys did not clear
+    // has to leave the screen.
+    if let Some(host) = unterm_engine::mcp_host() {
+        host.request_repaint();
+    }
+    answer
+}
+
 /// Internal result of `gate_pty_write`. Callers either proceed (with
 /// audit + write) or return an error to the MCP client.
 ///
@@ -5908,35 +5999,28 @@ impl McpHandler {
             ));
         }
 
-        // Park on a confirmation banner. Capacity is intentionally
-        // small (1 slot) — the worker thread blocks until the GUI
-        // resolves it.
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        let id = {
-            let mut state = mcp_state().lock();
-            state.confirmation_seq = state.confirmation_seq.saturating_add(1);
-            let id = state.confirmation_seq;
-            state.pending_confirmations.push(PendingConfirmation {
-                id,
-                agent: agent.clone(),
-                input_preview: preview.clone(),
-                pane_id: pane_id as u64,
-                method: method.to_string(),
-                requested_at: chrono::Local::now().to_rfc3339(),
-                responder: tx,
-            });
-            id
-        };
-
-        // The question only exists on screen once a frame is painted; an idle
-        // window would otherwise leave the worker parked on an invisible
-        // banner until some event happened to repaint.
-        if let Some(host) = unterm_engine::mcp_host() {
-            host.request_repaint();
-        }
-
+        // Put the question in front of whoever is hosting a window and
+        // wait. One call whichever process the window is in: in a GUI
+        // the host answers it from this very queue, and in a Core it
+        // forwards the question to the attached window, which answers it
+        // from *its* copy of the same queue. The window's own UI code
+        // never learns the difference.
         let timeout_ms = cfg.mcp_confirmation_timeout_ms.max(1000);
-        let decision = rx.recv_timeout(std::time::Duration::from_millis(timeout_ms));
+        let decision = unterm_engine::mcp_host()
+            .context("no front end to ask")
+            .and_then(|host| {
+                host.ask_confirmation(&json!({
+                    "agent": agent,
+                    "method": method,
+                    "pane_id": pane_id,
+                    "input_preview": preview,
+                    "timeout_ms": timeout_ms,
+                }))
+            })
+            .map_err(|_| ())
+            .and_then(|answer| {
+                ConfirmationDecision::from_wire(answer.as_str().unwrap_or_default()).ok_or(())
+            });
         let outcome = match decision {
             Ok(ConfirmationDecision::Allow) => {
                 self.audit(
@@ -5965,14 +6049,11 @@ impl McpHandler {
                 ))
             }
             Err(_) => {
-                // Timeout: clean up the still-queued banner (the
-                // GUI may not have rendered it yet) and treat as
-                // block. The receiver going out of scope makes
-                // future GUI `send`s no-op, which is fine.
-                {
-                    let mut state = mcp_state().lock();
-                    state.pending_confirmations.retain(|p| p.id != id);
-                }
+                // Nobody answered -- either the question timed out at
+                // the window or there was no window to put it on.
+                // Cleaning up the queued banner belongs to whoever owns
+                // the queue, which is `prompt_locally`, in the process
+                // that drew it.
                 self.audit(
                     "mcp.confirm.timeout",
                     Some(&pane_id.to_string()),
@@ -5986,11 +6067,6 @@ impl McpHandler {
                 )))
             }
         };
-        // And a frame after it resolves either way, so a banner the keys did
-        // not clear (a timeout, a second queued question) leaves the screen.
-        if let Some(host) = unterm_engine::mcp_host() {
-            host.request_repaint();
-        }
         outcome
     }
 

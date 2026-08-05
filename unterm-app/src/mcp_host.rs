@@ -108,6 +108,17 @@ impl McpHost for AppMcpHost {
         request_repaint();
     }
 
+    /// This window is the one drawing the queue, so the question goes
+    /// straight onto it. Blocks the asking thread until a key resolves
+    /// it or it times out -- which is what an unanswered question must
+    /// do, or an agent would write before anyone had said yes.
+    fn ask_confirmation(&self, request: &Value) -> Result<Value> {
+        match unterm_mcp::handler::prompt_locally(request) {
+            Some(decision) => Ok(json!(decision.to_wire())),
+            None => anyhow::bail!("the confirmation went unanswered"),
+        }
+    }
+
     /// A rectangle of the desktop.
     fn capture_region(
         &self,
@@ -557,6 +568,10 @@ impl unterm_core::HostResponder for AppHostResponder {
             }
             "set_window_title" => Ok(json!(AppMcpHost.set_window_title(text("title")))),
             "focus_window" => AppMcpHost.focus_window().map(|_| Value::Null),
+            // Same call the in-process host makes, so a question from a
+            // remote Core lands on this window's queue exactly as a
+            // local one does -- the UI drawing it cannot tell them apart.
+            "ask_confirmation" => AppMcpHost.ask_confirmation(params),
             "key_assignments" => Ok(json!(AppMcpHost.key_assignments())),
             "capture_region" => AppMcpHost.capture_region(
                 number("left").unwrap_or(0) as i32,
