@@ -60,6 +60,14 @@ pub enum Command {
     OpenUrl { url: String },
     /// The confirmation the close request asked for.
     ConfirmCloseWindow,
+    /// Close the window and leave the Core running: the shells and the
+    /// agents in them carry on, and reopening finds them where they
+    /// were. Only offered when a Core actually holds them.
+    KeepRunningInBackground,
+    /// Refuse new sessions, let the running ones finish, then stop.
+    DrainThenExit,
+    /// End every session now and exit. The one irreversible answer.
+    CancelAndExit,
     /// Open the rename line for one tab, by its visible position.
     OpenTabRename { index: usize },
     /// Let the user drag a rectangle to capture from the desktop.

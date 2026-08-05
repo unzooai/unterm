@@ -5551,11 +5551,70 @@ impl App {
             return;
         }
         use unterm_services::i18n::t;
-        self.palette = Some(crate::palette::Palette::new(vec![crate::palette::Entry {
-            label: t("close.confirm_running"),
-            hint: t("close.confirm_running.hint"),
-            command: crate::palette::Command::ConfirmCloseWindow,
-        }]));
+        // What is actually at stake, counted rather than implied: "2
+        // agents waiting, 3 sessions running" is a sentence someone
+        // can act on; "programs are running" is one they dismiss.
+        let sessions = unterm_engine::SessionEngine::list_sessions(&self.engine)
+            .map(|sessions| sessions.len())
+            .unwrap_or(0);
+        let waiting = crate::cockpit::attention_count(
+            &unterm_services::cockpit::status::snapshot(),
+        );
+        let subject = if waiting > 0 {
+            unterm_services::i18n::t_args(
+                "close.title_waiting",
+                &[
+                    ("waiting", &waiting.to_string()),
+                    ("sessions", &sessions.to_string()),
+                ],
+            )
+        } else {
+            unterm_services::i18n::t_args(
+                "close.title",
+                &[("sessions", &sessions.to_string())],
+            )
+        };
+
+        let entry = |label: &str, hint: &str, command: crate::palette::Command| {
+            crate::palette::Entry {
+                label: t(label),
+                hint: t(hint),
+                command,
+            }
+        };
+        // Three outcomes when a Core holds the sessions, two when this
+        // process does: offering to keep shells running in the
+        // background while they live and die with this window would be
+        // a promise the Local engine cannot keep. The recoverable
+        // answer is first, so the default action is the safe one.
+        let entries = if self.engine.sessions_outlive_this_window() {
+            vec![
+                entry(
+                    "close.background",
+                    "close.background.hint",
+                    crate::palette::Command::KeepRunningInBackground,
+                ),
+                entry(
+                    "close.drain",
+                    "close.drain.hint",
+                    crate::palette::Command::DrainThenExit,
+                ),
+                entry(
+                    "close.cancel_exit",
+                    "close.cancel_exit.hint",
+                    crate::palette::Command::CancelAndExit,
+                ),
+            ]
+        } else {
+            vec![entry(
+                "close.exit_now",
+                "close.exit_now.hint",
+                crate::palette::Command::ConfirmCloseWindow,
+            )]
+        };
+        let mut palette = crate::palette::Palette::new(entries);
+        palette.title = Some(subject);
+        self.palette = Some(palette);
         self.drawn_revision = None;
     }
 
@@ -6825,6 +6884,27 @@ impl App {
                 }
             }
             crate::palette::Command::ConfirmCloseWindow => {
+                self.close_confirmed = true;
+                self.perform_close();
+            }
+            // The window goes; the Core, the shells and the agents in
+            // them stay. Nothing to ask of the Core -- leaving it
+            // alone is the whole action.
+            crate::palette::Command::KeepRunningInBackground => {
+                self.close_confirmed = true;
+                self.perform_close();
+            }
+            crate::palette::Command::DrainThenExit => {
+                if let Err(err) = self.engine.drain_core(true) {
+                    log::warn!("could not ask the core to drain: {err:#}");
+                }
+                self.close_confirmed = true;
+                self.perform_close();
+            }
+            crate::palette::Command::CancelAndExit => {
+                if let Err(err) = self.engine.shutdown_core() {
+                    log::warn!("could not stop the core: {err:#}");
+                }
                 self.close_confirmed = true;
                 self.perform_close();
             }

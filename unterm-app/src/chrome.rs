@@ -63,7 +63,12 @@ pub fn chrome(background: [f32; 4], foreground: [f32; 4]) -> Chrome {
 
     Chrome {
         surface,
-        outer_edge: with_alpha(foreground, if is_light { 0.14 } else { 0.09 }),
+        // The seams: under the top bar, down the strip's trailing edge.
+        // At 9% of a dim foreground these were a line the code drew and
+        // nobody saw -- the chrome then read as one undivided grey area
+        // with the terminal cut out of it. Strong enough to find, still
+        // far too quiet to be a border.
+        outer_edge: with_alpha(foreground, if is_light { 0.20 } else { 0.16 }),
         inner_highlight: with_alpha(foreground, if is_light { 0.055 } else { 0.04 }),
         selected_outline: with_alpha(foreground, if is_light { 0.12 } else { 0.09 }),
         dim_text: with_alpha(foreground, 0.90),

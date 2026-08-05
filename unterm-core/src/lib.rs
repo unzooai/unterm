@@ -277,7 +277,12 @@ impl EventHub {
 /// loop. Adding a real hook later changes this function, not the wire
 /// protocol. Idle cost stays low: with no subscribers the watcher only
 /// keeps its baseline fresh, at a slower cadence.
-fn watch_engine_events(hub: Arc<EventHub>, running: Arc<AtomicBool>, draining: Arc<AtomicBool>) {
+fn watch_engine_events(
+    hub: Arc<EventHub>,
+    running: Arc<AtomicBool>,
+    draining: Arc<AtomicBool>,
+    exit_when_idle: Arc<AtomicBool>,
+) {
     let engine = unterm_engine::next_core();
     let mut known: std::collections::HashMap<usize, (bool, u64)> = std::collections::HashMap::new();
     let mut announced_draining = false;
@@ -287,6 +292,19 @@ fn watch_engine_events(hub: Arc<EventHub>, running: Arc<AtomicBool>, draining: A
         if draining.load(Ordering::Acquire) && !announced_draining {
             announced_draining = true;
             hub.publish(&CoreEvent::Draining);
+        }
+
+        // A drain that was asked to finish the job: once the sessions
+        // it was told to let run have ended, there is nothing left to
+        // stay alive for.
+        if exit_when_idle.load(Ordering::Acquire)
+            && engine
+                .list_sessions()
+                .map(|sessions| sessions.is_empty())
+                .unwrap_or(false)
+        {
+            running.store(false, Ordering::Release);
+            break;
         }
 
         // Publishing to an empty hub is a no-op, so events are never
@@ -345,6 +363,9 @@ pub struct CoreServer {
     started_at: String,
     running: Arc<AtomicBool>,
     draining: Arc<AtomicBool>,
+    /// Set by `core.drain {exit_when_idle: true}`: stop for good once
+    /// the sessions still running have ended.
+    exit_when_idle: Arc<AtomicBool>,
     events: Arc<EventHub>,
 }
 
@@ -360,6 +381,7 @@ impl CoreServer {
             started_at: chrono::Utc::now().to_rfc3339(),
             running: Arc::new(AtomicBool::new(true)),
             draining: Arc::new(AtomicBool::new(false)),
+            exit_when_idle: Arc::new(AtomicBool::new(false)),
             events: Arc::new(EventHub::new()),
         })
     }
@@ -373,9 +395,10 @@ impl CoreServer {
             let hub = self.events.clone();
             let running = self.running.clone();
             let draining = self.draining.clone();
+            let exit_when_idle = self.exit_when_idle.clone();
             std::thread::Builder::new()
                 .name("core-event-watcher".into())
-                .spawn(move || watch_engine_events(hub, running, draining))
+                .spawn(move || watch_engine_events(hub, running, draining, exit_when_idle))
                 .context("spawn core event watcher")?
         };
         while self.running.load(Ordering::Acquire) {
@@ -393,10 +416,11 @@ impl CoreServer {
                     let started_at = self.started_at.clone();
                     let running = self.running.clone();
                     let draining = self.draining.clone();
+                    let exit_when_idle = self.exit_when_idle.clone();
                     let events = self.events.clone();
                     std::thread::spawn(move || {
                         if let Err(err) =
-                            handle_stream(stream, &token, &started_at, &running, &draining, &events)
+                            handle_stream(stream, &token, &started_at, &running, &draining, &exit_when_idle, &events)
                         {
                             eprintln!("unterm-core client error: {err:#}");
                         }
@@ -419,6 +443,7 @@ fn handle_stream(
     started_at: &str,
     running: &AtomicBool,
     draining: &AtomicBool,
+    exit_when_idle: &AtomicBool,
     events: &Arc<EventHub>,
 ) -> Result<()> {
     let reader = BufReader::new(stream.try_clone()?);
@@ -498,7 +523,7 @@ fn handle_stream(
             stream.flush()?;
             continue;
         }
-        let response = dispatch(request, started_at, draining);
+        let response = dispatch(request, started_at, draining, exit_when_idle);
         writeln!(stream, "{response}")?;
         stream.flush()?;
         if should_stop {
@@ -509,8 +534,13 @@ fn handle_stream(
     Ok(())
 }
 
-fn dispatch(request: Request, started_at: &str, draining: &AtomicBool) -> String {
-    match dispatch_inner(&request, started_at, draining) {
+fn dispatch(
+    request: Request,
+    started_at: &str,
+    draining: &AtomicBool,
+    exit_when_idle: &AtomicBool,
+) -> String {
+    match dispatch_inner(&request, started_at, draining, exit_when_idle) {
         Ok(response) => response,
         Err(err) => serde_json::to_string(&response_error::<()>(
             request.id,
@@ -525,6 +555,7 @@ fn dispatch_inner(
     request: &Request,
     started_at: &str,
     draining: &AtomicBool,
+    exit_when_idle: &AtomicBool,
 ) -> Result<String> {
     let engine = unterm_engine::next_core();
     let id = request.id.clone();
@@ -543,9 +574,21 @@ fn dispatch_inner(
         }
         "core.drain" => {
             draining.store(true, Ordering::Release);
+            // `exit_when_idle` is what "drain, then exit" actually
+            // means: refuse new sessions now, and stop for good once
+            // the ones still running have ended. Without it a client
+            // asking to drain has no way to say it also wanted to go.
+            let then_exit = request
+                .params
+                .get("exit_when_idle")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if then_exit {
+                exit_when_idle.store(true, Ordering::Release);
+            }
             serde_json::to_string(&response_ok(
                 id,
-                serde_json::json!({"status":"draining"}),
+                serde_json::json!({"status":"draining", "exit_when_idle": then_exit}),
             ))?
         }
         "core.shutdown" => serde_json::to_string(&response_ok(
@@ -1240,6 +1283,21 @@ impl CoreEngineClient {
 
     pub fn report_mouse(&self, pane_id: usize, event: MouseEvent) -> Result<()> {
         self.call_unit("session.report_mouse", mouse_event_params(pane_id, event))
+    }
+
+    /// Refuse new sessions; the ones running carry on. With
+    /// `exit_when_idle` the Core also stops once they have ended --
+    /// which is what a person means by "drain, then exit".
+    pub fn drain(&self, exit_when_idle: bool) -> Result<()> {
+        self.call_unit(
+            "core.drain",
+            serde_json::json!({ "exit_when_idle": exit_when_idle }),
+        )
+    }
+
+    /// Stop the Core now, ending every session it holds.
+    pub fn shutdown(&self) -> Result<()> {
+        self.call_unit("core.shutdown", serde_json::Value::Null)
     }
 
     /// Set the scrollback capacity for sessions the Core creates from
@@ -2342,6 +2400,49 @@ mod tests {
         let mut owner = CoreClient::connect(endpoint, "bench-token").unwrap();
         let _: Response<serde_json::Value> = owner.request("core.shutdown").unwrap();
         worker.join().unwrap();
+    }
+
+    /// "Drain, then exit": the Core refuses new sessions, lets the
+    /// running one finish, and stops itself the moment nothing is
+    /// left -- without anyone sending a shutdown.
+    #[test]
+    fn draining_with_exit_when_idle_stops_once_the_last_session_ends() {
+        let (endpoint, worker) = start_server("drain-exit-token");
+        let facade = CoreEngineClient::connect(endpoint, "drain-exit-token").unwrap();
+        let session = facade
+            .create_session(CreateSessionRequest {
+                cols: 80,
+                rows: 24,
+                command_dir: None,
+                command: Some(CommandBuilder::from_argv(shell_argv())),
+                env: Vec::new(),
+                launch_policy: Default::default(),
+            })
+            .unwrap();
+
+        facade.drain(true).unwrap();
+        // Still serving while that session lives: draining is not
+        // dying, and a Core that went away here would take a running
+        // shell with it.
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(
+            facade.list_sessions().is_ok(),
+            "the core stopped while a session was still running"
+        );
+
+        facade.destroy_session(session.id).unwrap();
+        // The watcher notices an empty engine and ends the server; the
+        // run loop returning is the observable proof.
+        let stopped = std::thread::spawn(move || worker.join());
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !stopped.is_finished() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the core did not exit after its last session ended"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        stopped.join().unwrap().unwrap();
     }
 
     #[test]

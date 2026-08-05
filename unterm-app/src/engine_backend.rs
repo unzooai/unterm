@@ -145,6 +145,33 @@ impl AppEngine {
         AppEngine::Local(NextCoreEngine)
     }
 
+    /// Whether the sessions outlive this window.
+    ///
+    /// What the close prompt hangs on: only a Core-backed window can
+    /// honestly offer to keep running in the background, because only
+    /// there do the shells belong to another process.
+    pub fn sessions_outlive_this_window(&self) -> bool {
+        matches!(self, Self::Core { .. })
+    }
+
+    /// Ask the Core to refuse new sessions, and optionally to stop
+    /// once the running ones have ended. A no-op in Local mode, where
+    /// there is no Core to outlive anything.
+    pub fn drain_core(&self, exit_when_idle: bool) -> Result<()> {
+        match self {
+            Self::Local(_) => Ok(()),
+            Self::Core { client, .. } => client.drain(exit_when_idle),
+        }
+    }
+
+    /// Stop the Core now, ending every session it holds.
+    pub fn shutdown_core(&self) -> Result<()> {
+        match self {
+            Self::Local(_) => Ok(()),
+            Self::Core { client, .. } => client.shutdown(),
+        }
+    }
+
     pub fn pane_modes(&self, pane_id: usize) -> Result<PaneModesSnapshot> {
         route!(self, engine => engine.pane_modes(pane_id))
     }
