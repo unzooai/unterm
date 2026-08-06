@@ -8326,6 +8326,23 @@ impl App {
     /// Inverted, the way every terminal marks text that is not committed yet:
     /// it is not in the shell, and drawing it like ordinary output would
     /// suggest it had already been typed.
+    /// Throw away a composition nobody is composing.
+    ///
+    /// Switching input sources mid-composition strands the marked text: the
+    /// old input method never ends it, winit never hears an `Ime` event for
+    /// it, and AppKit keeps routing editing keys into the ghost. Clearing
+    /// our overlay is not enough -- the platform's own marked text has to
+    /// go, and toggling IME off and on is the one lever winit exposes that
+    /// makes AppKit discard it.
+    fn clear_orphan_preedit(&mut self) {
+        self.preedit = crate::ime::Preedit::default();
+        if let Some(live) = self.state.as_ref() {
+            live.window.set_ime_allowed(false);
+            live.window.set_ime_allowed(true);
+        }
+        self.drawn_revision = None;
+    }
+
     fn append_preedit(&mut self, quads: &mut unterm_render::quads::FrameQuads) {
         if self.preedit.is_empty() {
             return;
@@ -9111,6 +9128,15 @@ impl ApplicationHandler for App {
                 // "typing feels slow". Drop back to the busy cadence now,
                 // before the shell has even seen the byte.
                 self.quiet_since = None;
+                // A key reaching us at all proves no composition is live:
+                // while an input method is actually composing, it consumes
+                // keys at the platform layer and we see Ime events instead.
+                // What is left is the orphan -- marked text stranded by an
+                // input-source switch -- and until it is cleared, AppKit
+                // feeds it every Backspace and the shell never sees one.
+                if !self.preedit.is_empty() {
+                    self.clear_orphan_preedit();
+                }
 
                 use winit::keyboard::Key;
 
@@ -9869,6 +9895,12 @@ impl ApplicationHandler for App {
             return;
         }
         crate::stallwatch::beat();
+        // An input-source switch mid-composition strands marked text that
+        // eats editing keys; clear the ghost the moment the switch lands.
+        #[cfg(target_os = "macos")]
+        if crate::ime_watch::input_source_changed() && !self.preedit.is_empty() {
+            self.clear_orphan_preedit();
+        }
         self.collect_clipboard_results();
         self.tick();
         // Waiting until the next tick rather than spinning. Something has to

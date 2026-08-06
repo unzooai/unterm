@@ -24,6 +24,8 @@ mod forward;
 mod ghost;
 mod git;
 mod ime;
+#[cfg(target_os = "macos")]
+mod ime_watch;
 mod keys;
 mod links;
 mod mcp_host;
@@ -295,6 +297,10 @@ fn run() -> anyhow::Result<()> {
     // The stall watchdog, armed before the loop it watches exists: a frozen
     // window must leave a trace, not an argument about whether it happened.
     stallwatch::start();
+    // And the input-source watcher, so a composition stranded by a source
+    // switch is cleared before it can swallow anyone's Backspace.
+    #[cfg(target_os = "macos")]
+    ime_watch::start();
     let event_loop = winit::event_loop::EventLoop::new()?;
     let mut app = window::App::new(&config)?;
     // A plain launch reopens where the last one closed; naming a directory
