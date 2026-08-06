@@ -27,11 +27,21 @@ pub fn height(_row_height: f32, pt: f32, quiet: bool) -> f32 {
     // 8pt around it, producing the visibly oversized ~77px strip at 150% DPI.
     let cell = crate::ui_tokens::UI_FONT_SIZE as f32 * pt;
     // 2.42 cells was measured off v0.57.4, whose bar held a full row of
-    // action chips and needed the room. The quiet bar holds a wordmark,
-    // one tally and a chevron: two cells puts it at the platform's own
-    // title bar height -- 32 logical pixels at any scale -- instead of
-    // a fifth taller than the window frames beside it.
-    let base = cell * if quiet { 2.0 } else { 2.4 };
+    // action chips and needed the room. The quiet bar matches the platform's
+    // own title bar instead of inventing a height: two cells lands on
+    // Windows' 32 logical pixels, but on macOS a point is only the scale, so
+    // the same arithmetic came out 24 -- four short of AppKit's 28, which is
+    // the height it centers the native traffic lights for. A bar shorter
+    // than that wears its lights visibly low.
+    let base = if quiet {
+        if cfg!(target_os = "macos") {
+            28.0 * pt
+        } else {
+            cell * 2.0
+        }
+    } else {
+        cell * 2.4
+    };
     // The v0.57.4 quick-action cells were the taller constraint: one title
     // cell plus 0.18-cell margins and 0.22-cell padding on both sides, with a
     // physical-pixel border. At 150% DPI this is ~49px.

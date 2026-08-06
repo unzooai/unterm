@@ -3100,22 +3100,28 @@ impl App {
         };
         lift(footer_left, main_width, hovered == Some(0), quads);
         lift(settings_left, square, hovered == Some(2), quads);
-        // The picker is a pressable thing even when nobody points at it: a
-        // resting pill under the mark, so it reads as the label's dropdown
-        // rather than as a stray triangle. Hover brightens it to the same
-        // tone the other two lift to.
-        let mut pill = chrome.hover_bg;
-        if hovered != Some(1) {
-            pill[3] *= 0.45;
+        // The shell picker shows itself only while the pointer is on the
+        // row: at rest the footer is two things -- new session and settings
+        // -- and the dropdown appears exactly when someone is close enough
+        // to use it. While shown it is a pill, not a stray triangle.
+        let row_hovered = self.pointer.0 >= footer_left
+            && self.pointer.0 < footer_left + footer_width
+            && self.pointer.1 >= footer_top
+            && self.pointer.1 < footer_top + row_height;
+        if row_hovered {
+            let mut pill = chrome.hover_bg;
+            if hovered != Some(1) {
+                pill[3] *= 0.45;
+            }
+            quads.backgrounds.extend(unterm_render::rounded::panel(
+                picker_left,
+                footer_top + 3.0 * pt,
+                square,
+                row_height - 6.0 * pt,
+                radius,
+                pill,
+            ));
         }
-        quads.backgrounds.extend(unterm_render::rounded::panel(
-            picker_left,
-            footer_top + 3.0 * pt,
-            square,
-            row_height - 6.0 * pt,
-            radius,
-            pill,
-        ));
 
         // The one action with words -- everything else on this row is
         // a square with a mark in it, which is what keeps three
@@ -3138,21 +3144,30 @@ impl App {
             (pen, footer_top + text_offset),
             quads,
         );
-        for (left, glyph, on) in [
-            (picker_left, "\u{25BE}", hovered == Some(1)),
-            (settings_left, "\u{EB51}", hovered == Some(2)),
-        ] {
-            let wide = self.chrome_width(glyph);
+        if row_hovered {
+            // The triangle's ink sits high in its line box; nudged down so
+            // it centres in the pill rather than floating in its upper half.
+            let wide = self.chrome_width("\u{25BE}");
             self.append_chrome(
-                glyph,
-                ink(on),
+                "\u{25BE}",
+                ink(hovered == Some(1)),
                 (
-                    left + ((square - wide) / 2.0).max(0.0),
-                    footer_top + text_offset,
+                    picker_left + ((square - wide) / 2.0).max(0.0),
+                    footer_top + text_offset + 1.5 * pt,
                 ),
                 quads,
             );
         }
+        let wide = self.chrome_width("\u{EB51}");
+        self.append_chrome(
+            "\u{EB51}",
+            ink(hovered == Some(2)),
+            (
+                settings_left + ((square - wide) / 2.0).max(0.0),
+                footer_top + text_offset,
+            ),
+            quads,
+        );
     }
 
     /// The line of facts about the pane in front, for the top bar.
@@ -3251,7 +3266,7 @@ impl App {
         let pt = self.chrome_pt();
         let radius = crate::ui_tokens::CORNER_RADIUS * pt;
         let text_top = ((height - self.chrome_font.metrics().height) / 2.0
-            + crate::ui_tokens::CHROME_TEXT_BASELINE_NUDGE * pt)
+            + crate::ui_tokens::TOPBAR_TEXT_NUDGE * pt)
             .max(0.0);
 
         for piece in &bar {

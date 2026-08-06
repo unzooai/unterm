@@ -52,6 +52,12 @@ pub const STATUS_BAR_VERTICAL_PADDING: f32 = 2.5;
 /// Visual baseline compensation for one-line chrome text. Terminal cells
 /// include descender space, so geometric centering reads slightly low.
 pub const CHROME_TEXT_BASELINE_NUDGE: f32 = -2.0;
+/// The top bar centres its text on the native traffic lights rather than on
+/// its own geometry: AppKit parks the lights a couple of pixels below the
+/// bar's midline, and text centred geometrically reads high beside them.
+/// Measured against the lights' ink at 1x — lights centre ~15.5 in a 28px
+/// bar; the general chrome nudge put our text at ~11.
+pub const TOPBAR_TEXT_NUDGE: f32 = 2.0;
 /// Width of chrome scrollbars; rendered with a minimum physical width.
 pub const CHROME_SCROLLBAR_WIDTH: f32 = 5.0;
 /// Minimum physical scrollbar width, to keep HiDPI and low-DPI output aligned.
