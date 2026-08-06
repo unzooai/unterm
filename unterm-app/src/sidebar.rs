@@ -573,23 +573,6 @@ impl RowClick {
     }
 }
 
-/// One full working-dot breathing cycle, quantised so an otherwise idle
-/// window repaints four times per cycle rather than every frame.
-pub const BREATH_CYCLE_MS: u64 = 3200;
-const BREATH_STEPS: u64 = 4;
-
-/// Which quantised phase of the breathing cycle this moment falls in.
-pub fn breath_step(elapsed_ms: u64) -> u8 {
-    ((elapsed_ms % BREATH_CYCLE_MS) / (BREATH_CYCLE_MS / BREATH_STEPS)) as u8
-}
-
-/// The working badge's opacity for a phase: a cosine swell between 0.45 and
-/// 1.0, sampled at the middle of the step so the four frames read as motion.
-pub fn breath_alpha(step: u8) -> f32 {
-    let phase = (f32::from(step) + 0.5) / BREATH_STEPS as f32;
-    0.45 + 0.55 * (0.5 - 0.5 * (std::f32::consts::TAU * phase).cos())
-}
-
 pub fn clamp_scroll(scroll_top: usize, rows: usize, visible: usize) -> usize {
     scroll_top.min(rows.saturating_sub(visible))
 }
@@ -1066,21 +1049,6 @@ mod naming_tests {
         assert_eq!(first.again(2, 44.0, 84.0).streak(), 2);
         assert_eq!(first.again(3, 44.0, 84.0).streak(), 1);
         assert_eq!(first.again(2, 60.0, 80.0).streak(), 1);
-    }
-
-    /// The breathing badge swells between its floor and full opacity, and the
-    /// quantised step wraps at the end of a cycle.
-    #[test]
-    fn breath_steps_wrap_and_alpha_stays_visible() {
-        assert_eq!(breath_step(0), 0);
-        assert_eq!(breath_step(BREATH_CYCLE_MS - 1), 3);
-        assert_eq!(breath_step(BREATH_CYCLE_MS), 0);
-        for step in 0..4u8 {
-            let alpha = breath_alpha(step);
-            assert!((0.45..=1.0).contains(&alpha), "step {step}: {alpha}");
-        }
-        // The cycle actually moves: its dimmest and brightest frames differ.
-        assert!((breath_alpha(0) - breath_alpha(2)).abs() > 0.3);
     }
 
     /// The home directory is "Home". A header reading the account name names

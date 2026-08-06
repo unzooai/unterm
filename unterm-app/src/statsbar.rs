@@ -101,40 +101,9 @@ pub fn compose(segments: &[String]) -> String {
         .join(GAP)
 }
 
-/// Drop whole segments until the line fits `columns`, in the order given.
-///
-/// Whole segments rather than characters. Half a branch name and half a memory
-/// figure are both worse than not showing them: the reader cannot tell a
-/// truncated `main-experiment` from a branch called `main-exp`, and a number
-/// that has lost its unit is a wrong number.
-///
-/// `give_up` names the indices to sacrifice, first to go first. It is separate
-/// from the order they are shown in because those are different questions: the
-/// numbers read best last and matter least, so a bar that drops from the end
-/// loses what is running to make room for a memory figure.
-pub fn fit(segments: &[String], give_up: &[usize], columns: usize) -> String {
-    let mut kept: Vec<Option<String>> = segments
-        .iter()
-        .map(|segment| Some(segment.clone()).filter(|segment| !segment.trim().is_empty()))
-        .collect();
-    let line_of =
-        |kept: &[Option<String>]| compose(&kept.iter().flatten().cloned().collect::<Vec<_>>());
-
-    // Anything the caller did not name is given up afterwards, so a short list
-    // still ends at an empty line rather than at one that does not fit.
-    for index in give_up.iter().copied().chain(0..segments.len()) {
-        let line = line_of(&kept);
-        if width_of(&line) <= columns {
-            return line;
-        }
-        if let Some(slot) = kept.get_mut(index) {
-            *slot = None;
-        }
-    }
-    String::new()
-}
-
 /// How many cells a string takes, which is not how many characters it has.
+/// Only width assertions in tests measure with it today.
+#[cfg(test)]
 pub fn width_of(text: &str) -> usize {
     text.chars().map(crate::terminal::column_width).sum()
 }
@@ -162,15 +131,6 @@ impl Facts {
             self.title.clone(),
         ]
     }
-
-    /// And the order they are given up in, which is not the same.
-    ///
-    /// The numbers go first: they read best at the end of the line and they
-    /// are the least likely reason anyone looked. Then the branch, which is
-    /// the longest and the slowest to change. What is running survives both,
-    /// because it is the one fact here that is news. The agent survives
-    /// everything: it says whose pane this is.
-    pub const GIVE_UP: [usize; 4] = [2, 1, 3, 0];
 }
 
 /// How long a set of facts stays good.
@@ -518,57 +478,12 @@ mod tests {
         assert_eq!(compose(&[String::new(), "   ".into()]), "");
     }
 
-    /// What is given up first is not what is shown last. The numbers go before
-    /// the branch, and both go before what is running.
-    #[test]
-    fn a_narrow_bar_gives_up_the_numbers_before_anything_else() {
-        let facts = Facts {
-            agent: "A".into(),
-            agent_id: None,
-            git: "GGGG".into(),
-            process: "PPPP".into(),
-            title: "TT".into(),
-        };
-        let fit_to = |columns| fit(&facts.segments(), &Facts::GIVE_UP, columns);
-        assert_eq!(fit_to(100), "A    GGGG    PPPP    TT");
-        // The numbers first.
-        assert_eq!(fit_to(22), "A    GGGG    TT");
-        // Then the branch.
-        assert_eq!(fit_to(14), "A    TT");
-        // Then what is running. The agent is last: it says whose pane this is.
-        assert_eq!(fit_to(6), "A");
-        assert_eq!(fit_to(0), "");
-    }
-
-    /// Whole segments, never half of one. Half a branch name reads as a branch
-    /// with that name, and a memory figure without its unit is a wrong number.
-    #[test]
-    fn segments_are_dropped_whole() {
-        let segments = vec!["main-experiment".to_string(), "1.4G".to_string()];
-        let fitted = fit(&segments, &[1, 0], 17);
-        assert!(
-            fitted == "main-experiment" || fitted.is_empty(),
-            "a segment was cut in half: {fitted:?}"
-        );
-    }
-
-    /// An order that names fewer segments than there are still ends at an
-    /// empty line rather than at one that does not fit.
-    #[test]
-    fn an_incomplete_order_still_gives_everything_up() {
-        let segments = vec!["aaaa".to_string(), "bbbb".to_string()];
-        assert_eq!(fit(&segments, &[1], 3), "");
-    }
-
     /// Width is measured in cells. A CJK title takes two columns per character,
     /// and measuring it in characters puts the line through the tabs.
     #[test]
     fn width_is_counted_in_cells_rather_than_characters() {
         assert_eq!(width_of("abc"), 3);
         assert_eq!(width_of("\u{4E2D}\u{6587}"), 4);
-        let wide = vec!["\u{4E2D}\u{6587}\u{4E2D}\u{6587}".to_string()];
-        assert_eq!(fit(&wide, &[0], 7), "");
-        assert_eq!(fit(&wide, &[0], 8), "\u{4E2D}\u{6587}\u{4E2D}\u{6587}");
     }
 
     /// The whole line, as it appears in a window wide enough for all of it.

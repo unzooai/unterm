@@ -263,10 +263,6 @@ impl AppEngine {
         route!(self, engine => engine.pane_modes(pane_id))
     }
 
-    pub fn screen_revision(&self, pane_id: usize) -> Result<u64> {
-        route!(self, engine => engine.screen_revision(pane_id))
-    }
-
     /// One number that changes whenever anything drawn has.
     ///
     /// The idle loop asks this on every tick. In Local mode that is a

@@ -21,12 +21,6 @@ pub enum Mode {
     Activate,
     /// Exchange it with the pane in front, and follow it.
     Swap,
-    /// Exchange it with the pane in front, and stay where you are looking.
-    ///
-    /// The two are not the same gesture: swapping to rearrange a workspace
-    /// wants the focus to stay put, and swapping to bring something to the
-    /// front wants it to follow.
-    SwapKeepFocus,
 }
 
 /// An open selector.
@@ -268,7 +262,7 @@ mod picker_tests {
     /// after the choice never has to be asked.
     #[test]
     fn the_mode_is_carried_rather_than_asked() {
-        for mode in [Mode::Activate, Mode::Swap, Mode::SwapKeepFocus] {
+        for mode in [Mode::Activate, Mode::Swap] {
             assert_eq!(Selector::new(2, mode).mode, mode);
         }
     }

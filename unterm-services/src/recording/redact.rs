@@ -116,11 +116,3 @@ fn sha256_first_8(input: &str) -> String {
     let h = hasher.finish();
     format!("{:08x}", (h & 0xffff_ffff) as u32)
 }
-
-/// Drop the cached compiled patterns so the next call to `redact()`
-/// rebuilds them with the supplied custom patterns. Called when the
-/// recording.json config changes.
-#[allow(dead_code)]
-pub fn invalidate_cache() {
-    *compiled().lock() = None;
-}

@@ -12,11 +12,6 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-#[allow(dead_code)]
-const ROTATE_BYTES: u64 = 5 * 1024 * 1024;
-#[allow(dead_code)]
-const ROTATE_BLOCKS: u64 = 1000;
-
 /// Persistent config loaded from `~/.unterm/recording.json`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecordingConfig {

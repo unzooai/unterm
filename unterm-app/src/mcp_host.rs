@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use unterm_engine::next_core::color::{palette_rgb, Rgb};
 use unterm_engine::next_core::font_raster::RasterizedGlyph;
 use unterm_engine::{
-    McpHost, ScreenEngine, ScrollbackTextRequest, StyledCell, StyledColor, StyledScreenLine,
+    McpHost, ScrollbackTextRequest, StyledCell, StyledColor, StyledScreenLine,
 };
 
 pub struct AppMcpHost;

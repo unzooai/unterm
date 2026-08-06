@@ -225,19 +225,21 @@ impl FontStack {
         self.faces.len()
     }
 
-    /// Which face should draw `ch`, if any can.
-    ///
-    /// Falls back to the primary when nothing has it, so the character comes
-    /// out as that face's box rather than as a hole in the line.
     /// Whether any face in the stack actually has this character.
     ///
     /// Distinct from `face_for`, which falls back to the primary so that
     /// something is always drawn: a caller asking whether a mark exists at all
-    /// has to be able to tell a real answer from the fallback.
+    /// has to be able to tell a real answer from the fallback. Only tests ask
+    /// today -- the glyph-coverage checks in `chrome_font`.
+    #[cfg(test)]
     pub fn covers(&self, ch: char) -> bool {
         self.faces.iter().any(|face| face.has_glyph(ch))
     }
 
+    /// Which face should draw `ch`, if any can.
+    ///
+    /// Falls back to the primary when nothing has it, so the character comes
+    /// out as that face's box rather than as a hole in the line.
     pub fn face_for(&self, ch: char) -> usize {
         self.faces
             .iter()

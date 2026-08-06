@@ -39,11 +39,6 @@ pub fn height(_row_height: f32, pt: f32, quiet: bool) -> f32 {
     base.max(buttons).ceil()
 }
 
-/// Where the terminal starts, below the bar.
-pub fn terminal_top(row_height: f32, pt: f32, quiet: bool) -> f32 {
-    height(row_height, pt, quiet) + (crate::ui_tokens::CHROME_PANEL_INSET * pt).round()
-}
-
 /// What the bar shows at a given width, in logical pixels.
 ///
 /// Ported thresholds. Labels are the first thing to go because an icon still
@@ -908,6 +903,12 @@ mod resize_tests {
 #[cfg(test)]
 mod geometry_tests {
     use super::*;
+
+    /// Where the terminal starts, below the bar. The window derives this
+    /// itself; the test keeps the derivation honest.
+    fn terminal_top(row_height: f32, pt: f32, quiet: bool) -> f32 {
+        height(row_height, pt, quiet) + (crate::ui_tokens::CHROME_PANEL_INSET * pt).round()
+    }
 
     /// The terminal starts below the bar, with a gap. The `row` argument is a
     /// padded sidebar row, not the title font's bare cell, so the old 1.6-cell

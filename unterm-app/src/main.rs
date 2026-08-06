@@ -203,7 +203,7 @@ fn run() -> anyhow::Result<()> {
     // here would answer the same questions from an empty world, and an
     // agent would have no way to tell which one it reached.
     let served_here = matches!(backend, engine_backend::Backend::Local);
-    let (port, token) = if served_here {
+    let (_port, token) = if served_here {
         let (port, token) =
             unterm_mcp::start_mcp_server_with_version(unterm_protocol::PRODUCT_VERSION);
         log::info!("MCP server listening on 127.0.0.1:{port}");

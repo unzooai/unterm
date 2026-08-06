@@ -139,6 +139,8 @@ pub fn describe_state(state: AgentState) -> &'static str {
 ///
 /// `age_of` gives each pane's seconds-in-state, which the caller measures --
 /// keeping the clock out of here is what lets the ordering be tested.
+/// The window itself goes through `located_rows`; only tests come in here.
+#[cfg(test)]
 pub fn rows(
     statuses: &[PaneAgentStatus],
     mut age_of: impl FnMut(&PaneAgentStatus) -> u64,
@@ -415,9 +417,6 @@ pub fn badge_for_pane(statuses: &[PaneAgentStatus], pane_id: u64) -> Option<Badg
         .find(|status| status.pane_id == pane_id)
         .and_then(|status| badge(status.state))
 }
-
-/// The dot itself. One character, so a tab's label keeps its width.
-pub const BADGE: &str = "●";
 
 #[cfg(test)]
 mod badge_tests {

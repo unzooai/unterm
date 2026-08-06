@@ -2463,7 +2463,7 @@ fn reconnect_events(inner: &FrameCacheInner) -> Option<CoreEventStream> {
     let mut backoff = Duration::from_millis(100);
     while !inner.stopping.load(Ordering::Acquire) {
         if let Ok(info) = ensure_running() {
-            if let Ok(mut feed) = CoreEventStream::connect(&info.endpoint, &info.token) {
+            if let Ok(feed) = CoreEventStream::connect(&info.endpoint, &info.token) {
                 if feed
                     .set_read_timeout(Some(Duration::from_millis(200)))
                     .is_ok()
@@ -3432,7 +3432,7 @@ mod tests {
         }
         std::thread::sleep(Duration::from_millis(500));
 
-        let mut percentiles = |label: &str, mut samples: Vec<Duration>| {
+        let percentiles = |label: &str, mut samples: Vec<Duration>| {
             samples.sort();
             let p50 = samples[samples.len() / 2];
             let p95 = samples[samples.len() * 95 / 100];

@@ -16,9 +16,6 @@
 //! a 13-inch laptop at full screen lands around 150-180 columns, so anything
 //! gated higher than that is a segment nobody on a laptop ever sees.
 
-/// How tall the bar is, in rows of chrome text.
-pub const ROWS: usize = 1;
-
 // 0.57.4's bar carried no menu mark: it opens with the shell's name, and the
 // quick menu lives on the top bar's chevron alone. The extra `▾` this bar
 // briefly grew read as a difference from every released window, so it is gone.

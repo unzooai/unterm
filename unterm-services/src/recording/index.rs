@@ -81,29 +81,6 @@ pub fn load_index() -> Result<Vec<IndexEntry>> {
     Ok(parsed)
 }
 
-#[allow(dead_code)]
-pub fn append_entry(entry: IndexEntry) -> Result<()> {
-    let _g = index_lock().lock();
-    let path = index_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).context("create sessions dir")?;
-    }
-    let mut current: Vec<IndexEntry> = if path.exists() {
-        let raw = std::fs::read_to_string(&path).unwrap_or_default();
-        if raw.trim().is_empty() {
-            Vec::new()
-        } else {
-            serde_json::from_str(&raw).unwrap_or_default()
-        }
-    } else {
-        Vec::new()
-    };
-    current.push(entry);
-    let serialized = serde_json::to_string_pretty(&current)?;
-    std::fs::write(&path, serialized).with_context(|| format!("write {}", path.display()))?;
-    Ok(())
-}
-
 /// Update an existing entry in-place by `unterm_session_id`. If the entry
 /// is missing the function appends it.
 pub fn upsert_entry(entry: IndexEntry) -> Result<()> {

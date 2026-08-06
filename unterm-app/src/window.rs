@@ -3059,7 +3059,7 @@ impl App {
         let picker_left = settings_left - square;
         let main_width = (picker_left - footer_left).max(1.0);
         let ink = |on: bool| if on { foreground } else { chrome.dim_text };
-        let mut lift = |left: f32, width: f32, on: bool, quads: &mut unterm_render::quads::FrameQuads| {
+        let lift = |left: f32, width: f32, on: bool, quads: &mut unterm_render::quads::FrameQuads| {
             if on {
                 quads.backgrounds.extend(unterm_render::rounded::panel(
                     left,
@@ -8492,19 +8492,16 @@ impl App {
                 self.tabs.set_active_pane(chosen);
                 self.focus_session(chosen);
             }
-            crate::paneselect::Mode::Swap | crate::paneselect::Mode::SwapKeepFocus => {
-                let follow = selector.mode == crate::paneselect::Mode::Swap;
-                self.swap_panes(chosen, follow);
-            }
+            crate::paneselect::Mode::Swap => self.swap_panes(chosen),
         }
     }
 
-    /// Exchange the chosen pane with the one in front.
+    /// Exchange the chosen pane with the one in front, and follow it.
     ///
     /// Done by rebuilding the tab's arrangement with the two panes' places
     /// exchanged, rather than by moving anything: the shells keep running
     /// where they are, and only the rectangles they are drawn in change.
-    fn swap_panes(&mut self, chosen: usize, follow: bool) {
+    fn swap_panes(&mut self, chosen: usize) {
         let (Some(tab_id), Some(live)) = (self.tab_id, self.state.as_ref()) else {
             return;
         };
@@ -8523,9 +8520,8 @@ impl App {
                 position.pane_id = focused;
             }
         }
-        // Staying put means the focus keeps its *place*, which after the
-        // exchange is the other pane; following means it keeps its *pane*.
-        let active = if follow { chosen } else { focused };
+        // Following means the focus keeps its *pane* rather than its place.
+        let active = chosen;
         if let Err(err) = self.tabs.adopt_tab(tab_id, &positions, active) {
             log::warn!("could not swap panes: {err:#}");
             return;
@@ -10239,36 +10235,11 @@ fn transform_hsv(color: [f32; 4], hue_factor: f32, saturation: f32, brightness: 
     [r1 + m, g1 + m, b1 + m, alpha]
 }
 
-/// The number on each tab.
-///
-/// Drawn separately from the bar's blocks so the active tab's number reads
-/// against its highlight rather than disappearing into it.
-/// Draw the pending agent-write banner, if one is waiting.
-///
-/// Over everything else and at the top, because a thread is parked on the
-/// answer: a banner the user has to go looking for is a request that times out
-/// into a refusal.
-
 /// The palette's rows: every action a key can reach.
 ///
 /// Built from the same table the keys use, so a chord and a palette row
 /// cannot drift apart -- and the chord is shown as the hint, which is how a
 /// palette teaches the keyboard.
-fn initial_split_grid(
-    axis: unterm_engine::next_core::layout::SplitAxis,
-    cols: usize,
-    rows: usize,
-) -> (usize, usize) {
-    match axis {
-        unterm_engine::next_core::layout::SplitAxis::Horizontal => {
-            ((cols.saturating_sub(1) / 2).max(1), rows.max(1))
-        }
-        unterm_engine::next_core::layout::SplitAxis::Vertical => {
-            (cols.max(1), (rows.saturating_sub(1) / 2).max(1))
-        }
-    }
-}
-
 fn command_entries() -> Vec<crate::palette::Entry> {
     let mut entries: Vec<crate::palette::Entry> = Vec::new();
     for &action in crate::keys::PALETTE_ACTIONS {
@@ -10458,13 +10429,6 @@ fn which(program: &str) -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod palette_entry_tests {
     use super::*;
-
-    #[test]
-    fn split_startup_size_follows_its_axis() {
-        use unterm_engine::next_core::layout::SplitAxis;
-        assert_eq!(initial_split_grid(SplitAxis::Horizontal, 121, 41), (60, 41));
-        assert_eq!(initial_split_grid(SplitAxis::Vertical, 121, 41), (121, 20));
-    }
 
     /// The palette lists every key action, with the chord that reaches it.
     ///

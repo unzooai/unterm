@@ -94,7 +94,10 @@ mod resolve_split_tests {
                 let ratio = resolve_split(direction, percent).1;
                 assert!(
                     (0.05..=0.95).contains(&ratio),
-                    "{direction:?} at {percent}% gave {ratio}"
+                    "{:?} at {}% gave {}",
+                    direction,
+                    percent,
+                    ratio
                 );
             }
         }
