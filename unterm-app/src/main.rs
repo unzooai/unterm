@@ -38,6 +38,7 @@ mod session_restore;
 mod shape;
 mod sidebar;
 mod statsbar;
+mod stallwatch;
 mod statusbar;
 mod system_capture;
 mod terminal;
@@ -210,7 +211,33 @@ fn run() -> anyhow::Result<()> {
         (port, token)
     } else {
         log::info!("agent surface is served by unterm-core; this window hosts its window half");
-        (0, String::new())
+        // Serving no MCP does not excuse the window from registering: the
+        // settings page bootstraps its credentials from this instance's
+        // record, and every legacy client finds the surface through
+        // server.json. Register with the Core's port and the Core's token,
+        // so both roads lead to the server that actually owns the sessions.
+        match unterm_core::read_discovery() {
+            Ok(Some(core)) => {
+                let port = core.mcp_port.unwrap_or(0);
+                match unterm_services::server_info::write_initial_with_version_token(
+                    port,
+                    unterm_protocol::PRODUCT_VERSION,
+                    Some(core.token.clone()),
+                ) {
+                    Ok(_) => (port, core.token),
+                    Err(err) => {
+                        log::warn!("could not register this window's instance: {err:#}");
+                        (0, String::new())
+                    }
+                }
+            }
+            other => {
+                if let Err(err) = other {
+                    log::warn!("could not read core discovery: {err:#}");
+                }
+                (0, String::new())
+            }
+        }
     };
     match unterm_services::bridge_registry::request_incompatible_drains() {
         Ok(0) => {}
@@ -250,6 +277,9 @@ fn run() -> anyhow::Result<()> {
     // a release had shipped.
     unterm_settings::update_check::start_background_poller();
 
+    // The stall watchdog, armed before the loop it watches exists: a frozen
+    // window must leave a trace, not an argument about whether it happened.
+    stallwatch::start();
     let event_loop = winit::event_loop::EventLoop::new()?;
     let mut app = window::App::new(&config)?;
     // A plain launch reopens where the last one closed; naming a directory

@@ -716,6 +716,19 @@ pub fn write_initial(mcp_port: u16) -> Result<InstanceInfo> {
 /// version, so GUI callers must not expose that implementation detail as the
 /// installed Unterm version.
 pub fn write_initial_with_version(mcp_port: u16, product_version: &str) -> Result<InstanceInfo> {
+    write_initial_with_version_token(mcp_port, product_version, None)
+}
+
+/// As `write_initial_with_version`, with the auth token supplied rather than
+/// generated. For a window in Core mode: the agent surface it registers is
+/// the Core's MCP server, so the token has to be the Core's own — a token
+/// minted here would bounce off that surface, and the settings page (which
+/// bootstraps its credentials from this record) would 401 on every call.
+pub fn write_initial_with_version_token(
+    mcp_port: u16,
+    product_version: &str,
+    auth_token: Option<String>,
+) -> Result<InstanceInfo> {
     let _g = file_lock().lock();
     fs::create_dir_all(unterm_dir())?;
     fs::create_dir_all(instances_dir())?;
@@ -727,7 +740,7 @@ pub fn write_initial_with_version(mcp_port: u16, product_version: &str) -> Resul
         id: id.clone(),
         mcp_port,
         http_port: 0,
-        auth_token: uuid::Uuid::new_v4().to_string(),
+        auth_token: auth_token.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
         pid: std::process::id(),
         started_at: chrono::Local::now().to_rfc3339(),
         title: None,

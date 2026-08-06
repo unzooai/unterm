@@ -2531,7 +2531,7 @@ impl App {
     /// 0 = new session, 1 = the shell picker, 2 = settings — one row,
     /// three zones. Pure geometry: the footer is pinned to the bottom
     /// edge, so no session list has to be walked to find it.
-    fn sidebar_footer_action_at(&self, x: f32, y: f32) -> Option<usize> {
+    fn sidebar_footer_action_at(&mut self, x: f32, y: f32) -> Option<usize> {
         let (left, top, width, height, row_height) = self.sidebar_dock()?;
         let footer_top = top + height - row_height;
         if x < left || x >= left + width || y < footer_top || y >= top + height {
@@ -2542,20 +2542,47 @@ impl App {
         if x < left + inset || x >= left + width - inset {
             return None;
         }
-        // Two marks against the trailing edge -- the shell picker
-        // beside the new-session row it belongs to, then settings.
-        // Narrower than they are tall, so the one action with words
-        // keeps room for them.
-        let square = crate::sidebar::footer_mark_width(row_height);
-        let settings_left = left + width - inset - square;
-        let picker_left = settings_left - square;
-        Some(if x >= settings_left {
-            2
+        let footer_left = left + inset;
+        let footer_width = (width - inset * 2.0).max(0.0);
+        let (picker_left, picker_right, settings_left) =
+            self.sidebar_footer_zones(footer_left, footer_width, row_height, pt);
+        if x >= settings_left {
+            Some(2)
+        } else if x >= picker_right {
+            // The stretch between the split's dropdown and settings is
+            // just floor: a click there chose neither and does nothing.
+            None
         } else if x >= picker_left {
-            1
+            Some(1)
         } else {
-            0
-        })
+            Some(0)
+        }
+    }
+
+    /// Where the footer's three controls sit: `(picker_left, picker_right,
+    /// settings_left)`.
+    ///
+    /// The shell picker rides the trailing edge of the new-session label --
+    /// a split button, the way a browser's new-tab button carries its
+    /// dropdown -- rather than being parked across the row next to settings,
+    /// where it read as a control nobody could name. One function for both
+    /// hit-testing and drawing, so the two cannot drift apart.
+    fn sidebar_footer_zones(
+        &mut self,
+        footer_left: f32,
+        footer_width: f32,
+        row_height: f32,
+        pt: f32,
+    ) -> (f32, f32, f32) {
+        use unterm_services::i18n::t;
+        let square = crate::sidebar::footer_mark_width(row_height);
+        let settings_left = footer_left + footer_width - square;
+        let pen = footer_left + 7.0 * pt + self.chrome_width("\u{FF0B}") + 6.0 * pt;
+        let label_budget = (settings_left - pen - square - 8.0 * pt).max(0.0);
+        let label = self.chrome_fit(&t("sidebar.new_session"), label_budget);
+        let picker_left =
+            (pen + self.chrome_width(&label) + 4.0 * pt).min(settings_left - square);
+        (picker_left, picker_left + square, settings_left)
     }
 
     /// A press on the tab strip. Returns true when the strip took it.
@@ -3055,8 +3082,8 @@ impl App {
         });
         let hovered = self.sidebar_footer_action_at(self.pointer.0, self.pointer.1);
         let square = crate::sidebar::footer_mark_width(row_height);
-        let settings_left = footer_left + footer_width - square;
-        let picker_left = settings_left - square;
+        let (picker_left, _picker_right, settings_left) =
+            self.sidebar_footer_zones(footer_left, footer_width, row_height, pt);
         let main_width = (picker_left - footer_left).max(1.0);
         let ink = |on: bool| if on { foreground } else { chrome.dim_text };
         let lift = |left: f32, width: f32, on: bool, quads: &mut unterm_render::quads::FrameQuads| {
@@ -3088,7 +3115,7 @@ impl App {
         pen += 6.0 * pt;
         let new_label = self.chrome_fit(
             &t("sidebar.new_session"),
-            (picker_left - pen - 4.0 * pt).max(0.0),
+            (settings_left - pen - square - 8.0 * pt).max(0.0),
         );
         self.append_chrome(
             &new_label,
@@ -9796,6 +9823,7 @@ impl ApplicationHandler for App {
             event_loop.exit();
             return;
         }
+        crate::stallwatch::beat();
         self.collect_clipboard_results();
         self.tick();
         // Waiting until the next tick rather than spinning. Something has to
