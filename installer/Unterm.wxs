@@ -100,6 +100,28 @@
           </RegistryKey>
         </RegistryKey>
       </Component>
+      <!-- The tab variant: hand the directory to the window already open
+           (macOS has had this via FinderSync all along). unterm.exe is the
+           GUI-subsystem binary, so no console flashes; with no live window
+           the --tab flag degrades to a plain open. -->
+      <Component Id="ExplorerContextMenuTabDir" Guid="05DC0654-0A98-4504-B9E0-E81BF3E7B054">
+        <RegistryKey Root="HKCR" Key="Directory\shell\UntermTab">
+          <RegistryValue Type="string" Value="Open in Unterm tab" KeyPath="yes" />
+          <RegistryValue Type="string" Name="Icon" Value="[INSTALLFOLDER]unterm.exe" />
+          <RegistryKey Key="command">
+            <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]unterm.exe&quot; start --tab --cwd &quot;%V&quot;" />
+          </RegistryKey>
+        </RegistryKey>
+      </Component>
+      <Component Id="ExplorerContextMenuTabBg" Guid="31206D1C-EBEC-4950-805C-AC0315CE4DF9">
+        <RegistryKey Root="HKCR" Key="Directory\Background\shell\UntermTab">
+          <RegistryValue Type="string" Value="Open in Unterm tab" KeyPath="yes" />
+          <RegistryValue Type="string" Name="Icon" Value="[INSTALLFOLDER]unterm.exe" />
+          <RegistryKey Key="command">
+            <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]unterm.exe&quot; start --tab --cwd &quot;%V&quot;" />
+          </RegistryKey>
+        </RegistryKey>
+      </Component>
       <Component Id="DefaultUntermConf" Directory="DefaultsFolder" Guid="F3B2F196-E64A-4045-8B40-490D18018546">
         <File Source="$(var.SourceDir)\defaults\unterm.conf" KeyPath="yes" />
       </Component>

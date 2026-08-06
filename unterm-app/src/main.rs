@@ -20,6 +20,7 @@ mod directory;
 mod engine_backend;
 mod fleet;
 mod fonts;
+mod forward;
 mod ghost;
 mod git;
 mod ime;
@@ -150,6 +151,20 @@ fn run() -> anyhow::Result<()> {
     let args = args::parse(std::env::args().skip(1));
     for argument in &args.unrecognised {
         log::warn!("ignoring unrecognised argument {argument:?}");
+    }
+
+    // "Open in Unterm tab": the window the user means is the one already
+    // open. Forward the directory there and exit; only with nobody to take
+    // it does this process go on to become a window itself.
+    if args.tab {
+        if let Some(cwd) = args.cwd.as_deref() {
+            match forward::open_tab_in_live_window(cwd) {
+                Ok(()) => return Ok(()),
+                Err(err) => {
+                    log::info!("no live window took the tab ({err:#}); opening one");
+                }
+            }
+        }
     }
 
     // A Lua config from an older build, converted once so the settings the

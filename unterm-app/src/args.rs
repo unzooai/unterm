@@ -15,6 +15,10 @@ pub struct Args {
     pub config: Option<PathBuf>,
     /// The directory the first shell should start in.
     pub cwd: Option<PathBuf>,
+    /// Prefer handing `cwd` to an already-open window as a new tab, and
+    /// only open a window of our own when nobody is there to take it.
+    /// What the Explorer context menu's "Open in Unterm tab" passes.
+    pub tab: bool,
     /// Identity profile to bind before the first pane is created.
     pub profile: Option<String>,
     /// Explicit program and arguments for the first pane.
@@ -38,6 +42,7 @@ pub fn parse<I: IntoIterator<Item = String>>(arguments: I) -> Args {
             // The verb the old binary used. There is only one thing this
             // program does, so it means "and nothing else".
             "start" => {}
+            "--tab" => args.tab = true,
             "--config" | "-c" => args.config = rest.next().map(PathBuf::from),
             "--cwd" => args.cwd = rest.next().map(PathBuf::from),
             "--profile" => args.profile = rest.next(),
