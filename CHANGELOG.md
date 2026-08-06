@@ -1,5 +1,84 @@
 # Changelog
 
+## v0.63.0 — 2026-08-06
+
+The release the install deserved. 0.62.0's Core architecture was real, but
+what a fresh install actually got was quieter: no `unterm-core` in any
+package, a settings page whose every request bounced, and an emoji face that
+had never drawn a single glyph. A day of dogfooding a clean install found
+them all.
+
+### An install now contains the product
+
+- **`unterm-core` ships.** All six release pipelines — macOS DMG and zip,
+  Windows MSI and zip, deb, AppImage — packaged the window and the CLI but
+  not the engine daemon they both look for beside themselves. Every install
+  silently fell back to the in-process engine; none of the Core architecture
+  ever reached a user.
+- **The settings page works in Core mode.** The window skipped registering
+  itself when the Core hosts the agent API, so the page bootstrapped with no
+  credentials and every call — including the one that fetches its own title —
+  came back 401. The window now registers with the Core's port and token,
+  which also revives the stale-registration takeover: a dead instance's
+  record no longer squats on `server.json`.
+- **macOS finally wears Logo A.** The brand refresh regenerated Windows and
+  Linux assets and left the mac `.icns` to "the release process", which had
+  no such step. The icns is now generated from the same assets, into the
+  bundle template.
+
+### Emoji, for the first time
+
+- **The bundled emoji face never worked.** It was a COLRv1 font, which
+  FreeType cannot rasterize — so the face opened, claimed the code points,
+  and drew nothing, from the day it was bundled. It is now the CBDT bitmap
+  build, the rasterizer picks the nearest strike and scales it, and a colour
+  glyph renders as a silhouette the chrome can tint. The sidebar's ✋
+  waiting badge exists on macOS for the first time.
+
+### Typing keeps up
+
+- **The pause-then-type lag is gone.** After two quiet seconds the render
+  loop relaxed its engine polling to 96ms — and a keystroke did not wake it
+  back up, so the first character after a pause could wait most of a tenth
+  of a second to appear. Keyboard and IME input now snap the loop back to
+  its 8ms cadence before the shell sees the byte.
+
+### The window, straightened
+
+- **The title bar sits on one line.** On macOS the quiet bar was four pixels
+  shorter than the height AppKit centres the traffic lights for, and the
+  bar's own text was nudged the other way: lights low, title high, chevron
+  in the window's rounded corner. The bar now uses the platform's 28 logical
+  pixels, the text centres on the lights' optical line, and the chevron has
+  the margin the lights get on their side.
+- **The shell picker appears when you reach for it.** At rest the sidebar
+  footer is two things — new session and settings. Point at the row and the
+  dropdown pill shows itself, centred, beside the label it belongs to.
+- **A GUI stall leaves a trace again.** The stall watchdog lost in the
+  rewrite is back: gaps over two seconds land in `stall.log` with their
+  duration, so a frozen window is a diagnosis rather than an argument.
+
+### Windows: open in a tab
+
+- **Explorer's right-click grows "Open in Unterm tab".** macOS has handed
+  directories to the running window via Finder all along; Windows always
+  opened a new one. `unterm.exe --tab` forwards the directory to the live
+  window as a new session and focuses it, and with nobody to take it,
+  degrades to a plain open. No console flashes: the forwarding lives in the
+  GUI-subsystem binary.
+
+### Fixed
+
+- The macOS folder picker no longer fails outright over a start directory
+  it cannot open (an unmounted volume, a cloud placeholder): it asks again
+  without the default location, and its error notice now names the cause.
+- `assert!` messages in an edition-2018 crate printed their placeholders
+  instead of the values; newer compilers rightly refuse.
+- The `version_exit` test measures the product's startup rather than
+  Gatekeeper's scan of a freshly linked binary.
+- 110MB of accidentally committed Windows packaging output removed from the
+  repository tip, with ignore rules so it stays out.
+
 ## v0.62.0 — 2026-08-05
 
 Your shells stop belonging to the window. A per-user `unterm-core` process
