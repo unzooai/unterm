@@ -51,7 +51,7 @@ jobs:
           target: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --release -p unterm-app -p unterm-cli
+        run: cargo build --release -p unterm-app -p unterm-cli -p unterm-core
       - name: Stage zip
         shell: bash
         env:

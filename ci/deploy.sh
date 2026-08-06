@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build platform-specific Unterm release artifacts.
 # Run from repo root after a release build:
-#   cargo build --release -p unterm-app -p unterm-cli
+#   cargo build --release -p unterm-app -p unterm-cli -p unterm-core
 #   ci/deploy.sh
 #
 # Inputs:
@@ -44,7 +44,7 @@ case ${OSTYPE:-} in
        "$zipdir/Unterm.app/Contents/Resources/assets/fonts/"
     tic -xe wezterm -o "$zipdir/Unterm.app/Contents/Resources/terminfo" termwiz/data/wezterm.terminfo
 
-    for bin in unterm unterm-cli ; do
+    for bin in unterm unterm-cli unterm-core ; do
       if [[ -f "$TARGET_DIR/release/$bin" ]] ; then
         cp "$TARGET_DIR/release/$bin" "$zipdir/Unterm.app/Contents/MacOS/$bin"
       else
@@ -92,6 +92,7 @@ case ${OSTYPE:-} in
     [ "${UNTERM_ARCH:-x64}" = "arm64" ] && helpers=assets/windows/arm64
     cp "$TARGET_DIR/release/unterm.exe" \
        "$TARGET_DIR/release/unterm-cli.exe" \
+       "$TARGET_DIR/release/unterm-core.exe" \
        "$helpers/conhost/conpty.dll" \
        "$helpers/conhost/OpenConsole.exe" \
        "$helpers/angle/libEGL.dll" \
@@ -191,6 +192,7 @@ EOF
 
     install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/unterm"
     install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/unterm-cli"
+    install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/unterm-core"
     # Install one PNG per standard hicolor size — taskbars (16/24), launchers
     # (48/64), file dialogs (96/128), Activities/grid (256/512). Skipping sizes
     # forces the DE to either scale the 128 PNG or fall back to the SVG, both

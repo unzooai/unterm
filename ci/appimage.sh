@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build a Linux AppImage for Unterm.
-# Run after: cargo build --release -p unterm-app -p unterm-cli
+# Run after: cargo build --release -p unterm-app -p unterm-cli -p unterm-core
 set -euo pipefail
 set -x
 
@@ -9,6 +9,7 @@ mkdir AppDir
 
 install -Dsm755 -t AppDir/usr/bin target/release/unterm
 install -Dsm755 -t AppDir/usr/bin target/release/unterm-cli
+install -Dsm755 -t AppDir/usr/bin target/release/unterm-core
 install -Dm644 assets/unterm.conf AppDir/usr/bin/unterm.conf
 install -Dm644 assets/fonts/SymbolsNerdFontMono-Regular.ttf \
   AppDir/usr/share/unterm/fonts/SymbolsNerdFontMono-Regular.ttf

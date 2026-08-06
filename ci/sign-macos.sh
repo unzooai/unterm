@@ -108,7 +108,7 @@ fi
 
 bash ci/build-macos-finder-sync.sh "$stagedir/Unterm.app"
 
-for bin in unterm unterm-cli ; do
+for bin in unterm unterm-cli unterm-core ; do
   # Prefer the per-arch builds (target/<triple>/release/$bin) and lipo them
   # together into a fat universal binary. We only fall back to the host-arch
   # direct path (target/release/$bin) if no per-arch builds exist at all —
@@ -136,7 +136,7 @@ for bin in unterm unterm-cli ; do
   elif [[ -f "$TARGET_DIR/release/$bin" ]] ; then
     cp "$TARGET_DIR/release/$bin" "$stagedir/Unterm.app/Contents/MacOS/$bin"
   else
-    echo "ERROR: missing build artifact $bin — run 'cargo build --release -p unterm-app -p unterm-cli' first"
+    echo "ERROR: missing build artifact $bin — run 'cargo build --release -p unterm-app -p unterm-cli -p unterm-core' first"
     exit 1
   fi
 done
@@ -148,7 +148,7 @@ done
 # encounters a sibling binary that hasn't been signed yet. Iterating
 # alphabetically (the previous bug) put `unterm` before `unterm-mux` and
 # tripped that check. Sign helpers first, main last, then the bundle.
-HELPERS=(unterm-cli unterm-mux strip-ansi-escapes)
+HELPERS=(unterm-cli unterm-core unterm-mux strip-ansi-escapes)
 for bin in "${HELPERS[@]}" ; do
   bin_path="$stagedir/Unterm.app/Contents/MacOS/$bin"
   if [[ -f "$bin_path" ]] ; then
