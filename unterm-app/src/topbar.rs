@@ -179,6 +179,12 @@ pub fn layout(
                 tooltip: None,
             });
         }
+    } else {
+        // The platform draws its lights on the left with a deliberate
+        // margin; with no buttons of ours on the right, the chevron would
+        // otherwise start at the raw edge and sit inside the window's
+        // rounded corner. Mirror the lights' breathing room.
+        right -= (10.0 * pt).round();
     }
 
     // Then the actions, right to left, so the menu sits closest to the buttons.

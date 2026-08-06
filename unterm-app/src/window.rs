@@ -3099,8 +3099,23 @@ impl App {
             }
         };
         lift(footer_left, main_width, hovered == Some(0), quads);
-        lift(picker_left, square, hovered == Some(1), quads);
         lift(settings_left, square, hovered == Some(2), quads);
+        // The picker is a pressable thing even when nobody points at it: a
+        // resting pill under the mark, so it reads as the label's dropdown
+        // rather than as a stray triangle. Hover brightens it to the same
+        // tone the other two lift to.
+        let mut pill = chrome.hover_bg;
+        if hovered != Some(1) {
+            pill[3] *= 0.45;
+        }
+        quads.backgrounds.extend(unterm_render::rounded::panel(
+            picker_left,
+            footer_top + 3.0 * pt,
+            square,
+            row_height - 6.0 * pt,
+            radius,
+            pill,
+        ));
 
         // The one action with words -- everything else on this row is
         // a square with a mark in it, which is what keeps three
