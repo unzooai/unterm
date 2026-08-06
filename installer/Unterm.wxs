@@ -103,7 +103,7 @@
       <!-- The tab variant: hand the directory to the window already open
            (macOS has had this via FinderSync all along). unterm.exe is the
            GUI-subsystem binary, so no console flashes; with no live window
-           the --tab flag degrades to a plain open. -->
+           the tab flag degrades to a plain open. -->
       <Component Id="ExplorerContextMenuTabDir" Guid="05DC0654-0A98-4504-B9E0-E81BF3E7B054">
         <RegistryKey Root="HKCR" Key="Directory\shell\UntermTab">
           <RegistryValue Type="string" Value="Open in Unterm tab" KeyPath="yes" />
