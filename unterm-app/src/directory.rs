@@ -88,7 +88,16 @@ pub fn pick_directory(
     const SCRIPT: &str = r#"on run argv
   try
     if (count of argv) is 2 then
-      return POSIX path of (choose folder with prompt (item 1 of argv) default location (POSIX file (item 2 of argv)))
+      try
+        return POSIX path of (choose folder with prompt (item 1 of argv) default location (POSIX file (item 2 of argv)))
+      on error errText number errNum
+        if errNum is -128 then return ""
+        -- A start directory the dialog cannot open (unmounted volume, a
+        -- cloud placeholder, a path that vanished since the check) is the
+        -- start directory's problem, not the dialog's: ask again without it
+        -- rather than failing the whole picker over a default.
+        return POSIX path of (choose folder with prompt (item 1 of argv))
+      end try
     else
       return POSIX path of (choose folder with prompt (item 1 of argv))
     end if

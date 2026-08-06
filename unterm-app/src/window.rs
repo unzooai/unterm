@@ -5490,7 +5490,13 @@ impl App {
                     Ok(None) => {}
                     Err(err) => {
                         log::warn!("could not open the system folder picker: {err}");
-                        self.show_notice(unterm_services::i18n::t("dirjump.picker_failed"));
+                        // The cause rides along: a notice that only says
+                        // "could not open" is a notice the user can only
+                        // report back as "it errored".
+                        self.show_notice(format!(
+                            "{} — {err}",
+                            unterm_services::i18n::t("dirjump.picker_failed")
+                        ));
                     }
                 },
                 ClipboardResult::ScreenshotFinished { mode, result } => match result {
@@ -9041,6 +9047,9 @@ impl ApplicationHandler for App {
 
             WindowEvent::Ime(ime) => {
                 use winit::event::Ime;
+                // Same urgency as a plain keystroke: a committed composition
+                // is input on its way to an echo.
+                self.quiet_since = None;
                 match ime {
                     Ime::Preedit(text, caret) => {
                         self.preedit = crate::ime::Preedit {
@@ -9096,6 +9105,12 @@ impl ApplicationHandler for App {
                 if self.state.is_none() {
                     return;
                 }
+                // A keystroke is about to produce an echo, and the resting
+                // tick would keep the loop from looking for almost 100ms --
+                // which is exactly the pause-then-type lag people report as
+                // "typing feels slow". Drop back to the busy cadence now,
+                // before the shell has even seen the byte.
+                self.quiet_since = None;
 
                 use winit::keyboard::Key;
 
