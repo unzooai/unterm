@@ -12,6 +12,9 @@ dhat-heap.json
 /Unterm-*-arm64.msi
 /Unterm-v*-*.AppImage
 /Unterm-v*-*.AppImage.zsync
+# Local Windows packaging output (staged MSI trees); never commit these
+/dist-local-*/
+/target-sync/
 /unterm-v*.deb
 /*.notary.zip
 # CI-built bundles named by date/sha (e.g. Unterm-macos-20260504-…)
