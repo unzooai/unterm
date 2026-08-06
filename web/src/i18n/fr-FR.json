@@ -11,9 +11,9 @@
   "nav.faq": "FAQ",
   "cap.cockpit.title": "Cockpit des agents",
   "cap.cockpit.body": "Voyez l'état en direct de chaque agent CLI (au travail / en attente / inactif), sautez depuis la boîte de réception vers celui qui a besoin de vous, lancez une flotte de N agents sur une même tâche dans des git worktrees isolés, puis relisez, fusionnez ou annulez ce qu'ils ont produit — depuis la GUI, via MCP ou en CLI.",
-  "hero.title.1": "A terminal",
-  "hero.title.2": "AI agents can control.",
-  "hero.subtitle": "Désormais sur son propre noyau haute performance — 22 ms du lancement à une surface de contrôle MCP active. Installez, connectez-vous et lancez Claude Code, Codex CLI, Gemini CLI, OpenCode et Aider — un clic chacun, avec votre abonnement éditeur ou votre propre clé API. Et l'agent que vous venez de lancer peut piloter Unterm en retour via MCP.",
+  "hero.title.1": "Le terminal que les",
+  "hero.title.2": "agents IA peuvent piloter.",
+  "hero.subtitle": "Lancez Claude Code, Codex, Gemini, OpenCode et Aider — puis laissez-les piloter le terminal lui-même via une surface de contrôle MCP complète. Les sessions vivent dans un processus core qui survit à la fenêtre, et la barre latérale vous dit qui travaille, qui a fini et qui vous attend.",
   "hero.cta.download": "Download for your device",
   "hero.cta.download_fallback": "Download macOS",
   "hero.cta.other": "Other platforms",
@@ -252,5 +252,7 @@
   "faq.q5": "En quoi Unterm diffère-t-il de Warp ?",
   "faq.a5": "Warp intègre l'IA dans le terminal derrière un orchestrateur cloud fermé ; les outils externes ne peuvent pas le piloter. Unterm prend le contre-pied : le terminal est une surface ouverte, pilotable via MCP, que n'importe quel agent (Claude Code, Codex, Gemini, Cursor, votre propre script) pilote de l'extérieur — et son orchestration d'agents repose sur des git worktrees locaux et des API ouvertes, pas sur un service cloud. Unterm est sous licence MIT, gratuit pour toujours, sans compte.",
   "faq.q6": "Quels agents de codage IA Unterm prend-il en charge ?",
-  "faq.a6": "Le lanceur installe et branche Claude Code, Codex CLI, Gemini CLI, OpenCode et Aider en un clic chacun. La détection d'état du cockpit reconnaît en plus kimi, trae et cursor-agent d'emblée, et tout agent émettant des signaux de terminal standard (titres, OSC 9/777, BEL) bénéficie d'un suivi de base sans rien faire. Tout le reste peut s'intégrer via « unterm-cli agent signal »."
+  "faq.a6": "Le lanceur installe et branche Claude Code, Codex CLI, Gemini CLI, OpenCode et Aider en un clic chacun. La détection d'état du cockpit reconnaît en plus kimi, trae et cursor-agent d'emblée, et tout agent émettant des signaux de terminal standard (titres, OSC 9/777, BEL) bénéficie d'un suivi de base sans rien faire. Tout le reste peut s'intégrer via « unterm-cli agent signal ».",
+  "whatsnew.core63.title": "Les sessions survivent à la fenêtre — et l'installation contient enfin tout",
+  "whatsnew.core63.body": "<strong>unterm-core</strong> possède désormais vos sessions : un processus par utilisateur garde les shells, le scrollback et les dispositions, sert toute la surface MCP et survit à la fermeture de la fenêtre (v0.62). v0.63 est la version que l'installation méritait : le démon core est réellement livré dans les six paquets, la page de réglages fonctionne en mode Core, les emoji s'affichent pour la première fois — la police embarquée était un COLRv1 que FreeType ne sait pas dessiner — la latence de frappe après une pause passe de 96ms à 8ms, macOS porte la nouvelle marque, et l'Explorateur gagne « Open in Unterm tab »."
 }

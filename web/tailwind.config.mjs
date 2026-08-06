@@ -4,23 +4,24 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Unterm "Notion Dark" scheme (config/src/unterm_schemes.rs), tuned for
-        // the web: warm dark (not cold black), bright headings + clearly raised
-        // cards for crisp hierarchy, warm soft borders + teal-green accent.
-        // Semantic tokens so the whole site re-themes from this one block.
+        // Unterm V2 brand ("Agent Inbox"): the product's own deep blue-grey
+        // tile, cream prompt ink and the amber state dot — the terminal that
+        // tells you its status, worn by its site. Semantic tokens so the
+        // whole site re-themes from this one block; the old names stay so
+        // every existing class keeps working (green/teal now read amber).
         notion: {
-          bg: "#191919",         // warm dark page background (softer than black)
-          surface: "#232322",    // cards — a clear step up from bg for contrast
-          sunken: "#141413",     // inset panels / code wells
-          ink: "#f2f1ee",        // headings + primary text (bright = crisp)
-          muted: "#b8b7b1",      // secondary text (readable, not faint)
-          faint: "#8a8983",      // tertiary / captions
-          border: "#33322f",     // warm soft hairline
-          borderStrong: "#494841",
-          green: "#4dab9a",      // primary accent / fills (Notion teal-green)
-          teal: "#6fccb8",       // brighter accent text / hover
-          blue: "#7bb4dd",       // links / highlight
-          selbg: "#2c2c2c",      // selection / soft highlight bg
+          bg: "#14161b",         // page background — the logo tile, one step deeper
+          surface: "#1c1f26",    // cards — a clear step up from bg for contrast
+          sunken: "#0f1115",     // inset panels / code wells
+          ink: "#ece9e2",        // headings + primary text — the prompt's cream
+          muted: "#b3b1aa",      // secondary text (readable, not faint)
+          faint: "#84827c",      // tertiary / captions
+          border: "#2a2e37",     // cool soft hairline
+          borderStrong: "#3d424e",
+          green: "#e8b34b",      // primary accent / fills — the amber state dot
+          teal: "#f0c46e",       // brighter accent text / hover
+          blue: "#8fb7e8",       // links / highlight
+          selbg: "#262a33",      // selection / soft highlight bg
         },
       },
       fontFamily: {

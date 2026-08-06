@@ -127,9 +127,9 @@
   "faq.locale.a": "会。首次启动会读 OS 语言（macOS 上 <code class=\"font-mono\">defaults</code>、Linux 上 <code class=\"font-mono\">$LANG</code>、Windows 上注册表）然后在 9 种界面语言中选最接近的。可以在 Web Settings → Language 按窗口覆盖。翻译文件在 <code class=\"font-mono\">unterm-services/src/i18n/locales/*.json</code>，欢迎 PR。",
   "faq.agents_run.q": "能阻止一个失控 agent 在我的仓库里跑 rm -rf 吗？",
   "faq.agents_run.a": "三道闸：(1) MCP 服务只监听 127.0.0.1 —— 没网。(2) 走 auth token；token 在 <code class=\"font-mono\">~/.unterm/instances/&lt;name&gt;.json</code>，没有这个文件的读权限连不上。(3) 新 agent 首次写入会弹 Allow / Block / Always-allow 阻塞条；审计日志记录每一次写入尝试和调用方身份。可以在网页设置 MCP 标签里随时撤销信任。",
-  "hero.title.1": "启动每个 AI 编码 agent",
-  "hero.title.2": "的终端。",
-  "hero.subtitle": "自研高性能内核，启动 22ms 即有可用的 MCP 控制面。一键装、登录、启动 Claude Code、Codex CLI、Gemini CLI、OpenCode、Aider —— 官方订阅或自带 API key 都行。启动的 agent 反过来还能通过 MCP 驱动 Unterm。",
+  "hero.title.1": "AI agent",
+  "hero.title.2": "开得动的终端。",
+  "hero.subtitle": "跑 Claude Code、Codex、Gemini、OpenCode、Aider——它们还能通过完整的 MCP 控制面反过来驾驶终端本身。会话住在窗口之外的 core 进程里,关窗不断;侧栏告诉你谁在干活、谁干完了、谁在等你。",
   "hero.cta.download": "下载适合你设备的版本",
   "hero.cta.download_fallback": "下载 macOS 版",
   "hero.cta.other": "其他平台",
@@ -505,5 +505,7 @@
   "cmp.c.rmux.win": "rmux 的会话保活是真 tmux 级:SSH 断了 agent 的 shell 继续跑,任何地方重连。类型化快照和 wait_for_text 定位比文本匹配更精细;无头 daemon 也更适合根本不存在 GUI 的 CI 流水线。还能嵌进 Ratatui 应用。",
   "cmp.c.rmux.verdict": "在 CI 或服务器上构建「代码拥有终端会话」的系统?rmux 是很强的原语。在桌面与 AI agent 并肩工作、终端也是你自己住的地方?那是 Unterm——对 agent 协议原生,对你座舱原生。",
   "whatsnew.kernel61.title": "自研内核:启动 22ms 即有可用控制面",
-  "whatsnew.kernel61.body": "Unterm 不再基于 WezTerm fork。<strong>next-core</strong> 是为本产品自研的终端内核 —— 解析器、屏幕模型、PTY 运行时、字体栈、wgpu 渲染器,并以 ~12k 源码行 / 10 个直接依赖为硬预算。<strong>启动到 MCP 控制面就绪 22ms</strong>(旧内核 7.1s),空闲占用 6.6% 单核(旧 80%),20 万行吞吐持平。对旧内核的功能对齐按 159 项需求台账逐项收口,排版全面原生化:macOS 真红绿灯、pt 精确字号、CJK 渲染彻底修正。详见<a class=\"underline\" href=\"/blog/next-core-v061/\">博客</a>。"
+  "whatsnew.kernel61.body": "Unterm 不再基于 WezTerm fork。<strong>next-core</strong> 是为本产品自研的终端内核 —— 解析器、屏幕模型、PTY 运行时、字体栈、wgpu 渲染器,并以 ~12k 源码行 / 10 个直接依赖为硬预算。<strong>启动到 MCP 控制面就绪 22ms</strong>(旧内核 7.1s),空闲占用 6.6% 单核(旧 80%),20 万行吞吐持平。对旧内核的功能对齐按 159 项需求台账逐项收口,排版全面原生化:macOS 真红绿灯、pt 精确字号、CJK 渲染彻底修正。详见<a class=\"underline\" href=\"/blog/next-core-v061/\">博客</a>。",
+  "whatsnew.core63.title": "会话活得比窗口久——而且安装包这次真的装得全",
+  "whatsnew.core63.body": "<strong>unterm-core</strong> 现在持有你的会话:每用户一个进程,装着 shell、回滚与分屏布局,承载整个 MCP 控制面,关掉窗口也不消失(v0.62)。v0.63 是安装体验该得的那一版:core 守护进程真正进了全部六种安装包;设置页在 Core 模式下可用;emoji 第一次画得出来——捆绑的字体是 FreeType 画不了的 COLRv1;停顿后打字延迟从 96ms 降到 8ms;macOS 换上新标;Windows 右键新增「Open in Unterm tab」。"
 }

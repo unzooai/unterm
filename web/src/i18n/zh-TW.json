@@ -11,9 +11,9 @@
   "nav.faq": "FAQ",
   "cap.cockpit.title": "Agent 座艙",
   "cap.cockpit.body": "即時看到每個 CLI agent 的狀態（工作中 / 等你 / 閒置），從 Agent 收件匣一鍵跳到需要你的那個，在隔離的 git worktree 裡為同一個任務啟動 N 個 agent 編隊，再對它們的成果審閱、合併或還原——GUI、MCP、CLI 都能操作。",
-  "hero.title.1": "AI",
-  "hero.title.2": "可控制的終端。",
-  "hero.subtitle": "自研高效能核心，啟動 22ms 即有可用的 MCP 控制面。一鍵安裝、登入、啟動 Claude Code、Codex CLI、Gemini CLI、OpenCode、Aider——官方訂閱或自帶 API key 都行。剛啟動的 agent 反過來還能透過 MCP 駕馭 Unterm。",
+  "hero.title.1": "AI agent",
+  "hero.title.2": "開得動的終端。",
+  "hero.subtitle": "跑 Claude Code、Codex、Gemini、OpenCode、Aider——它們還能透過完整的 MCP 控制面反過來駕駛終端本身。工作階段住在視窗之外的 core 行程裡,關窗不斷;側欄告訴你誰在工作、誰完成了、誰在等你。",
   "hero.cta.download": "下載適合你裝置的版本",
   "hero.cta.download_fallback": "下載 macOS 版",
   "hero.cta.other": "其他平台",
@@ -252,5 +252,7 @@
   "faq.q5": "Unterm 和 Warp 有什麼不同？",
   "faq.a5": "Warp 把 AI 嵌進終端、鎖在封閉的雲端編排器後面，外部工具無法駕馭它。Unterm 正好相反：終端是開放、可用 MCP 控制的介面，任何 agent（Claude Code、Codex、Gemini、Cursor、你自己的指令碼）都能從外部驅動——它的 agent 編排用的是本地 git worktree 和開放 API，而不是雲端服務。Unterm 採 MIT 授權，永久免費，無需登入。",
   "faq.q6": "Unterm 支援哪些 AI 編碼 agent？",
-  "faq.a6": "啟動器可一鍵安裝並接好 Claude Code、Codex CLI、Gemini CLI、OpenCode 和 Aider。座艙的狀態偵測還能開箱辨識 kimi、trae 和 cursor-agent；任何會發出標準終端訊號（標題、OSC 9/777、BEL）的 agent 都能自動獲得基本追蹤。任何工具都可以透過「unterm-cli agent signal」整合。"
+  "faq.a6": "啟動器可一鍵安裝並接好 Claude Code、Codex CLI、Gemini CLI、OpenCode 和 Aider。座艙的狀態偵測還能開箱辨識 kimi、trae 和 cursor-agent；任何會發出標準終端訊號（標題、OSC 9/777、BEL）的 agent 都能自動獲得基本追蹤。任何工具都可以透過「unterm-cli agent signal」整合。",
+  "whatsnew.core63.title": "工作階段活得比視窗久——而且安裝包這次真的裝得全",
+  "whatsnew.core63.body": "<strong>unterm-core</strong> 現在持有你的工作階段:每使用者一個行程,裝著 shell、回捲與分割配置,承載整個 MCP 控制面,關掉視窗也不消失(v0.62)。v0.63 是安裝體驗該得的那一版:core 守護行程真正進了全部六種安裝包;設定頁在 Core 模式下可用;emoji 第一次畫得出來——捆綁的字型是 FreeType 畫不了的 COLRv1;停頓後打字延遲從 96ms 降到 8ms;macOS 換上新標;Windows 右鍵新增「Open in Unterm tab」。"
 }

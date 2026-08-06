@@ -11,9 +11,9 @@
   "nav.faq": "FAQ",
   "cap.cockpit.title": "एजेंट कॉकपिट",
   "cap.cockpit.body": "हर CLI एजेंट की लाइव स्थिति देखें (काम जारी / प्रतीक्षा में / निष्क्रिय), इनबॉक्स से सीधे उस एजेंट पर पहुँचें जिसे आपकी ज़रूरत है, अलग-थलग git worktrees में एक ही काम पर N एजेंटों की फ़्लीट लॉन्च करें, और उनके बनाए नतीजों की समीक्षा, merge या रोलबैक करें — GUI, MCP या CLI से।",
-  "hero.title.1": "A terminal",
-  "hero.title.2": "AI agents can control.",
-  "hero.subtitle": "Now on its own high-performance kernel — 22ms from launch to a live MCP control surface. Install, sign in, and launch Claude Code, Codex CLI, Gemini CLI, OpenCode, and Aider — one click each, on your vendor subscription or your own API key. And the agent you just launched can drive Unterm right back over MCP.",
+  "hero.title.1": "वह टर्मिनल जिसे",
+  "hero.title.2": "AI एजेंट चला सकते हैं।",
+  "hero.subtitle": "Claude Code, Codex, Gemini, OpenCode और Aider चलाइए — और उन्हें पूरे MCP कंट्रोल सरफ़ेस के ज़रिये टर्मिनल को ही चलाने दीजिए। सेशन एक core प्रोसेस में रहते हैं जो विंडो से ज़्यादा जीता है, और साइडबार बताता है कौन काम कर रहा है, कौन पूरा कर चुका है, और कौन आपका इंतज़ार कर रहा है।",
   "hero.cta.download": "Download for your device",
   "hero.cta.download_fallback": "Download macOS",
   "hero.cta.other": "Other platforms",
@@ -252,5 +252,7 @@
   "faq.q5": "Unterm, Warp से कैसे अलग है?",
   "faq.a5": "Warp AI को टर्मिनल के अंदर एक बंद क्लाउड ऑर्केस्ट्रेटर के पीछे रखता है; बाहरी टूल उसे नहीं चला सकते। Unterm इसे उलट देता है: टर्मिनल एक खुला, MCP से नियंत्रित होने वाला सरफ़ेस है जिसे कोई भी एजेंट (Claude Code, Codex, Gemini, Cursor, आपकी अपनी स्क्रिप्ट) बाहर से चलाता है — और इसका एजेंट ऑर्केस्ट्रेशन लोकल git worktree और खुले API पर टिका है, किसी क्लाउड सेवा पर नहीं। Unterm MIT-लाइसेंस वाला है, हमेशा के लिए मुफ़्त, बिना किसी लॉगिन के।",
   "faq.q6": "Unterm किन AI कोडिंग एजेंटों को सपोर्ट करता है?",
-  "faq.a6": "लॉन्चर एक-एक क्लिक में Claude Code, Codex CLI, Gemini CLI, OpenCode और Aider इंस्टॉल और कनेक्ट कर देता है। कॉकपिट का स्थिति डिटेक्शन kimi, trae और cursor-agent को भी पहले से पहचानता है, और मानक टर्मिनल सिग्नल (टाइटल, OSC 9/777, BEL) भेजने वाले किसी भी एजेंट को बुनियादी ट्रैकिंग मुफ़्त मिलती है। कोई भी टूल “unterm-cli agent signal” से जुड़ सकता है।"
+  "faq.a6": "लॉन्चर एक-एक क्लिक में Claude Code, Codex CLI, Gemini CLI, OpenCode और Aider इंस्टॉल और कनेक्ट कर देता है। कॉकपिट का स्थिति डिटेक्शन kimi, trae और cursor-agent को भी पहले से पहचानता है, और मानक टर्मिनल सिग्नल (टाइटल, OSC 9/777, BEL) भेजने वाले किसी भी एजेंट को बुनियादी ट्रैकिंग मुफ़्त मिलती है। कोई भी टूल “unterm-cli agent signal” से जुड़ सकता है।",
+  "whatsnew.core63.title": "सेशन विंडो से ज़्यादा जीते हैं — और इंस्टॉल में आख़िरकार सब कुछ है",
+  "whatsnew.core63.body": "<strong>unterm-core</strong> अब आपके सेशन का मालिक है: प्रति-उपयोगकर्ता एक प्रोसेस जो shell, स्क्रॉलबैक और स्प्लिट लेआउट रखती है, पूरा MCP सरफ़ेस सर्व करती है, और विंडो बंद होने पर भी जीवित रहती है (v0.62)। v0.63 वह रिलीज़ है जो इंस्टॉल को मिलनी चाहिए थी: core डेमन वाक़ई सभी छह पैकेजों में है, सेटिंग्स पेज Core मोड में काम करता है, इमोजी पहली बार रेंडर होते हैं — बंडल फ़ॉन्ट COLRv1 था जिसे FreeType नहीं बना सकता — रुकने के बाद टाइपिंग विलंब 96ms से 8ms हो गया, macOS नया चिह्न पहनता है, और Explorer के राइट-क्लिक में “Open in Unterm tab” जुड़ गया।"
 }

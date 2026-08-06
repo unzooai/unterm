@@ -90,6 +90,7 @@ const demoFlow = [
 // features but with a "v0.12" version chip and a denser tech-paragraph
 // body (these are about what changed, not what exists).
 const whatsnew = [
+  { v: "v0.63", title: "whatsnew.core63.title",     body: "whatsnew.core63.body" },
   { v: "v0.61", title: "whatsnew.kernel61.title",   body: "whatsnew.kernel61.body" },
   { v: "v0.57", title: "whatsnew.verify57.title",   body: "whatsnew.verify57.body" },
   { v: "v0.55", title: "whatsnew.cockpit55.title",  body: "whatsnew.cockpit55.body" },
@@ -121,7 +122,7 @@ const principles = [
 // GitHub Releases.  `valueRaw` is rendered as-is (mixed locale fragments like
 // version + date); plain `value` is an i18n key that goes through t().
 const tldrRows = [
-  { label: "tldr.version",         valueRaw: "v0.61.1 · 2026-08-03 · MIT" },
+  { label: "tldr.version",         valueRaw: "v0.63.0 · 2026-08-06 · MIT" },
   { label: "tldr.bundled_agents",  value:    "tldr.bundled_agents.value" },
   { label: "tldr.price",        value: "tldr.price.value" },
   { label: "tldr.platforms",    value: "tldr.platforms.value" },
@@ -255,7 +256,7 @@ const capabilities = [
 ];
 
 const dlBaseUrl = "https://github.com/zhitongblog/unterm/releases";
-const releaseTag = "v0.61.1";
+const releaseTag = "v0.63.0";
 
 // Download links use the version pinned for this site build, not
 // `stats.release`. The stats call can legitimately see the previous GitHub
@@ -343,9 +344,9 @@ const heroDownloads = [
 <section class="relative overflow-hidden">
   <div class="absolute inset-0 bg-gradient-to-b from-notion-bg/35 via-notion-bg to-notion-bg"></div>
   <div class="absolute inset-0 opacity-[0.04]"
-       style="background-image: radial-gradient(rgb(160 240 200) 1px, transparent 1px); background-size: 28px 28px;"></div>
+       style="background-image: radial-gradient(rgb(232 179 75 / 0.5) 1px, transparent 1px); background-size: 28px 28px;"></div>
   <div class="absolute pointer-events-none -top-40 left-1/2 -translate-x-1/2 w-[900px] h-[900px] rounded-full"
-       style="background: radial-gradient(closest-side, rgb(16 185 129 / 0.18), transparent 70%);"></div>
+       style="background: radial-gradient(closest-side, rgb(232 179 75 / 0.14), transparent 70%);"></div>
 
   <div class="relative max-w-6xl mx-auto px-6 pt-20 pb-24">
     <div class="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
@@ -367,7 +368,7 @@ const heroDownloads = [
         </div>
         <h1 class="text-5xl sm:text-6xl lg:text-6xl xl:text-7xl font-bold tracking-tight text-zinc-50 leading-[1.02]">
           <span>{t("hero.title.1")}</span><br/>
-          <span class="bg-gradient-to-r from-emerald-300 via-teal-300 to-cyan-300 bg-clip-text text-transparent">{t("hero.title.2")}</span>
+          <span class="bg-gradient-to-r from-amber-200 via-amber-300 to-amber-500 bg-clip-text text-transparent">{t("hero.title.2")}</span>
         </h1>
         <p class="mt-6 text-lg text-notion-muted max-w-xl mx-auto lg:mx-0 leading-relaxed">{t("hero.subtitle")}</p>
 
@@ -391,7 +392,7 @@ const heroDownloads = [
                at the bottom didn't always run before the click). Works
                without JS and survives strict-mode browsers / extensions. -->
           <a href={`/api/download?v=${releaseTag}`}
-             class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-notion-green hover:bg-notion-teal text-zinc-950 font-semibold transition shadow-lg shadow-emerald-500/20 hover:shadow-emerald-400/30">
+             class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-notion-green hover:bg-notion-teal text-zinc-950 font-semibold transition shadow-lg shadow-amber-500/20 hover:shadow-amber-400/30">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4v12m0 0l-4-4m4 4l4-4M5 20h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
             <span>{t("hero.cta.download")}</span>
           </a>
@@ -437,7 +438,7 @@ const heroDownloads = [
       </div>
 
       <div class="relative">
-        <div class="absolute -inset-4 bg-gradient-to-r from-emerald-500/20 via-teal-500/10 to-cyan-500/20 blur-2xl rounded-2xl"></div>
+        <div class="absolute -inset-4 bg-gradient-to-r from-amber-500/15 via-amber-400/5 to-amber-600/15 blur-2xl rounded-2xl"></div>
         <div class="relative rounded-xl overflow-hidden border border-notion-border shadow-2xl shadow-black/60 bg-notion-bg">
           <div class="flex items-center gap-2 px-4 py-2.5 bg-[#242625] border-b border-white/10">
             <div class="flex gap-1.5">
@@ -452,8 +453,8 @@ const heroDownloads = [
             <div class="bg-[#303231] border-r border-white/10 font-mono text-[12px] text-zinc-300">
               <div class="pt-2 pb-1">
                 <div class="relative mx-2 flex items-center gap-2 h-8 px-2 bg-[#555755] text-zinc-50">
-                  <span class="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-1 bg-cyan-300"></span>
-                  <span class="text-cyan-200">→</span>
+                  <span class="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-1 bg-amber-300"></span>
+                  <span class="text-amber-200">→</span>
                   <span class="truncate">zsh · auth-service</span>
                 </div>
                 <div class="mx-2 flex items-center gap-2 h-8 px-2 text-zinc-400">
@@ -475,12 +476,12 @@ const heroDownloads = [
             <div class="flex min-w-0 flex-col bg-[#141615]">
               <div class="flex-1 px-4 py-4 font-mono text-[12.5px] leading-relaxed space-y-1.5">
                 <div class="text-zinc-500"><span class="text-notion-green">→</span> claude: open /work/auth-service in a new tab</div>
-                <div class="text-zinc-100"><span class="text-cyan-300">unterm</span> session.create <span class="text-zinc-500">{`{ cwd: "/work/auth-service" }`}</span></div>
+                <div class="text-zinc-100"><span class="text-amber-300">unterm</span> session.create <span class="text-zinc-500">{`{ cwd: "/work/auth-service" }`}</span></div>
                 <div class="text-zinc-500">     → <span class="text-notion-green">{`{ session_id: "7", pid: 41208 }`}</span></div>
-                <div class="text-zinc-100"><span class="text-cyan-300">unterm</span> exec.run <span class="text-zinc-500">{`{ id: "7", command: "cargo test" }`}</span></div>
+                <div class="text-zinc-100"><span class="text-amber-300">unterm</span> exec.run <span class="text-zinc-500">{`{ id: "7", command: "cargo test" }`}</span></div>
                 <div class="text-zinc-500">     <span class="text-zinc-400">running 142 tests</span></div>
                 <div class="text-zinc-500">     <span class="text-notion-green">test result: ok. 142 passed; 0 failed</span></div>
-                <div class="text-zinc-100"><span class="text-cyan-300">unterm</span> screen.scrollback_text <span class="text-zinc-500">{`{ id: "7" }`}</span></div>
+                <div class="text-zinc-100"><span class="text-amber-300">unterm</span> screen.scrollback_text <span class="text-zinc-500">{`{ id: "7" }`}</span></div>
                 <div class="text-zinc-500">     → <span class="text-zinc-200">{`{ text: "…build is green", row_count: 142 }`}</span></div>
                 <div class="text-zinc-500"><span class="text-notion-green">←</span> claude: commit and open the release branch.</div>
                 <div class="flex items-center gap-1 mt-2">
@@ -539,7 +540,7 @@ const heroDownloads = [
      so the page rhythm stays consistent. -->
 <section id="agents" class="py-20 border-t border-notion-border bg-gradient-to-b from-notion-bg/20 via-notion-bg to-notion-bg">
   <div class="max-w-6xl mx-auto px-6">
-    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-900/30 border border-emerald-800/50 text-xs text-notion-teal mb-4">
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-900/25 border border-amber-800/40 text-xs text-notion-teal mb-4">
       <span class="inline-block h-1.5 w-1.5 rounded-full bg-notion-teal animate-pulse"></span>
       <span set:html={t("agents.tag")}></span>
     </div>
@@ -628,7 +629,7 @@ const heroDownloads = [
       </div>
 
       <div class="relative">
-        <div class="absolute -inset-4 bg-gradient-to-r from-cyan-500/10 via-emerald-500/10 to-teal-500/10 blur-2xl rounded-2xl"></div>
+        <div class="absolute -inset-4 bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-amber-500/10 blur-2xl rounded-2xl"></div>
         <div class="relative rounded-xl overflow-hidden border border-notion-border bg-notion-bg shadow-2xl shadow-black/50">
           <div class="flex items-center justify-between gap-3 px-4 py-2.5 bg-notion-surface/80 border-b border-notion-border">
             <div class="text-xs font-mono text-notion-muted">outer agent → inner agent</div>
@@ -636,14 +637,14 @@ const heroDownloads = [
           </div>
           <div class="px-4 py-4 font-mono text-[12.5px] leading-relaxed bg-notion-bg space-y-1.5 min-h-[320px]">
             <div class="text-notion-faint"><span class="text-notion-green">→</span> open /work/auth-service in a new tab and start a coding agent</div>
-            <div class="text-notion-ink"><span class="text-cyan-400">unterm</span> session.create <span class="text-notion-faint">{`{ cwd: "/work/auth-service" }`}</span></div>
+            <div class="text-notion-ink"><span class="text-amber-400">unterm</span> session.create <span class="text-notion-faint">{`{ cwd: "/work/auth-service" }`}</span></div>
             <div class="text-notion-faint">     → <span class="text-notion-green">{`{ session_id: "7", pid: 41208 }`}</span></div>
-            <div class="text-notion-ink"><span class="text-cyan-400">unterm</span> exec.run <span class="text-notion-faint">{`{ id: "7", command: "claude" }`}</span></div>
+            <div class="text-notion-ink"><span class="text-amber-400">unterm</span> exec.run <span class="text-notion-faint">{`{ id: "7", command: "claude" }`}</span></div>
             <div class="text-notion-faint">     → <span class="text-notion-ink">inner agent ready</span></div>
-            <div class="text-notion-ink"><span class="text-cyan-400">unterm</span> exec.run <span class="text-notion-faint">{`{ id: "7", command: "cargo test" }`}</span></div>
+            <div class="text-notion-ink"><span class="text-amber-400">unterm</span> exec.run <span class="text-notion-faint">{`{ id: "7", command: "cargo test" }`}</span></div>
             <div class="text-notion-faint">     <span class="text-notion-muted">running 142 tests</span></div>
             <div class="text-notion-faint">     <span class="text-notion-green">test result: ok. 142 passed; 0 failed</span></div>
-            <div class="text-notion-ink"><span class="text-cyan-400">unterm</span> screen.scrollback_text <span class="text-notion-faint">{`{ id: "7" }`}</span></div>
+            <div class="text-notion-ink"><span class="text-amber-400">unterm</span> screen.scrollback_text <span class="text-notion-faint">{`{ id: "7" }`}</span></div>
             <div class="text-notion-faint">     → <span class="text-notion-ink">{`{ text: "…build is green, commit the fix", row_count: 142 }`}</span></div>
             <div class="flex items-center gap-1 mt-2">
               <span class="text-notion-green">$</span>
@@ -740,7 +741,7 @@ s.sendall(<span class="text-notion-teal">b</span><span class="text-notion-teal">
 <span class="text-notion-green">alexlee@192 unterm %</span> pwd
 /Volumes/Dev/code/unterm
 <span class="text-notion-green">alexlee@192 unterm %</span> git log --oneline -5
-<span class="text-amber-300">5f44d15</span> <span class="text-cyan-300">(HEAD -&gt; master, tag: v0.18)</span> release: prep v0.18 — AI agent integration
+<span class="text-amber-300">5f44d15</span> <span class="text-amber-300">(HEAD -&gt; master, tag: v0.18)</span> release: prep v0.18 — AI agent integration
 <span class="text-amber-300">8ae3786</span> agents tab: fix detail view (route + detect plumbing)
 <span class="text-amber-300">7c18235</span> agents tab: wrap detail view in x-if so child bindings only run when open
 <span class="text-amber-300">6ff27a9</span> AI agents: Web Settings tab + 'Shell → AI Agents' submenu
@@ -756,7 +757,7 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 -rw-r--r-- 1 alexlee staff 25587  mcp-reference.md
 -rw-r--r-- 1 alexlee staff 39507  multi-instance.md
 -rw-r--r-- 1 alexlee staff 23827  profiles.md
-<span class="text-notion-green">alexlee@192 unterm %</span> <span class="inline-block w-2 h-4 bg-emerald-300/80 align-middle animate-pulse"></span></code></pre>
+<span class="text-notion-green">alexlee@192 unterm %</span> <span class="inline-block w-2 h-4 bg-amber-300/80 align-middle animate-pulse"></span></code></pre>
       </div>
     </div>
 
@@ -943,7 +944,7 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
               <span class="text-xl">{c.icon}</span>
               <span class="font-semibold text-notion-ink">{t(c.title)}</span>
             </div>
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-emerald-900 whitespace-nowrap">{c.meta}</span>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-amber-900/60 whitespace-nowrap">{c.meta}</span>
           </div>
           <p class="mt-2 text-sm text-notion-muted leading-relaxed flex-1" set:html={t(c.body)}></p>
           <div class="mt-3 text-[11px] font-mono text-notion-faint leading-relaxed border-t border-notion-border/60 pt-2">{c.items}</div>
@@ -969,7 +970,7 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
         <div class="bg-notion-surface/40 border border-notion-border rounded-xl p-6 flex flex-col">
           <div class="flex items-center gap-2">
             <span class="text-2xl">{s.icon}</span>
-            <span class="text-xs font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-emerald-900">{s.v}</span>
+            <span class="text-xs font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-amber-900/60">{s.v}</span>
           </div>
           <div class="mt-3 text-lg font-semibold text-notion-ink">{t(s.title)}</div>
           <p class="mt-2 text-sm text-notion-muted leading-relaxed" set:html={t(s.body)}></p>
@@ -1003,7 +1004,7 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 <section id="mouse" class="py-20 border-t border-notion-border">
   <div class="max-w-5xl mx-auto px-6">
     <div class="flex items-center justify-center gap-2">
-      <span class="text-xs font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-emerald-900">v0.57.1</span>
+      <span class="text-xs font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-amber-900/60">v0.57.1</span>
       <span class="text-xs text-notion-faint font-mono uppercase tracking-widest">{t("mouse.kicker")}</span>
     </div>
     <h2 class="mt-3 text-3xl font-semibold tracking-tight text-center">{t("mouse.title")}</h2>
@@ -1025,7 +1026,7 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
 <section id="cockpit" class="py-20 border-t border-notion-border bg-gradient-to-b from-notion-bg via-notion-bg to-notion-bg/20">
   <div class="max-w-5xl mx-auto px-6">
     <div class="flex items-center justify-center gap-2">
-      <span class="text-xs font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-emerald-900">v0.55</span>
+      <span class="text-xs font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-amber-900/60">v0.55</span>
       <span class="text-xs text-notion-faint font-mono uppercase tracking-widest">{t("cockpit.kicker")}</span>
     </div>
     <h2 class="mt-3 text-3xl font-semibold tracking-tight text-center">{t("cockpit.title")}</h2>
@@ -1063,7 +1064,7 @@ drwxr-xr-x 6 alexlee staff   192  architecture.md
       {whatsnew.map((w) => (
         <div class="bg-notion-surface/40 border border-notion-border rounded-xl p-6">
           <div class="flex items-center gap-2">
-            <span class="text-xs font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-emerald-900">{w.v}</span>
+            <span class="text-xs font-mono px-2 py-0.5 rounded bg-notion-bg/60 text-notion-teal border border-amber-900/60">{w.v}</span>
             <span class="font-semibold">{t(w.title)}</span>
           </div>
           <p class="mt-3 text-sm text-notion-muted leading-relaxed" set:html={t(w.body)}></p>

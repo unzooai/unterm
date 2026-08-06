@@ -117,9 +117,9 @@
   "sponsor.paypal.title": "PayPal one-tap",
   "sponsor.paypal.body": "Worldwide one-time tip. Choose any amount in your local currency.",
   "sponsor.paypal.cta": "Tip via PayPal",
-  "hero.title.1": "The terminal that runs",
-  "hero.title.2": "every AI coding agent.",
-  "hero.subtitle": "Now on its own high-performance kernel — 22ms from launch to a live MCP control surface. Install, sign in, and launch Claude Code, Codex CLI, Gemini CLI, OpenCode, and Aider — one click each, on your vendor subscription or your own API key. And the agent you just launched can drive Unterm right back over MCP.",
+  "hero.title.1": "The terminal",
+  "hero.title.2": "AI agents can drive.",
+  "hero.subtitle": "Run Claude Code, Codex, Gemini, OpenCode and Aider — then let them drive the terminal itself over a full MCP control surface. Sessions live in a core process that outlives the window, and the sidebar tells you who is working, who is done, and who is waiting on you.",
   "hero.cta.download": "Download for your device",
   "hero.cta.download_fallback": "Download macOS",
   "hero.cta.other": "Other platforms",
@@ -509,5 +509,7 @@
   "cmp.c.rmux.win": "rmux's session persistence is real tmux-grade: SSH drops and your agent's shell keeps running, reattachable from anywhere. Its typed snapshots and wait_for_text locators are finer-grained than text matching, and a headless daemon fits CI pipelines where no GUI can exist. It's also embeddable in Ratatui apps.",
   "cmp.c.rmux.verdict": "Building a system where code owns terminal sessions in CI or on servers? rmux is a strong primitive. Working alongside AI agents at a desk, in a terminal you also live in? That's Unterm — protocol-native for agents, cockpit-native for you.",
   "whatsnew.kernel61.title": "Our own kernel: 22ms to a live control surface",
-  "whatsnew.kernel61.body": "Unterm no longer runs on a WezTerm fork. <strong>next-core</strong> is a terminal kernel written for this product — parser, screen model, PTY runtime, font stack, and a wgpu renderer — held to a budget of ~12k source lines and 10 direct dependencies. <strong>22ms from launch to a live MCP surface</strong> (was 7.1s), idle at 6.6% of a core (was 80%), identical 200k-line throughput. Feature parity with the old kernel was closed item-by-item against a 159-requirement ledger, with platform-native typography: real traffic lights on macOS, pt-accurate sizing, and CJK finally rendered right. Read the story on the <a class=\"underline\" href=\"/blog/next-core-v061/\">blog</a>."
+  "whatsnew.kernel61.body": "Unterm no longer runs on a WezTerm fork. <strong>next-core</strong> is a terminal kernel written for this product — parser, screen model, PTY runtime, font stack, and a wgpu renderer — held to a budget of ~12k source lines and 10 direct dependencies. <strong>22ms from launch to a live MCP surface</strong> (was 7.1s), idle at 6.6% of a core (was 80%), identical 200k-line throughput. Feature parity with the old kernel was closed item-by-item against a 159-requirement ledger, with platform-native typography: real traffic lights on macOS, pt-accurate sizing, and CJK finally rendered right. Read the story on the <a class=\"underline\" href=\"/blog/next-core-v061/\">blog</a>.",
+  "whatsnew.core63.title": "Sessions outlive the window — and an install finally contains it",
+  "whatsnew.core63.body": "<strong>unterm-core</strong> now owns your sessions: a per-user process that holds shells, scrollback and split layouts, serves the whole MCP surface, and survives the window closing (v0.62). v0.63 is the release the install deserved: the core daemon actually ships in all six packages, the settings page works in Core mode, emoji render for the first time — the bundled face was a COLRv1 font FreeType cannot draw — pause-then-type lag went from 96ms to 8ms, macOS wears the new mark, and Explorer's right-click grows “Open in Unterm tab”."
 }
