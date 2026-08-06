@@ -2577,7 +2577,7 @@ impl App {
         use unterm_services::i18n::t;
         let square = crate::sidebar::footer_mark_width(row_height);
         let settings_left = footer_left + footer_width - square;
-        let pen = footer_left + 7.0 * pt + self.chrome_width("\u{FF0B}") + 6.0 * pt;
+        let pen = footer_left + 7.0 * pt + self.chrome_width("+") + 6.0 * pt;
         let label_budget = (settings_left - pen - square - 8.0 * pt).max(0.0);
         let label = self.chrome_fit(&t("sidebar.new_session"), label_budget);
         let picker_left =
@@ -3128,7 +3128,7 @@ impl App {
         // controls in the height of one.
         let mut pen = footer_left + 7.0 * pt;
         pen = self.append_chrome(
-            "\u{FF0B}",
+            "+",
             ink(hovered == Some(0)),
             (pen, footer_top + text_offset),
             quads,

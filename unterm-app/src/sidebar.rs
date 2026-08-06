@@ -90,7 +90,7 @@ pub fn agent_icon(lower_title: &str) -> Option<char> {
     Some(if has("claude") {
         '\u{273B}'
     } else if has("codex") {
-        '\u{2B22}'
+        '\u{F02D8}'
     } else if has("gemini") {
         '\u{2726}'
     } else if has("aider") {

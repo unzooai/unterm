@@ -147,7 +147,7 @@ mod tests {
             ("raised hand", '\u{270B}'),
             ("warning triangle", '\u{25B2}'),
             ("dot", '\u{2022}'),
-            ("plus", '\u{FF0B}'),
+            ("plus", '+'),
             ("spinner q1", '\u{25D0}'),
             ("spinner q2", '\u{25D3}'),
             ("spinner q3", '\u{25D1}'),
@@ -155,7 +155,7 @@ mod tests {
             // One mark per agent, so a row says who is in it before
             // its text is read.
             ("claude asterisk", '\u{273B}'),
-            ("codex hexagon", '\u{2B22}'),
+            ("codex hexagon", '\u{F02D8}'),
             ("gemini sparkle", '\u{2726}'),
             ("aider pencil", '\u{270E}'),
             ("opencode diamond", '\u{25C7}'),
@@ -216,7 +216,7 @@ mod raster_tests {
             ("raised hand", '\u{270B}'),
             ("warning triangle", '\u{25B2}'),
             ("dot", '\u{2022}'),
-            ("plus", '\u{FF0B}'),
+            ("plus", '+'),
             ("spinner q1", '\u{25D0}'),
             ("spinner q2", '\u{25D3}'),
             ("spinner q3", '\u{25D1}'),
@@ -224,7 +224,7 @@ mod raster_tests {
             // One mark per agent, so a row says who is in it before
             // its text is read.
             ("claude asterisk", '\u{273B}'),
-            ("codex hexagon", '\u{2B22}'),
+            ("codex hexagon", '\u{F02D8}'),
             ("gemini sparkle", '\u{2726}'),
             ("aider pencil", '\u{270E}'),
             ("opencode diamond", '\u{25C7}'),
