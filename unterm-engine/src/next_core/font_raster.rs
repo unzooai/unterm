@@ -19,7 +19,8 @@ use std::sync::Arc;
 
 use freetype::{
     FT_Done_Face, FT_Done_FreeType, FT_Face, FT_Get_Char_Index, FT_Init_FreeType, FT_Library,
-    FT_Load_Char, FT_Set_Pixel_Sizes, FT_LOAD_RENDER,
+    FT_Load_Char, FT_Pixel_Mode, FT_Select_Size, FT_Set_Pixel_Sizes, FT_LOAD_COLOR,
+    FT_LOAD_RENDER,
 };
 
 /// A rasterized glyph: 8-bit coverage plus where to put it.
@@ -103,6 +104,11 @@ pub struct FontFace {
     _library: Arc<Library>,
     face: FT_Face,
     pixel_size: u32,
+    /// What a rasterized bitmap must be multiplied by to land at
+    /// `pixel_size`. 1.0 for a scalable face. A bitmap-only face -- a colour
+    /// emoji font is strikes at fixed sizes, no outlines -- can only render
+    /// at its nearest strike, and this carries the correction.
+    bitmap_scale: f32,
 }
 
 // SAFETY: same argument as `Library` -- the handle is private and every use
@@ -179,6 +185,7 @@ impl FontFace {
             _library: library,
             face,
             pixel_size: 0,
+            bitmap_scale: 1.0,
         };
         face.set_pixel_size(pixel_size)?;
         Ok(face)
@@ -221,13 +228,46 @@ impl FontFace {
         // SAFETY: `self.face` is live for the lifetime of `self`.
         let _inside = FREETYPE.lock();
         let err = unsafe { FT_Set_Pixel_Sizes(self.face, 0, pixel_size) };
-        if err != 0 {
-            return Err(anyhow!(
-                "FT_Set_Pixel_Sizes({pixel_size}) failed with error {err}"
-            ));
+        if err == 0 {
+            self.pixel_size = pixel_size;
+            self.bitmap_scale = 1.0;
+            return Ok(());
         }
-        self.pixel_size = pixel_size;
-        Ok(())
+        // A bitmap-only face cannot be set to an arbitrary size: a colour
+        // emoji font is strikes at fixed sizes with no outlines to scale, and
+        // FreeType refuses the request rather than picking for us. Refusing
+        // in turn is how the bundled emoji face silently fell out of every
+        // stack -- so pick the nearest strike ourselves and remember how far
+        // off it is, for the raster path to correct.
+        // SAFETY: `self.face` is live; `available_sizes` holds
+        // `num_fixed_sizes` entries for as long as the face.
+        let (count, sizes) = unsafe { ((*self.face).num_fixed_sizes, (*self.face).available_sizes) };
+        if count > 0 && !sizes.is_null() {
+            let strikes = unsafe { std::slice::from_raw_parts(sizes, count as usize) };
+            let mut best = 0usize;
+            let mut best_ppem = 0f32;
+            let mut best_gap = f32::MAX;
+            for (index, strike) in strikes.iter().enumerate() {
+                // 26.6 fixed point, like every ppem FreeType reports.
+                let ppem = strike.y_ppem.font_units() as f32 / 64.0;
+                let gap = (ppem - pixel_size as f32).abs();
+                if gap < best_gap {
+                    best_gap = gap;
+                    best = index;
+                    best_ppem = ppem;
+                }
+            }
+            // SAFETY: `best` indexes into the face's own strike table.
+            let selected = unsafe { FT_Select_Size(self.face, best as i32) };
+            if selected == 0 && best_ppem > 0.0 {
+                self.pixel_size = pixel_size;
+                self.bitmap_scale = pixel_size as f32 / best_ppem;
+                return Ok(());
+            }
+        }
+        Err(anyhow!(
+            "FT_Set_Pixel_Sizes({pixel_size}) failed with error {err}"
+        ))
     }
 
     /// The face's own line metrics at the current pixel size: ascender,
@@ -314,12 +354,38 @@ impl FontFace {
         let _inside = FREETYPE.lock();
         // SAFETY: `self.face` is live; FT_LOAD_RENDER asks FreeType to
         // rasterize into the face's glyph slot in the same call.
-        let err =
+        let mono =
             unsafe { FT_Load_Char(self.face, ch as freetype::FT_ULong, FT_LOAD_RENDER as i32) };
-        if err != 0 {
-            return Err(anyhow!("FT_Load_Char({ch:?}) failed with error {err}"));
+        let drawn = if mono == 0 {
+            let glyph = self.read_rendered_slot()?;
+            if !glyph.coverage.is_empty() {
+                return Ok(self.corrected(glyph));
+            }
+            Some(glyph)
+        } else {
+            None
+        };
+        // A colour face keeps its ink in bitmap strikes that a monochrome
+        // load renders as nothing at all -- retry asking for the colour
+        // bitmap, whose alpha is the silhouette the chrome can tint.
+        // SAFETY: as above; the flags only change what the slot holds.
+        let colour = unsafe {
+            FT_Load_Char(
+                self.face,
+                ch as freetype::FT_ULong,
+                (FT_LOAD_RENDER | FT_LOAD_COLOR) as i32,
+            )
+        };
+        if colour == 0 {
+            let glyph = self.read_rendered_slot()?;
+            if !glyph.coverage.is_empty() || drawn.is_none() {
+                return Ok(self.corrected(glyph));
+            }
         }
-        self.read_rendered_slot()
+        match drawn {
+            Some(glyph) => Ok(self.corrected(glyph)),
+            None => Err(anyhow!("FT_Load_Char({ch:?}) failed with error {mono}")),
+        }
     }
 
     /// Rasterize by glyph index rather than character.
@@ -330,19 +396,87 @@ impl FontFace {
         let _inside = FREETYPE.lock();
         // SAFETY: `self.face` is live. An index past the face's glyph count is
         // rejected by FreeType with an error rather than read out of bounds.
-        let err = unsafe {
+        let mono = unsafe {
             freetype::FT_Load_Glyph(
                 self.face,
                 glyph_index as freetype::FT_UInt,
                 FT_LOAD_RENDER as i32,
             )
         };
-        if err != 0 {
-            return Err(anyhow!(
-                "FT_Load_Glyph({glyph_index}) failed with error {err}"
-            ));
+        let drawn = if mono == 0 {
+            let glyph = self.read_rendered_slot()?;
+            if !glyph.coverage.is_empty() {
+                return Ok(self.corrected(glyph));
+            }
+            Some(glyph)
+        } else {
+            None
+        };
+        // Same colour retry as `rasterize`, for the same faces.
+        // SAFETY: as above.
+        let colour = unsafe {
+            freetype::FT_Load_Glyph(
+                self.face,
+                glyph_index as freetype::FT_UInt,
+                (FT_LOAD_RENDER | FT_LOAD_COLOR) as i32,
+            )
+        };
+        if colour == 0 {
+            let glyph = self.read_rendered_slot()?;
+            if !glyph.coverage.is_empty() || drawn.is_none() {
+                return Ok(self.corrected(glyph));
+            }
         }
-        self.read_rendered_slot()
+        match drawn {
+            Some(glyph) => Ok(self.corrected(glyph)),
+            None => Err(anyhow!(
+                "FT_Load_Glyph({glyph_index}) failed with error {mono}"
+            )),
+        }
+    }
+
+    /// Bring a rasterized glyph to the size the caller asked this face for.
+    ///
+    /// A no-op for a scalable face. For a bitmap-strike face the slot holds
+    /// the nearest strike -- a 17px request answered at 128px -- and drawing
+    /// that as-is would put a fist-sized hand in a sidebar row.
+    fn corrected(&self, glyph: RasterizedGlyph) -> RasterizedGlyph {
+        let scale = self.bitmap_scale;
+        if (scale - 1.0).abs() < f32::EPSILON || glyph.width == 0 || glyph.height == 0 {
+            return glyph;
+        }
+        let width = ((glyph.width as f32 * scale).round() as usize).max(1);
+        let height = ((glyph.height as f32 * scale).round() as usize).max(1);
+        let mut coverage = Vec::with_capacity(width * height);
+        // Area average: every destination pixel reads the whole source region
+        // it stands for, so thin strokes dim rather than vanish.
+        for row in 0..height {
+            let src_row0 = ((row as f32 / scale) as usize).min(glyph.height - 1);
+            let src_row1 = (((row + 1) as f32 / scale).ceil() as usize)
+                .clamp(src_row0 + 1, glyph.height);
+            for column in 0..width {
+                let src_col0 = ((column as f32 / scale) as usize).min(glyph.width - 1);
+                let src_col1 = (((column + 1) as f32 / scale).ceil() as usize)
+                    .clamp(src_col0 + 1, glyph.width);
+                let mut sum = 0u32;
+                let mut count = 0u32;
+                for src_row in src_row0..src_row1 {
+                    for src_col in src_col0..src_col1 {
+                        sum += u32::from(glyph.coverage[src_row * glyph.width + src_col]);
+                        count += 1;
+                    }
+                }
+                coverage.push((sum / count.max(1)) as u8);
+            }
+        }
+        RasterizedGlyph {
+            coverage,
+            width,
+            height,
+            bearing_x: (glyph.bearing_x as f32 * scale).round() as i32,
+            bearing_y: (glyph.bearing_y as f32 * scale).round() as i32,
+            advance_x: (glyph.advance_x as f32 * scale).round() as i32,
+        }
     }
 
     /// Read whatever the last load rendered into the face's glyph slot.
@@ -365,10 +499,12 @@ impl FontFace {
         let width = bitmap.width as usize;
         let height = bitmap.rows as usize;
         let pitch = bitmap.pitch;
+        let bgra = bitmap.pixel_mode == FT_Pixel_Mode::FT_PIXEL_MODE_BGRA as u8;
 
         let coverage = if width == 0 || height == 0 || buffer.is_null() {
             Vec::new()
         } else {
+            let row_len = if bgra { width * 4 } else { width };
             let mut coverage = Vec::with_capacity(width * height);
             for row in 0..height {
                 // A negative pitch means the bitmap is stored bottom-up.
@@ -378,12 +514,23 @@ impl FontFace {
                     ((height - 1 - row) as isize) * (-pitch as isize)
                 };
                 // SAFETY: FreeType guarantees `rows * |pitch|` readable bytes
-                // from `buffer`, and `offset + width` stays inside that.
-                let row_bytes = unsafe { std::slice::from_raw_parts(buffer.offset(offset), width) };
-                coverage.extend_from_slice(row_bytes);
+                // from `buffer`, and `offset + row_len` stays inside that.
+                let row_bytes =
+                    unsafe { std::slice::from_raw_parts(buffer.offset(offset), row_len) };
+                if bgra {
+                    // The colour is the emoji's own; what the renderer needs
+                    // from it is the silhouette, and that is the alpha.
+                    coverage.extend(row_bytes.chunks_exact(4).map(|pixel| pixel[3]));
+                } else {
+                    coverage.extend_from_slice(row_bytes);
+                }
             }
-            for value in &mut coverage {
-                *value = smoothed(*value);
+            if !bgra {
+                // The smoothing curve reproduces platform text rendering;
+                // an emoji silhouette's alpha is already its final shape.
+                for value in &mut coverage {
+                    *value = smoothed(*value);
+                }
             }
             coverage
         };
@@ -547,3 +694,4 @@ mod tests {
         assert!(err.to_string().contains("FT_New_Face"));
     }
 }
+
