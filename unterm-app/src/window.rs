@@ -9901,6 +9901,22 @@ impl ApplicationHandler for App {
         if crate::ime_watch::input_source_changed() && !self.preedit.is_empty() {
             self.clear_orphan_preedit();
         }
+        // What macOS asked us to open -- Finder's right-click, a folder on
+        // the Dock icon -- becomes a tab, the same way it would anywhere.
+        #[cfg(target_os = "macos")]
+        for path in crate::macos_open::drain() {
+            let dir = if path.is_dir() {
+                Some(path)
+            } else {
+                path.parent().map(std::path::Path::to_path_buf)
+            };
+            if let Some(dir) = dir {
+                self.new_tab_in(&dir.to_string_lossy());
+            }
+            if let Some(live) = self.state.as_ref() {
+                live.window.focus_window();
+            }
+        }
         self.collect_clipboard_results();
         self.tick();
         // Waiting until the next tick rather than spinning. Something has to

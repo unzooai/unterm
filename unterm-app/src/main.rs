@@ -26,6 +26,8 @@ mod git;
 mod ime;
 #[cfg(target_os = "macos")]
 mod ime_watch;
+#[cfg(target_os = "macos")]
+mod macos_open;
 mod keys;
 mod links;
 mod mcp_host;
@@ -302,6 +304,10 @@ fn run() -> anyhow::Result<()> {
     #[cfg(target_os = "macos")]
     ime_watch::start();
     let event_loop = winit::event_loop::EventLoop::new()?;
+    // The loop's delegate exists now; teach it to answer Finder and friends
+    // when they say "open this folder".
+    #[cfg(target_os = "macos")]
+    macos_open::install();
     let mut app = window::App::new(&config)?;
     // A plain launch reopens where the last one closed; naming a directory
     // or a command on the line asks for something specific instead.

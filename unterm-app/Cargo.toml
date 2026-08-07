@@ -45,6 +45,8 @@ pollster = "0.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation.workspace = true
+objc2.workspace = true
+objc2-foundation.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # Asking DWM to round the window's corners: a frameless window is not
