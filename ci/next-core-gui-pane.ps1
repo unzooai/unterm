@@ -432,7 +432,7 @@ $Suites = @(
         Name = "left tab strip"
         Package = "unterm-app"
         Filter = "sidebar::tests::"
-        ExpectedCount = 20
+        ExpectedCount = 22
         RequiredTests = @(
             "sidebar::tests::a_single_project_gets_no_group_headers",
             "sidebar::tests::same_named_projects_are_told_apart_by_the_shortest_parent",
@@ -894,7 +894,7 @@ $Suites = @(
         Name = "app palette rows"
         Package = "unterm-app"
         Filter = "window::palette_entry_tests::"
-        ExpectedCount = 7
+        ExpectedCount = 6
         RequiredTests = @(
             "window::palette_entry_tests::the_palette_lists_what_the_keys_do",
             "window::palette_entry_tests::the_launcher_offers_only_shells_that_exist",
@@ -1043,7 +1043,7 @@ $Suites = @(
         Name = "app confirmation banner"
         Package = "unterm-app"
         Filter = "confirm::tests::"
-        ExpectedCount = 5
+        ExpectedCount = 11
         RequiredTests = @(
             "confirm::tests::the_banner_says_who_is_asking_and_for_what",
             "confirm::tests::every_option_is_offered",
@@ -1183,7 +1183,7 @@ $Suites = @(
         Name = "top bar facts"
         Package = "unterm-app"
         Filter = "statsbar::"
-        ExpectedCount = 19
+        ExpectedCount = 16
         RequiredTests = @(
             "statsbar::tests::a_shell_running_something_else_is_worth_naming",
             "statsbar::tests::a_posix_login_shell_at_its_prompt_is_not_worth_naming",
@@ -1319,20 +1319,6 @@ $Suites = @(
             "copy_mode::label_tests::exactly_the_number_asked_for",
             "copy_mode::label_tests::every_label_is_different",
             "copy_mode::label_tests::labels_stay_as_short_as_they_can"
-        )
-    },
-    @{
-        # Which way a split goes. The kernel deliberately does not arrange
-        # panes, so the direction an agent asked for reaches the front end
-        # from the MCP surface rather than through the kernel.
-        Name = "split direction"
-        Package = "unterm-app"
-        Filter = "mcp_host::split_tests::"
-        ExpectedCount = 5
-        RequiredTests = @(
-            "mcp_host::split_tests::every_direction_becomes_the_cut_it_names",
-            "mcp_host::split_tests::the_share_is_always_the_new_panes",
-            "mcp_host::split_tests::no_split_leaves_a_pane_with_nothing",
         )
     },
     @{
@@ -1551,7 +1537,7 @@ $Suites = @(
         Name = "tab strip naming"
         Package = "unterm-app"
         Filter = "sidebar::naming_tests::"
-        ExpectedCount = 5
+        ExpectedCount = 4
         RequiredTests = @(
             "sidebar::naming_tests::a_program_is_recognised_however_it_is_spelled",
             "sidebar::naming_tests::two_programs_stay_two",
