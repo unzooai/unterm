@@ -390,7 +390,7 @@ $Suites = @(
         Filter = "theme::tests::"
         ExpectedCount = 8
         RequiredTests = @(
-            "theme::tests::the_six_bundled_themes_are_all_here",
+            "theme::tests::the_bundled_themes_are_all_here",
             "theme::tests::text_is_readable_on_its_own_background",
             "theme::tests::selected_text_is_readable_on_its_highlight",
             "theme::tests::the_cursor_stands_out_from_the_background",
