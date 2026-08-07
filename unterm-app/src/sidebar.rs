@@ -233,11 +233,17 @@ pub fn rows(tabs: &[TabInfo], collapsed: &std::collections::HashSet<String>) -> 
     // Agents waiting for the user float to a pinned section on top,
     // longest wait first: these are questions, and a question in a
     // folded or distant project must never hide behind the folder it
-    // was asked in.
-    let mut waiting: Vec<&TabInfo> = tabs
-        .iter()
-        .filter(|tab| matches!(tab.badge, Some(crate::cockpit::Badge::NeedsYou)))
-        .collect();
+    // was asked in. Only after the wait has stood for a moment, though:
+    // an agent that flickers between working and waiting would drag its
+    // row up and down the strip with every flicker, and a strip that
+    // reshuffles under the pointer is a strip nobody can click. The
+    // badge says "waiting" immediately; the move upstairs waits 3s.
+    const PIN_AFTER_SECS: u64 = 3;
+    let pins = |tab: &TabInfo| {
+        matches!(tab.badge, Some(crate::cockpit::Badge::NeedsYou))
+            && tab.waiting_secs.unwrap_or(0) >= PIN_AFTER_SECS
+    };
+    let mut waiting: Vec<&TabInfo> = tabs.iter().filter(|tab| pins(tab)).collect();
     waiting.sort_by(|a, b| b.waiting_secs.cmp(&a.waiting_secs));
     if !waiting.is_empty() {
         rows.push(Row::PinnedHeader {
@@ -261,10 +267,7 @@ pub fn rows(tabs: &[TabInfo], collapsed: &std::collections::HashSet<String>) -> 
     // Everything else groups under its project as before; a waiting
     // tab lives in the pinned section only, or the strip would say
     // the same thing twice.
-    let rest: Vec<&TabInfo> = tabs
-        .iter()
-        .filter(|tab| !matches!(tab.badge, Some(crate::cockpit::Badge::NeedsYou)))
-        .collect();
+    let rest: Vec<&TabInfo> = tabs.iter().filter(|tab| !pins(tab)).collect();
 
     let projects: Vec<(String, String)> = {
         let mut seen = Vec::new();
