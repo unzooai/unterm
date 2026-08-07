@@ -86,6 +86,11 @@ pub fn pick_directory(
     // -- a scripting restriction, a vanished start directory -- re-raises,
     // fails the process, and reaches the caller as the failure it is.
     const SCRIPT: &str = r#"on run argv
+  -- The dialog belongs to this helper process, and a process nobody
+  -- activated is a process whose window the system may park behind the
+  -- terminal -- which reads as the picker not opening at all. Step in
+  -- front before asking.
+  activate
   try
     if (count of argv) is 2 then
       try
