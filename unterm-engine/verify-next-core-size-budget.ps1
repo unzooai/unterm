@@ -120,7 +120,12 @@ $treeLines = @(& cmd /c "cargo tree -p unterm-engine --depth 1 --prefix depth 2>
 if ($LASTEXITCODE -ne 0) {
     throw "cargo tree failed:`n$($treeLines -join "`n")"
 }
-$directDependencies = @($treeLines | Where-Object { $_ -match "^1\S" }).Count
+# The product's own crates are decomposition, not dependency: splitting
+# shared types into unterm-protocol must not read as the kernel growing
+# an appetite. Everything else -- including the vendored freetype and
+# harfbuzz trees -- stays counted, because vendoring a library does not
+# make it stop being one.
+$directDependencies = @($treeLines | Where-Object { $_ -match "^1\S" -and $_ -notmatch "^1unterm-" }).Count
 
 $debugBinaryBytes = $null
 if (-not $SkipBinarySizeCheck) {

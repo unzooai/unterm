@@ -3043,8 +3043,22 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        let styled = styled.expect("styled screen never showed the echoed text");
+        let mut styled = styled.expect("styled screen never showed the echoed text");
         assert!(styled.revision > 0);
+
+        // The echoed text arriving does not mean the shell is done drawing:
+        // the prompt repaint can land a beat later, and asserting "unchanged"
+        // against a frame still in motion is a coin toss on a slow runner.
+        // Wait for two consecutive reads to agree before holding it still.
+        for _ in 0..50 {
+            std::thread::sleep(Duration::from_millis(50));
+            let again = facade.read_styled_screen(pane_id).unwrap();
+            let settled = again.revision == styled.revision;
+            styled = again;
+            if settled {
+                break;
+            }
+        }
 
         // The incremental path a renderer relies on: an up-to-date
         // revision must come back empty instead of resending the frame.

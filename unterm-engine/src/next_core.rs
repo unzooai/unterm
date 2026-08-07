@@ -2354,15 +2354,6 @@ mod tests {
     }
 
     #[test]
-    fn wraps_paste_payload_when_bracketed_paste_is_enabled() {
-        assert_eq!(input_pipeline::paste_payload("plain", false), "plain");
-        assert_eq!(
-            input_pipeline::paste_payload("line1\nline2", true),
-            "\x1b[200~line1\nline2\x1b[201~"
-        );
-    }
-
-    #[test]
     fn chunks_paste_payload_without_splitting_utf8() {
         let text = format!(
             "{}{}",

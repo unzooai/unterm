@@ -1,14 +1,5 @@
 pub(super) const PASTE_CHUNK_BYTES: usize = 4096;
 
-#[allow(dead_code)]
-pub(super) fn paste_payload(text: &str, bracketed: bool) -> String {
-    if bracketed {
-        format!("\x1b[200~{text}\x1b[201~")
-    } else {
-        text.to_string()
-    }
-}
-
 pub(super) fn application_cursor_input(input: &str, enabled: bool) -> String {
     if !enabled {
         return input.to_string();
@@ -64,15 +55,6 @@ pub(super) fn paste_chunks(text: &str, bracketed: bool) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn paste_payload_wraps_bracketed_text() {
-        assert_eq!(paste_payload("plain", false), "plain");
-        assert_eq!(
-            paste_payload("line1\nline2", true),
-            "\x1b[200~line1\nline2\x1b[201~"
-        );
-    }
 
     #[test]
     fn paste_chunks_do_not_split_utf8() {
