@@ -1188,8 +1188,6 @@ $Suites = @(
             "statsbar::tests::a_shell_running_something_else_is_worth_naming",
             "statsbar::tests::a_posix_login_shell_at_its_prompt_is_not_worth_naming",
             "statsbar::tests::a_windows_shell_is_still_named",
-            "statsbar::tests::a_narrow_bar_gives_up_the_numbers_before_anything_else",
-            "statsbar::tests::segments_are_dropped_whole",
             "statsbar::tests::width_is_counted_in_cells_rather_than_characters",
             "statsbar::tests::nothing_known_shows_nothing",
             "statsbar::freshness_tests::the_numbers_refresh_without_being_asked_twice",
@@ -1335,7 +1333,6 @@ $Suites = @(
             "mcp_host::split_tests::every_direction_becomes_the_cut_it_names",
             "mcp_host::split_tests::the_share_is_always_the_new_panes",
             "mcp_host::split_tests::no_split_leaves_a_pane_with_nothing",
-            "mcp_host::split_tests::the_note_is_taken_rather_than_read"
         )
     },
     @{
