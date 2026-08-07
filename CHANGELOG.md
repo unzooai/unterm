@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.63.1 — 2026-08-07
+
+A same-day patch: the fixes a day of hard dogfooding earned.
+
+### Fixed
+
+- **Backspace deletes again.** Switching input sources mid-composition
+  stranded the IME's marked text, and macOS fed every Backspace to the
+  ghost composition instead of the shell. Two locks now: any key arriving
+  while a stale composition lingers clears it on the spot, and an
+  input-source-change listener clears it before anyone even types.
+- **The title-bar chevron answers corner clicks.** Insetting it from the
+  window's rounded corner left ten dead pixels exactly where years of
+  muscle memory throw the pointer. The icon stays inset; the target
+  reaches the edge again.
+- **The folder picker steps in front.** Its dialog belongs to a helper
+  process nobody activated, which modern macOS may park behind the
+  terminal — reading as "nothing happened". The dialog now activates
+  itself, and a start directory the dialog cannot open no longer fails
+  the whole picker.
+- The Agent Inbox theme shows its name in the theme picker instead of a
+  raw localization key, in all nine languages.
+- CI's Windows gate woke from a two-day runner outage owing three stale
+  entries (a renamed theme test, tests deleted with the dead statsbar
+  ladder, and a section pointing at tests that moved into the engine with
+  layout plan B); the required lists are reconciled against the codebase
+  in full, and the kernel size budget stands at 12800/12800 lines and
+  10/10 external dependencies — paid for by deduplicating the raster
+  entry points rather than by raising the ceiling.
+
 ## v0.63.0 — 2026-08-06
 
 The release the install deserved. 0.62.0's Core architecture was real, but
