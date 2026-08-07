@@ -76,5 +76,11 @@ pub fn install() {
         if !added.as_bool() {
             log::warn!("could not add openURLs handler (already present?)");
         }
+        // AppKit decided what this delegate can answer when the delegate was
+        // set -- before our method existed. A launch delivery still finds it,
+        // a delivery to the running app does not. Setting the delegate again
+        // makes AppKit look again.
+        let () = msg_send![app, setDelegate: std::ptr::null_mut::<AnyObject>()];
+        let () = msg_send![app, setDelegate: delegate];
     }
 }
