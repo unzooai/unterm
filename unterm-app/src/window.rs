@@ -9927,10 +9927,17 @@ impl ApplicationHandler for App {
         #[cfg(target_os = "macos")]
         for path in crate::macos_open::drain() {
             let dir = if path.is_dir() {
-                Some(path)
+                Some(path.clone())
             } else {
                 path.parent().map(std::path::Path::to_path_buf)
             };
+            // Written down, not just acted on: "it opened the wrong folder"
+            // is undebuggable without knowing what macOS actually handed us.
+            crate::macos_open::trace(&format!(
+                "received {:?} -> opening {:?}",
+                path,
+                dir.as_deref()
+            ));
             if let Some(dir) = dir {
                 self.new_tab_in(&dir.to_string_lossy());
             }

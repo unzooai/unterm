@@ -84,3 +84,20 @@ pub fn install() {
         let () = msg_send![app, setDelegate: delegate];
     }
 }
+
+/// One line into `<state>/open.log`, so a wrong-folder report comes with
+/// the folder that was actually delivered.
+pub fn trace(message: &str) {
+    let Some(dir) = unterm_protocol::state_dir() else {
+        return;
+    };
+    use std::io::Write as _;
+    let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("open.log"))
+    {
+        let _ = writeln!(file, "{stamp} {message}");
+    }
+}
