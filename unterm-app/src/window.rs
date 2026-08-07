@@ -591,6 +591,10 @@ pub struct App {
     drawn_suggestions: usize,
     /// Text an input method is still composing, not yet the shell's.
     preedit: crate::ime::Preedit,
+    /// When the input method last spoke. A composition whose IME has gone
+    /// quiet is an orphan; one that talked milliseconds ago is live, and
+    /// winit hands us KeyboardInput alongside Ime events either way.
+    last_ime_event: Option<std::time::Instant>,
     /// The open search, if there is one.
     search: Option<crate::search::Search>,
     /// How many bells the pane had rung when we last drew.
@@ -851,6 +855,7 @@ impl App {
             drawn_confirmation: None,
             drawn_suggestions: 0,
             preedit: crate::ime::Preedit::default(),
+            last_ime_event: None,
             search: None,
             bells_seen: 0,
             bell_at: None,
@@ -9088,6 +9093,7 @@ impl ApplicationHandler for App {
                 // Same urgency as a plain keystroke: a committed composition
                 // is input on its way to an echo.
                 self.quiet_since = None;
+                self.last_ime_event = Some(std::time::Instant::now());
                 match ime {
                     Ime::Preedit(text, caret) => {
                         self.preedit = crate::ime::Preedit {
@@ -9149,13 +9155,17 @@ impl ApplicationHandler for App {
                 // "typing feels slow". Drop back to the busy cadence now,
                 // before the shell has even seen the byte.
                 self.quiet_since = None;
-                // A key reaching us at all proves no composition is live:
-                // while an input method is actually composing, it consumes
-                // keys at the platform layer and we see Ime events instead.
-                // What is left is the orphan -- marked text stranded by an
-                // input-source switch -- and until it is cleared, AppKit
-                // feeds it every Backspace and the shell never sees one.
-                if !self.preedit.is_empty() {
+                // An orphan composition is marked text whose input method
+                // has gone quiet: stranded by a source switch, it swallows
+                // every editing key from then on. A LIVE composition also
+                // reaches us here -- winit reports KeyboardInput alongside
+                // Ime events -- so silence, not arrival, is the test: only
+                // a preedit nobody has updated for two seconds is a ghost.
+                if !self.preedit.is_empty()
+                    && self
+                        .last_ime_event
+                        .map_or(true, |at| at.elapsed() > std::time::Duration::from_secs(2))
+                {
                     self.clear_orphan_preedit();
                 }
 
