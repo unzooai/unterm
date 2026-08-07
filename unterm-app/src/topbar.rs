@@ -379,10 +379,26 @@ pub fn window_button(item: Item, maximized: bool) -> Option<crate::window_button
 
 /// Which piece a press at `x` landed on.
 pub fn hit(placed: &[Placed], x: f32) -> Option<Item> {
-    placed
-        .iter()
-        .find(|piece| piece.contains(x))
-        .map(|piece| piece.item)
+    if let Some(piece) = placed.iter().find(|piece| piece.contains(x)) {
+        return Some(piece.item);
+    }
+    // On the platform whose window buttons are the system's, the chevron is
+    // the rightmost thing we draw, inset from the corner so it clears the
+    // window's rounding. The strip between it and the edge stays part of its
+    // target: a corner is the easiest place on a screen to throw the pointer,
+    // and years of the chevron living flush against it taught hands to do
+    // exactly that.
+    if native_traffic_lights() {
+        if let Some(menu) = placed.iter().filter(|piece| piece.item == Item::Menu).last() {
+            let rightmost = placed
+                .iter()
+                .all(|piece| piece.left + piece.width <= menu.left + menu.width + 0.5);
+            if rightmost && x >= menu.left + menu.width {
+                return Some(Item::Menu);
+            }
+        }
+    }
+    None
 }
 
 /// Whether a press here should drag the window.
