@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.63.2 — 2026-08-07
+
+### Fixed
+
+- **"Open in Unterm" reaches a window that is already open.** v0.63.1
+  fixed the cold-launch half: right-clicking while Unterm was closed
+  opened it at the folder, but doing the same with Unterm already running
+  did nothing — AppKit records what a delegate answers at the moment the
+  delegate is set, before our handler existed. The delegate is now re-set
+  once after the handler is added, and deliveries to the running window
+  land as focused tabs. Same cure for folders dropped on the Dock icon.
+
 ## v0.63.1 — 2026-08-07
 
 A same-day patch: the fixes a day of hard dogfooding earned.
