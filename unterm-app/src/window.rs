@@ -5830,6 +5830,14 @@ impl App {
             live.window.set_visible(false);
         }
         self.closing = true;
+        // The fuse. Whatever a teardown thread is joining, whatever lock a
+        // worker still wants: the user chose to leave, the state is saved,
+        // and needing Force Quit to make that stick is the one outcome this
+        // function is not allowed to produce.
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            std::process::exit(0);
+        });
     }
 
     /// The rest of the tabs the last window had, one per saved directory.
@@ -7060,15 +7068,28 @@ impl App {
                 self.perform_close();
             }
             crate::palette::Command::DrainThenExit => {
-                if let Err(err) = self.engine.drain_core(true) {
-                    log::warn!("could not ask the core to drain: {err:#}");
+                // Off this thread: draining waits on shells that may take
+                // their time (or forever), and the one thread that must
+                // never wait on anything is the one under the pointer.
+                if let crate::engine_backend::AppEngine::Core { client, .. } = &self.engine {
+                    let client = client.clone();
+                    std::thread::spawn(move || {
+                        if let Err(err) = client.drain(true) {
+                            log::warn!("could not ask the core to drain: {err:#}");
+                        }
+                    });
                 }
                 self.close_confirmed = true;
                 self.perform_close();
             }
             crate::palette::Command::CancelAndExit => {
-                if let Err(err) = self.engine.shutdown_core() {
-                    log::warn!("could not stop the core: {err:#}");
+                if let crate::engine_backend::AppEngine::Core { client, .. } = &self.engine {
+                    let client = client.clone();
+                    std::thread::spawn(move || {
+                        if let Err(err) = client.shutdown() {
+                            log::warn!("could not stop the core: {err:#}");
+                        }
+                    });
                 }
                 self.close_confirmed = true;
                 self.perform_close();
