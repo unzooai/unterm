@@ -95,6 +95,97 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Folder paths a Services invocation put on the pasteboard. Finder sends
+/// NSFilenamesPboardType (a plist array of paths); a plain string arrives
+/// from text-selection contexts.
+unsafe fn pasteboard_paths(pboard: *mut AnyObject) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if pboard.is_null() {
+        return paths;
+    }
+    let filenames_type: *mut AnyObject = ns_string("NSFilenamesPboardType");
+    let list: *mut AnyObject = msg_send![pboard, propertyListForType: filenames_type];
+    if !list.is_null() {
+        let responds: bool = msg_send![list, isKindOfClass: class!(NSArray)];
+        if responds {
+            let count: usize = msg_send![list, count];
+            for index in 0..count {
+                let item: *mut AnyObject = msg_send![list, objectAtIndex: index];
+                if let Some(text) = ns_string_to_rust(item) {
+                    paths.push(PathBuf::from(text));
+                }
+            }
+        }
+    }
+    if paths.is_empty() {
+        let string_type: *mut AnyObject = ns_string("public.utf8-plain-text");
+        let text: *mut AnyObject = msg_send![pboard, stringForType: string_type];
+        if let Some(text) = ns_string_to_rust(text) {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                paths.push(PathBuf::from(trimmed));
+            }
+        }
+    }
+    paths
+}
+
+unsafe fn ns_string(text: &str) -> *mut AnyObject {
+    let cstr = std::ffi::CString::new(text).unwrap();
+    msg_send![class!(NSString), stringWithUTF8String: cstr.as_ptr()]
+}
+
+unsafe fn ns_string_to_rust(string: *mut AnyObject) -> Option<String> {
+    if string.is_null() {
+        return None;
+    }
+    let utf8: *const std::os::raw::c_char = msg_send![string, UTF8String];
+    if utf8.is_null() {
+        return None;
+    }
+    Some(std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+}
+
+/// Services target "New Unterm Tab Here": the paths join the same queue the
+/// deep link feeds, so the tab opens in this window on the next tick.
+extern "C" fn service_tab_here(
+    _this: *mut AnyObject,
+    _cmd: Sel,
+    pboard: *mut AnyObject,
+    _user_data: *mut AnyObject,
+    _error: *mut *mut AnyObject,
+) {
+    let paths = unsafe { pasteboard_paths(pboard) };
+    trace(&format!("service tab-here with {paths:?}"));
+    PENDING.lock().unwrap().extend(paths);
+}
+
+/// Services target "New Unterm Window Here": each path gets a window of its
+/// own, the same way the in-app New Window command makes one.
+extern "C" fn service_window_here(
+    _this: *mut AnyObject,
+    _cmd: Sel,
+    pboard: *mut AnyObject,
+    _user_data: *mut AnyObject,
+    _error: *mut *mut AnyObject,
+) {
+    let paths = unsafe { pasteboard_paths(pboard) };
+    trace(&format!("service window-here with {paths:?}"));
+    let Ok(program) = std::env::current_exe() else {
+        return;
+    };
+    for path in paths {
+        let _ = std::process::Command::new(&program)
+            .arg("start")
+            .arg("--cwd")
+            .arg(&path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+}
+
 /// Teach the running application delegate to take openURLs. Call once, on
 /// the main thread, after the event loop (and so the delegate) exists.
 pub fn install() {
@@ -124,6 +215,43 @@ pub fn install() {
         if !added.as_bool() {
             log::warn!("could not add openURLs handler (already present?)");
         }
+        // The Info.plist has promised "New Unterm Tab Here" / "New Unterm
+        // Window Here" in the Services menu since v0.40; nothing ever
+        // registered a provider, so both were dead buttons in every
+        // right-click menu. The delegate grows the two selectors the plist
+        // names, and becomes that provider.
+        let service_types = std::ffi::CString::new("v@:@@^@").unwrap();
+        for (sel, imp) in [
+            (
+                sel!(openUntermTabHere:userData:error:),
+                service_tab_here
+                    as extern "C" fn(
+                        *mut AnyObject,
+                        Sel,
+                        *mut AnyObject,
+                        *mut AnyObject,
+                        *mut *mut AnyObject,
+                    ),
+            ),
+            (sel!(openInUnterm:userData:error:), service_window_here as _),
+        ] {
+            let _ = objc2::ffi::class_addMethod(
+                class as *const _ as *mut _,
+                sel,
+                std::mem::transmute::<
+                    extern "C" fn(
+                        *mut AnyObject,
+                        Sel,
+                        *mut AnyObject,
+                        *mut AnyObject,
+                        *mut *mut AnyObject,
+                    ),
+                    unsafe extern "C-unwind" fn(),
+                >(imp),
+                service_types.as_ptr(),
+            );
+        }
+        let () = msg_send![app, setServicesProvider: delegate];
         // AppKit decided what this delegate can answer when the delegate was
         // set -- before our method existed. A launch delivery still finds it,
         // a delivery to the running app does not. Setting the delegate again
