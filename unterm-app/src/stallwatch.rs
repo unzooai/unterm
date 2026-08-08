@@ -114,3 +114,13 @@ fn log_line(message: &str) {
         let _ = file.write_all(line.as_bytes());
     }
 }
+
+/// Name a slow moment. For wrapping suspects on the GUI thread: anything
+/// that held it past `threshold` lands in the log with its name, so a
+/// "clicking X is laggy" report comes with the function that was lagging.
+pub fn note_if_slow(what: &str, since: std::time::Instant, threshold_ms: u64) {
+    let took = since.elapsed().as_millis() as u64;
+    if took >= threshold_ms {
+        log_line(&format!("{what} held the GUI thread for {took}ms"));
+    }
+}
