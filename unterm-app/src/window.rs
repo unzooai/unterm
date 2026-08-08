@@ -499,6 +499,16 @@ fn configured_color(config: &config::Config, key: &str) -> Option<[f32; 4]> {
     ])
 }
 
+/// A held sidebar row, from press until release. `engaged` stays false
+/// until the pointer has moved past the click-jitter slack — only then do
+/// cursor moves start carrying the tab through the strip.
+#[derive(Clone, Copy)]
+struct TabDrag {
+    tab_id: usize,
+    origin: (f32, f32),
+    engaged: bool,
+}
+
 pub struct App {
     engine: crate::engine_backend::AppEngine,
     font: TerminalFont,
@@ -677,7 +687,7 @@ pub struct App {
     /// True while a drag is holding the strip's right edge.
     dragging_sidebar_width: bool,
     /// A held tab row mid-reorder: which tab, and where it is being carried.
-    dragging_tab: Option<usize>,
+    dragging_tab: Option<TabDrag>,
     /// Projects the reader has folded away. Window state rather than disk
     /// state: it survives repaints and resizing without any file being read.
     sidebar_collapsed: std::collections::HashSet<String>,
@@ -2638,7 +2648,12 @@ impl App {
                     self.select_tab(index as u8 + 1);
                     // Keep holding to carry the tab to a new place in the
                     // strip; letting go before moving is just the click.
-                    self.dragging_tab = self.tabs.tab_ids().get(index).copied();
+                    self.dragging_tab =
+                        self.tabs.tab_ids().get(index).copied().map(|tab_id| TabDrag {
+                            tab_id,
+                            origin: self.pointer,
+                            engaged: false,
+                        });
                 }
             }
             crate::sidebar::Row::Group { key, .. } => {
@@ -4100,8 +4115,18 @@ impl App {
         let Some(tab_id) = crate::topbar::tab_for_number(number, ids.len())
             .and_then(|index| ids.get(index).copied())
         else {
+            #[cfg(target_os = "macos")]
+            crate::macos_open::trace(&format!(
+                "select_tab {number}: no tab for it among {} ids",
+                ids.len()
+            ));
             return;
         };
+        #[cfg(target_os = "macos")]
+        crate::macos_open::trace(&format!(
+            "select_tab {number} -> tab {tab_id} pane {:?}",
+            self.tabs.active_pane(tab_id)
+        ));
         self.tabs.set_active_tab(tab_id);
         self.tab_id = Some(tab_id);
         if let Some(pane) = self.tabs.active_pane(tab_id) {
@@ -7207,6 +7232,10 @@ impl App {
     /// Point the window at a pane, and redraw.
     fn focus_session(&mut self, session_id: usize) {
         if !self.tabs.set_active_pane(session_id) {
+            #[cfg(target_os = "macos")]
+            crate::macos_open::trace(&format!(
+                "focus_session {session_id}: the tab registry refused it"
+            ));
             return;
         }
         if let Err(err) = unterm_engine::SessionEngine::focus_session(&self.engine, session_id) {
@@ -7369,7 +7398,14 @@ impl App {
                 None => self.tabs.create_tab(session.id).map(|_| ()),
             };
             match outcome {
-                Ok(()) => changed = true,
+                Ok(()) => {
+                    #[cfg(target_os = "macos")]
+                    crate::macos_open::trace(&format!(
+                        "adopt session {} (split of {:?})",
+                        session.id, split
+                    ));
+                    changed = true;
+                }
                 Err(err) => log::warn!("could not adopt session {}: {err:#}", session.id),
             }
         }
@@ -7398,6 +7434,10 @@ impl App {
                 && shown != Some(requested)
                 && self.tabs.tab_of_pane(requested).is_some()
             {
+                #[cfg(target_os = "macos")]
+                crate::macos_open::trace(&format!(
+                    "sync follows external focus {requested} (was showing {shown:?})"
+                ));
                 self.focus_session(requested);
             }
         }
@@ -9356,7 +9396,27 @@ impl ApplicationHandler for App {
                         }
                     }
                 }
-                if let Some(tab_id) = self.dragging_tab {
+                if let Some(TabDrag { tab_id, origin, engaged }) = self.dragging_tab {
+                    // A held row is not a carried row until the pointer has
+                    // truly left where it pressed: hands drift a pixel or
+                    // two in every click, and a strip that reorders on that
+                    // drift scrambles itself under its owner's clicks.
+                    if !engaged {
+                        let dx = self.pointer.0 - origin.0;
+                        let dy = self.pointer.1 - origin.1;
+                        let slack = self
+                            .sidebar_dock()
+                            .map(|(_, _, _, _, row_height)| row_height * 0.6)
+                            .unwrap_or(12.0);
+                        if (dx * dx + dy * dy).sqrt() < slack {
+                            return;
+                        }
+                        if let Some(drag) = self.dragging_tab.as_mut() {
+                            drag.engaged = true;
+                        }
+                        #[cfg(target_os = "macos")]
+                        crate::macos_open::trace("tab drag engaged");
+                    }
                     if let Some(at) = self.sidebar_row_at(self.pointer.0, self.pointer.1) {
                         let rows = self.sidebar_rows();
                         // Which tab position this row corresponds to: count
