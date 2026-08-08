@@ -432,7 +432,7 @@ $Suites = @(
         Name = "left tab strip"
         Package = "unterm-app"
         Filter = "sidebar::tests::"
-        ExpectedCount = 22
+        ExpectedCount = 21
         RequiredTests = @(
             "sidebar::tests::a_single_project_gets_no_group_headers",
             "sidebar::tests::same_named_projects_are_told_apart_by_the_shortest_parent",

@@ -155,13 +155,6 @@ pub fn fit(text: &str, columns: usize) -> String {
 /// What one line of the strip is.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Row {
-    /// The header above the tabs whose agents are waiting for the user.
-    ///
-    /// Pinned above every project: a question an agent is blocked on
-    /// outranks whatever folder it was asked in. This is the strip's
-    /// inbox — the reader answers these rows and merely glances at the
-    /// rest.
-    PinnedHeader { count: usize },
     /// The project a run of tabs belongs to. Only when there is more than one.
     Group {
         key: String,
@@ -191,9 +184,6 @@ pub enum Row {
         /// for an answer has to be visible from whichever tab you are in.
         badge: Option<crate::cockpit::Badge>,
         indicators: Indicators,
-        /// Whether it sits in the pinned waiting section rather than
-        /// under its project.
-        pinned: bool,
     },
 }
 
@@ -221,53 +211,18 @@ pub struct TabInfo {
     pub foreground: Option<String>,
     pub active: bool,
     pub indicators: Indicators,
-    /// How long the agent has been waiting, for ordering the pinned
-    /// section: the one waiting longest is the one to answer first.
-    pub waiting_secs: Option<u64>,
 }
 
 /// Build the strip's lines.
 pub fn rows(tabs: &[TabInfo], collapsed: &std::collections::HashSet<String>) -> Vec<Row> {
     let mut rows = Vec::new();
 
-    // Agents waiting for the user float to a pinned section on top,
-    // longest wait first: these are questions, and a question in a
-    // folded or distant project must never hide behind the folder it
-    // was asked in. Only after the wait has stood for a moment, though:
-    // an agent that flickers between working and waiting would drag its
-    // row up and down the strip with every flicker, and a strip that
-    // reshuffles under the pointer is a strip nobody can click. The
-    // badge says "waiting" immediately; the move upstairs waits 3s.
-    const PIN_AFTER_SECS: u64 = 3;
-    let pins = |tab: &TabInfo| {
-        matches!(tab.badge, Some(crate::cockpit::Badge::NeedsYou))
-            && tab.waiting_secs.unwrap_or(0) >= PIN_AFTER_SECS
-    };
-    let mut waiting: Vec<&TabInfo> = tabs.iter().filter(|tab| pins(tab)).collect();
-    waiting.sort_by(|a, b| b.waiting_secs.cmp(&a.waiting_secs));
-    if !waiting.is_empty() {
-        rows.push(Row::PinnedHeader {
-            count: waiting.len(),
-        });
-        for tab in &waiting {
-            rows.push(Row::Tab {
-                index: tab.index,
-                label: label_for(tab),
-                detail: tab.foreground.clone(),
-                active: tab.active,
-                icon: shell_icon(tab.agent.as_deref().unwrap_or(&tab.title)),
-                grouped: true,
-                badge: tab.badge,
-                indicators: tab.indicators,
-                pinned: true,
-            });
-        }
-    }
-
-    // Everything else groups under its project as before; a waiting
-    // tab lives in the pinned section only, or the strip would say
-    // the same thing twice.
-    let rest: Vec<&TabInfo> = tabs.iter().filter(|tab| !pins(tab)).collect();
+    // Rows hold their positions no matter what the agents inside them do.
+    // A pinned "waiting for you" section used to float such tabs to the
+    // top — and every agent state flip teleported rows under the pointer,
+    // which read as "the tabs run around and I cannot click them". The
+    // badge alone carries the state now; the strip stays still.
+    let rest: Vec<&TabInfo> = tabs.iter().collect();
 
     let projects: Vec<(String, String)> = {
         let mut seen = Vec::new();
@@ -298,8 +253,6 @@ pub fn rows(tabs: &[TabInfo], collapsed: &std::collections::HashSet<String>) -> 
                     rows.push(Row::Group {
                         label: leaf(key),
                         hint: hints.get(key).cloned(),
-                        // Counted over the tabs that actually sit under
-                        // this header: the waiting ones moved upstairs.
                         count: rest
                             .iter()
                             .filter(|other| {
@@ -336,7 +289,6 @@ pub fn rows(tabs: &[TabInfo], collapsed: &std::collections::HashSet<String>) -> 
             grouped,
             badge: tab.badge,
             indicators: tab.indicators,
-            pinned: false,
         });
     }
     rows
@@ -608,7 +560,6 @@ mod tests {
     /// is the tests' own joining rather than something the painter uses.
     fn text_of(row: &Row) -> String {
         match row {
-            Row::PinnedHeader { count } => format!("waiting  {count}"),
             Row::Group {
                 label, hint, count, ..
             } => match hint {
@@ -637,14 +588,12 @@ mod tests {
             foreground: None,
             active: index == 0,
             indicators: Indicators::default(),
-            waiting_secs: None,
         }
     }
 
     fn labels(rows: &[Row]) -> Vec<String> {
         rows.iter()
             .map(|row| match row {
-                Row::PinnedHeader { .. } => "[waiting]".to_string(),
                 Row::Group { label, hint, .. } => match hint {
                     Some(hint) => format!("[{hint}/{label}]"),
                     None => format!("[{label}]"),
@@ -668,7 +617,6 @@ mod tests {
                 foreground: Some("npm run dev --workspace=everything".to_string()),
                 active: true,
                 indicators: Indicators::default(),
-                waiting_secs: None,
             },
             tab(1, "pwsh", Some("/elsewhere/project")),
         ]);
@@ -703,7 +651,6 @@ mod tests {
             foreground: Some("cargo test".to_string()),
             active: true,
             indicators: Indicators::default(),
-            waiting_secs: None,
         }]);
         assert!(text_of(&rows[0]).contains("cargo test"));
     }
@@ -733,67 +680,38 @@ mod tests {
         assert!(!text_of(&agent[0]).contains("pwsh"));
     }
 
-    /// A waiting agent floats to the pinned section on top, longest
-    /// wait first, and leaves its project group — the strip must not
-    /// say the same question twice.
+    /// An agent flipping between working and waiting must not move its
+    /// row: a strip that reshuffles under the pointer is a strip nobody
+    /// can click. The badge changes, the geometry does not.
     #[test]
-    fn waiting_tabs_float_to_a_pinned_section_and_leave_their_groups() {
-        let rows = rows_of(&[
+    fn agent_state_never_moves_a_row() {
+        let calm = rows_of(&[
+            tab(0, "pwsh", Some("/work/alpha")),
+            tab(1, "claude", Some("/work/alpha")),
+            tab(2, "codex", Some("/work/beta")),
+            tab(3, "pwsh", Some("/work/beta")),
+        ]);
+        let waiting = rows_of(&[
             tab(0, "pwsh", Some("/work/alpha")),
             TabInfo {
                 badge: Some(crate::cockpit::Badge::NeedsYou),
-                waiting_secs: Some(30),
                 ..tab(1, "claude", Some("/work/alpha"))
             },
             TabInfo {
                 badge: Some(crate::cockpit::Badge::NeedsYou),
-                waiting_secs: Some(90),
                 ..tab(2, "codex", Some("/work/beta"))
             },
             tab(3, "pwsh", Some("/work/beta")),
         ]);
-
-        assert!(matches!(rows[0], Row::PinnedHeader { count: 2 }));
-        // Longest wait answers first.
-        assert!(
-            matches!(&rows[1], Row::Tab { index: 2, pinned: true, .. }),
-            "{rows:?}"
-        );
-        assert!(
-            matches!(&rows[2], Row::Tab { index: 1, pinned: true, .. }),
-            "{rows:?}"
-        );
-        // The groups below hold only the tabs that are not waiting.
-        let grouped_tabs: Vec<usize> = rows
-            .iter()
-            .filter_map(|row| match row {
-                Row::Tab {
-                    index,
-                    pinned: false,
-                    ..
-                } => Some(*index),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(grouped_tabs, vec![0, 3]);
-        for row in &rows {
-            if let Row::Group { count, .. } = row {
-                assert_eq!(*count, 1, "waiting tabs must not count in groups");
-            }
-        }
-    }
-
-    /// No one waiting, no pinned section: an empty inbox header would
-    /// be the strip crying wolf.
-    #[test]
-    fn no_pinned_section_when_nothing_waits() {
-        let rows = rows_of(&[
-            tab(0, "pwsh", Some("/work/alpha")),
-            tab(1, "pwsh", Some("/work/beta")),
-        ]);
-        assert!(!rows
-            .iter()
-            .any(|row| matches!(row, Row::PinnedHeader { .. })));
+        let order = |rows: &[Row]| -> Vec<Option<usize>> {
+            rows.iter()
+                .map(|row| match row {
+                    Row::Tab { index, .. } => Some(*index),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(order(&calm), order(&waiting), "{waiting:?}");
     }
 
     #[test]

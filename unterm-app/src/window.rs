@@ -2075,19 +2075,6 @@ impl App {
                         .map(|name| crate::statusbar::short_name(&name)),
                     active: Some(tab) == active,
                     indicators,
-                    waiting_secs: pane_ids
-                        .iter()
-                        .filter_map(|pane| {
-                            unterm_services::cockpit::status::status_for_pane(*pane as u64)
-                        })
-                        .filter(|status| {
-                            matches!(
-                                status.state,
-                                unterm_services::cockpit::status::AgentState::WaitingForUser
-                            )
-                        })
-                        .map(|status| status.since.elapsed().as_secs())
-                        .max(),
                 }
             })
             .collect();
@@ -2659,9 +2646,6 @@ impl App {
                     self.sidebar_collapsed.insert(key);
                 }
             }
-            // The inbox header is a label, not a control: its rows are
-            // the things to press.
-            crate::sidebar::Row::PinnedHeader { .. } => {}
         }
         self.drawn_revision = None;
         true
@@ -2809,47 +2793,6 @@ impl App {
         for (offset, row) in rows.iter().skip(scroll).take(visible).enumerate() {
             let row_top = first_row + offset as f32 * row_height;
             match row {
-                crate::sidebar::Row::PinnedHeader { count } => {
-                    // The inbox header: the hand and the count in the
-                    // waiting amber, so the section reads as the same
-                    // question its rows are asking.
-                    let amber = crate::cockpit::Badge::NeedsYou.color();
-                    let mut pen = content_left + 4.0 * pt;
-                    pen = self.append_chrome(
-                        "\u{270B}",
-                        amber,
-                        (pen, row_top + text_offset),
-                        quads,
-                    );
-                    pen += 5.0 * pt;
-                    let badge = count.to_string();
-                    let badge_width = self.chrome_width(&badge) + 10.0 * pt;
-                    let badge_left = content_left + content_width - badge_width - 4.0 * pt;
-                    let badge_height = (row_height - 6.0 * pt).max(2.0);
-                    let mut pill = amber;
-                    pill[3] = 0.18;
-                    quads.backgrounds.extend(unterm_render::rounded::panel(
-                        badge_left,
-                        row_top + 3.0 * pt,
-                        badge_width,
-                        badge_height,
-                        badge_height / 2.0,
-                        pill,
-                    ));
-                    let badge_text = self.chrome_width(&badge);
-                    self.append_chrome(
-                        &badge,
-                        amber,
-                        (
-                            badge_left + (badge_width - badge_text) / 2.0,
-                            row_top + text_offset,
-                        ),
-                        quads,
-                    );
-                    let label = unterm_services::i18n::t("sidebar.waiting_for_you");
-                    let shown = self.chrome_fit(&label, badge_left - pen);
-                    self.append_chrome(&shown, amber, (pen, row_top + text_offset), quads);
-                }
                 crate::sidebar::Row::Group {
                     label,
                     hint,
@@ -2956,7 +2899,6 @@ impl App {
                     grouped,
                     badge,
                     indicators,
-                    pinned,
                 } => {
                     // Children are inset under their header, so tabs and
                     // projects read as parent and child rather than as peers.
@@ -2964,17 +2906,6 @@ impl App {
                     let row_left = content_left + indent;
                     let row_width = (content_width - indent).max(1.0);
 
-                    // A pinned row carries a faint wash of the waiting
-                    // amber under everything else: the section colour,
-                    // not a highlight, so hover and selection still
-                    // read on top of it.
-                    if *pinned {
-                        let mut wash = crate::cockpit::Badge::NeedsYou.color();
-                        wash[3] = 0.08;
-                        quads.backgrounds.extend(unterm_render::rounded::panel(
-                            row_left, row_top, row_width, row_height, radius, wash,
-                        ));
-                    }
                     if *active {
                         quads.backgrounds.extend(unterm_render::rounded::panel(
                             row_left,
@@ -3001,11 +2932,8 @@ impl App {
                         ));
                     }
                     // The rail: the one place the accent is used, and what the
-                    // eye finds first. Pinned rows take the waiting amber —
-                    // the strip's loudest mark for its most urgent rows.
-                    let rail = if *pinned {
-                        Some((crate::cockpit::Badge::NeedsYou.color(), 2.0 * pt))
-                    } else if *active {
+                    // eye finds first.
+                    let rail = if *active {
                         Some((chrome.focus_rail, 2.0 * pt))
                     } else if *grouped {
                         Some((chrome.outer_edge, 1.0))
@@ -9591,6 +9519,22 @@ impl ApplicationHandler for App {
                 }
                 // And so does the tab strip: a press on a row is a press on a
                 // row, not a click into the pane beside it.
+                #[cfg(target_os = "macos")]
+                if state == ElementState::Pressed && button == MouseButton::Left {
+                    // A "clicked the tab and nothing happened" report needs
+                    // this press's whole story: where it was, which row that
+                    // resolved to, and which branch ate it.
+                    let row = self.sidebar_row_at(self.pointer.0, self.pointer.1);
+                    crate::macos_open::trace(&format!(
+                        "press at ({:.0},{:.0}) sidebar_open={} secondary={} ctrl={} row={:?}",
+                        self.pointer.0,
+                        self.pointer.1,
+                        self.sidebar_open,
+                        secondary,
+                        self.ctrl_held,
+                        row,
+                    ));
+                }
                 if self.sidebar_open
                     && state == ElementState::Pressed
                     && button == MouseButton::Left
