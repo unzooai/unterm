@@ -23,8 +23,23 @@ private func trace(_ message: String) {
 
 @objc(FinderSyncExtension)
 final class FinderSyncExtension: FIFinderSync {
+    /// Held for the process's whole life. Without it App Nap suspends this
+    /// background process after it has idled a while; the menu still shows
+    /// (building it wakes us) but the item's ACTION dispatches into a
+    /// suspended process and vanishes — clicks worked all day on freshly
+    /// restarted extensions, then silently died on long-lived ones.
+    private var wakefulness: NSObjectProtocol?
+
     override init() {
         super.init()
+        // userInitiatedAllowingIdleSystemSleep, NOT latencyCritical: the
+        // stronger option pins a PreventUserIdleSystemSleep assertion for the
+        // life of the process, and no context menu is worth a laptop that
+        // never sleeps.
+        wakefulness = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep],
+            reason: "Finder context-menu clicks must dispatch instantly"
+        )
 
         // Finder Sync requires at least one observed directory before Finder
         // asks the extension for contextual menus. We used to watch "/" as
