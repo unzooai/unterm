@@ -111,68 +111,51 @@ final class FinderSyncExtension: FIFinderSync {
         let url = selected.first ?? controller.targetedURL()
         trace("menu clicked, selected=\(selected.count), target=\(url?.path ?? "nil")")
 
-        guard let targetURL = url else {
-            openUntermWithoutDocument()
+        openUnterm(at: url)
+    }
+
+    /// The deep link is the ONLY road that works from this sandbox: the appex
+    /// may not launch its app with document URLs attached ("杂项错误"), and
+    /// letting that doomed attempt run first meant every click showed the
+    /// system's "cannot open" alert before the fallback quietly succeeded.
+    /// So the link goes first, and the document open survives only as a
+    /// silent (promptsUserIfNeeded=false) last resort for it failing.
+    private func openUnterm(at target: URL?) {
+        var components = URLComponents()
+        components.scheme = "unterm"
+        components.host = "open"
+        if let target = target {
+            components.queryItems = [URLQueryItem(name: "path", value: target.path)]
+        }
+        guard let link = components.url else {
+            trace("deep link build failed for \(target?.path ?? "nil")")
             return
         }
-
-        openUnterm(with: [targetURL])
-    }
-
-    private func openUntermWithoutDocument() {
-        let configuration = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.openApplication(
-            at: containingAppURL(),
-            configuration: configuration,
-            completionHandler: nil
-        )
-    }
-
-    private func openUnterm(with urls: [URL]) {
-        let appURL = containingAppURL()
-        trace("opening \(urls.first?.path ?? "?") with \(appURL.path)")
-        let configuration = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open(
-            urls,
-            withApplicationAt: appURL,
-            configuration: configuration
-        ) { app, error in
-            // The silent path is how "clicked, nothing happened" stays
-            // undiagnosable; the error, if any, is the whole story.
+        trace("opening \(target?.path ?? "(no target)") via \(link.absoluteString)")
+        NSWorkspace.shared.open(link, configuration: NSWorkspace.OpenConfiguration()) { app, error in
             if let error = error {
-                trace("open FAILED: \(error.localizedDescription)")
-                self.openUntermFallback(with: urls)
+                trace("deep link FAILED: \(error.localizedDescription)")
+                if let target = target {
+                    self.openDocumentFallback(target)
+                }
             } else {
-                trace("open ok, app pid=\(app?.processIdentifier ?? -1)")
+                trace("deep link ok, app pid=\(app?.processIdentifier ?? -1)")
             }
         }
     }
 
-    /// On macOS 26 the appex sandbox refuses open-with-application for
-    /// document URLs ("杂项错误"). Two more roads, each attempted only when
-    /// the previous one failed and each leaving its verdict in the trace:
-    /// the older single-file LaunchServices API, then a unterm:// deep link
-    /// the app resolves itself (v0.63.3+ registers the scheme).
-    private func openUntermFallback(with urls: [URL]) {
-        guard let target = urls.first else { return }
-        if NSWorkspace.shared.openFile(target.path, withApplication: "Unterm") {
-            trace("openFile fallback ok for \(target.path)")
-            return
-        }
-        trace("openFile fallback refused for \(target.path)")
-        var components = URLComponents()
-        components.scheme = "unterm"
-        components.host = "open"
-        components.queryItems = [URLQueryItem(name: "path", value: target.path)]
-        guard let link = components.url else {
-            trace("deep link build failed for \(target.path)")
-            return
-        }
-        NSWorkspace.shared.open(link, configuration: NSWorkspace.OpenConfiguration()) { app, error in
+    private func openDocumentFallback(_ target: URL) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.promptsUserIfNeeded = false
+        NSWorkspace.shared.open(
+            [target],
+            withApplicationAt: containingAppURL(),
+            configuration: configuration
+        ) { app, error in
             if let error = error {
-                trace("deep link FAILED: \(error.localizedDescription)")
+                trace("document fallback FAILED: \(error.localizedDescription)")
             } else {
-                trace("deep link ok, app pid=\(app?.processIdentifier ?? -1)")
+                trace("document fallback ok, app pid=\(app?.processIdentifier ?? -1)")
             }
         }
     }
