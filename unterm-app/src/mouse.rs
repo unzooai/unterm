@@ -284,14 +284,13 @@ pub fn ctrl_left_is_secondary(held: Held) -> bool {
 /// Whether a secondary press runs the copy/paste gesture, or belongs to the
 /// program.
 ///
-/// A mouse-aware TUI owns an unmodified secondary click; the user can still
-/// force the terminal's gesture by holding Shift. The exception is a
-/// terminal-side selection: in a reporting pane one can only have been made
-/// with Shift held (plain drags go to the program), so it proves the user is
-/// mid-gesture -- the click's natural completion is the copy, not a byte for
-/// the program.
-pub fn secondary_click_acts(reporting: bool, has_selection: bool) -> bool {
-    !reporting || has_selection
+/// Always the gesture. The product's right-click rule is one motion with no
+/// exceptions: selection copies, no selection pastes, on every platform in
+/// every pane. Deferring to a mouse-reporting TUI here read as "right-click
+/// paste stopped working" the moment an agent was in front — which is most
+/// of the time, and the agents do nothing with the click anyway.
+pub fn secondary_click_acts(_reporting: bool, _has_selection: bool) -> bool {
+    true
 }
 
 #[cfg(test)]
@@ -321,11 +320,9 @@ mod secondary_click_tests {
     }
 
     #[test]
-    fn a_reporting_program_owns_the_click_unless_a_selection_exists() {
+    fn the_gesture_runs_in_every_pane_reporting_or_not() {
         assert!(secondary_click_acts(false, false));
-        assert!(!secondary_click_acts(true, false));
-        // A selection in a reporting pane could only have been made with
-        // Shift held, so the user is mid-gesture: the copy completes it.
+        assert!(secondary_click_acts(true, false));
         assert!(secondary_click_acts(true, true));
     }
 }

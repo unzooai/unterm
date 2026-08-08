@@ -44,10 +44,13 @@ pub fn density(columns: usize) -> Density {
         },
         show_project: columns >= 72,
         show_theme: columns >= 96,
-        // The same tier as the capture chips: a laptop at full screen lands
-        // around 150-180 columns, so anything higher is unreachable there.
+        // A laptop at full screen lands around 150-180 columns, so anything
+        // higher is unreachable there.
         show_telemetry: columns >= 128,
-        show_capture: columns >= 128,
+        // The theme tier, not the telemetry tier: capture is a headline
+        // feature, and at the default ~80-column window it was invisible —
+        // which reads as "screenshots are not implemented", not "resize me".
+        show_capture: columns >= 96,
         show_profile: columns >= 160,
     }
 }
