@@ -58,6 +58,8 @@ final class FinderSyncExtension: FIFinderSync {
         let controller = FIFinderSyncController.default()
         let selected = controller.selectedItemURLs() ?? []
         let url = selected.first ?? controller.targetedURL()
+        NSLog("UntermFinderSync: menu clicked, selected=%d, target=%@",
+              selected.count, url?.path ?? "nil")
 
         guard let targetURL = url else {
             openUntermWithoutDocument()
@@ -77,13 +79,22 @@ final class FinderSyncExtension: FIFinderSync {
     }
 
     private func openUnterm(with urls: [URL]) {
+        let appURL = containingAppURL()
+        NSLog("UntermFinderSync: opening %@ with %@", urls.first?.path ?? "?", appURL.path)
         let configuration = NSWorkspace.OpenConfiguration()
         NSWorkspace.shared.open(
             urls,
-            withApplicationAt: containingAppURL(),
-            configuration: configuration,
-            completionHandler: nil
-        )
+            withApplicationAt: appURL,
+            configuration: configuration
+        ) { app, error in
+            // The silent path is how "clicked, nothing happened" stays
+            // undiagnosable; the error, if any, is the whole story.
+            if let error = error {
+                NSLog("UntermFinderSync: open FAILED: %@", error.localizedDescription)
+            } else {
+                NSLog("UntermFinderSync: open ok, app pid=%d", app?.processIdentifier ?? -1)
+            }
+        }
     }
 
     private func containingAppURL() -> URL {
