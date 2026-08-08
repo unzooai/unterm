@@ -619,6 +619,10 @@ pub struct App {
     pane_select: Option<crate::paneselect::Selector>,
     /// Where the first shell should start, if the command line said.
     start_directory: Option<std::path::PathBuf>,
+    /// True when the launch named a directory or a program, so this window
+    /// must open a fresh shell rather than adopt whatever session a
+    /// populated Core had focused.
+    explicit_launch: bool,
     /// What the previous window looked like, when a plain launch should
     /// bring it back.
     restore: Option<crate::session_restore::LastSession>,
@@ -867,6 +871,7 @@ impl App {
             quick_select: None,
             pane_select: None,
             start_directory: None,
+            explicit_launch: false,
             restore: None,
             clipboard_honoured: None,
             clipboard_tx,
@@ -1111,16 +1116,26 @@ impl App {
         // show those, not stack a fresh shell on top of them. In Local
         // mode the engine was born with this process and the list is
         // empty, so this is the create path it always was.
-        let adopted = unterm_engine::SessionEngine::list_sessions(&self.engine)
-            .ok()
-            .and_then(|sessions| {
-                let live: Vec<_> = sessions
-                    .into_iter()
-                    .filter(|session| !session.is_dead)
-                    .collect();
-                let focused = live.iter().find(|session| session.is_active).cloned();
-                focused.or_else(|| live.into_iter().next())
-            });
+        //
+        // Unless this window was asked for something specific: `start
+        // --cwd` (Finder's "New Unterm Window Here", the in-app New
+        // Window command) or an explicit program. Adopting the focused
+        // old session then means a window at the wrong directory — the
+        // ask names a fresh shell, not a view of what was already there.
+        let adopted = if self.explicit_launch {
+            None
+        } else {
+            unterm_engine::SessionEngine::list_sessions(&self.engine)
+                .ok()
+                .and_then(|sessions| {
+                    let live: Vec<_> = sessions
+                        .into_iter()
+                        .filter(|session| !session.is_dead)
+                        .collect();
+                    let focused = live.iter().find(|session| session.is_active).cloned();
+                    focused.or_else(|| live.into_iter().next())
+                })
+        };
         let session = match adopted {
             Some(existing) => {
                 // This window's grid decides the size, not the one the
@@ -4431,6 +4446,9 @@ impl App {
 
     /// Where the first shell starts, as the command line asked.
     pub fn set_start_directory(&mut self, directory: Option<std::path::PathBuf>) {
+        if directory.is_some() {
+            self.explicit_launch = true;
+        }
         self.start_directory = directory;
     }
 
@@ -4446,6 +4464,7 @@ impl App {
         let Some(program) = argv.first() else {
             return;
         };
+        self.explicit_launch = true;
         let mut command = portable_pty::CommandBuilder::new(program);
         command.args(argv.iter().skip(1));
         self.shell = Some(command);
