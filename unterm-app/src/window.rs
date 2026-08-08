@@ -9543,6 +9543,14 @@ impl ApplicationHandler for App {
                     ElementState::Pressed => engine_button,
                     ElementState::Released => None,
                 };
+                // Ended here, before any branch can consume the event: a
+                // release that a mouse-reporting program swallowed used to
+                // leave the drag armed, and every later cursor move kept
+                // reordering the strip with no button held at all.
+                if state == ElementState::Released && self.dragging_tab.is_some() {
+                    self.dragging_tab = None;
+                    return;
+                }
                 let kind = match state {
                     ElementState::Pressed => MouseEventKind::Press,
                     ElementState::Released => MouseEventKind::Release,
@@ -9734,10 +9742,6 @@ impl ApplicationHandler for App {
                 }
                 if state == ElementState::Released && self.dragging_sidebar_width {
                     self.dragging_sidebar_width = false;
-                    return;
-                }
-                if state == ElementState::Released && self.dragging_tab.is_some() {
-                    self.dragging_tab = None;
                     return;
                 }
                 if state == ElementState::Pressed && self.pointer_on_scrollbar() {
