@@ -4072,6 +4072,7 @@ impl App {
     /// key is aimed at. When it was the last one the tab goes with it, which
     /// is what makes this safe to reach for.
     fn close_pane(&mut self, session_id: usize) {
+        let _slow = SlowGuard::new("close_pane");
         let Some(tab_id) = self.tabs.tab_of_pane(session_id) else {
             return;
         };
@@ -5830,6 +5831,7 @@ impl App {
     }
 
     fn perform_close(&mut self) {
+        let _slow = SlowGuard::new("perform_close");
         self.save_last_session();
         if let Some(live) = self.state.as_ref() {
             live.window.set_visible(false);
@@ -7225,6 +7227,7 @@ impl App {
     /// The last tab is not closable: a window with no tab has nothing to show
     /// and no way back, so closing the window is the user's own decision.
     fn close_tab(&mut self) {
+        let _slow = SlowGuard::new("close_tab");
         let ids = self.tabs.tab_ids();
         if ids.len() < 2 {
             return;
@@ -9028,6 +9031,7 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::CloseRequested => {
+                let _slow = SlowGuard::new("close_requested");
                 // A running program earns one confirmation before its window
                 // is taken away; 0.57.4 asked, and a stray click on the cross
                 // killing an agent mid-task is not a smaller accident now.
@@ -9927,9 +9931,18 @@ impl ApplicationHandler for App {
         }
         crate::stallwatch::beat();
         // An input-source switch mid-composition strands marked text that
-        // eats editing keys; clear the ghost the moment the switch lands.
+        // eats editing keys. But the pinyin IME announces a "switch" for
+        // its own internal mode flips too -- half-width punctuation, caps
+        // -- in the middle of a perfectly live composition, and killing
+        // that one commits its fragments as garbage. Same rule as the key
+        // path: only a composition whose IME has gone silent is a ghost.
         #[cfg(target_os = "macos")]
-        if crate::ime_watch::input_source_changed() && !self.preedit.is_empty() {
+        if crate::ime_watch::input_source_changed()
+            && !self.preedit.is_empty()
+            && self
+                .last_ime_event
+                .map_or(true, |at| at.elapsed() > std::time::Duration::from_secs(2))
+        {
             self.clear_orphan_preedit();
         }
         // What macOS asked us to open -- Finder's right-click, a folder on
@@ -9994,6 +10007,22 @@ fn shell_quoted_path(path: &str) -> String {
         format!("\"{path}\"")
     } else {
         format!("'{}'", path.replace('\'', "'\\''"))
+    }
+}
+
+/// Times a close-path suspect and reports it if it held the GUI thread.
+struct SlowGuard {
+    what: &'static str,
+    since: std::time::Instant,
+}
+impl SlowGuard {
+    fn new(what: &'static str) -> Self {
+        Self { what, since: std::time::Instant::now() }
+    }
+}
+impl Drop for SlowGuard {
+    fn drop(&mut self) {
+        crate::stallwatch::note_if_slow(self.what, self.since, 300);
     }
 }
 
