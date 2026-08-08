@@ -2256,13 +2256,24 @@ impl App {
 
         // Follow the pane. A tree still rooted where the shell used to be is
         // a tree of somewhere else, and nothing on screen says so.
+        //
+        // Not while the pointer is over the tree, though: an agent in the
+        // pane changes directory as it works, and a follow mid-aim rebuilds
+        // the rows under the click — the reader picks a row and gets
+        // whatever moved into its place. The follow resumes when they leave.
+        let pointer_inside = self.pointer.0 >= left
+            && self.pointer.0 < left + width
+            && self.pointer.1 >= top
+            && self.pointer.1 < top + height;
         let here = self.current_directory();
         let rows = {
             let Some(tree) = self.tree.as_mut() else {
                 return;
             };
             if let Some(here) = here {
-                tree.follow_root(here);
+                if !pointer_inside {
+                    tree.follow_root(here);
+                }
             }
             tree.refresh();
             // Never scrolled past the end: a tree showing nothing looks like a
@@ -2275,6 +2286,7 @@ impl App {
                 .map(|row| (row.text(crate::tree::COLUMNS), row.is_hidden, row.is_dir))
                 .collect::<Vec<_>>()
         };
+        let scroll = self.tree.as_ref().map(|tree| tree.scroll).unwrap_or(0);
 
         quads.backgrounds.push(unterm_render::quads::Quad {
             left,
@@ -2292,6 +2304,21 @@ impl App {
             height,
             color: chrome.outer_edge,
         });
+
+        // The row the pointer is on lifts like the tab strip's do. In rows
+        // one cell tall, this is the difference between clicking a name and
+        // guessing one.
+        if let Some(at) = self.tree_row_at(self.pointer.0, self.pointer.1) {
+            if at >= scroll && at - scroll < rows.len() {
+                quads.backgrounds.push(unterm_render::quads::Quad {
+                    left,
+                    top: top + (at - scroll) as f32 * metrics.height,
+                    width: width - 1.0,
+                    height: metrics.height,
+                    color: chrome.hover_bg,
+                });
+            }
+        }
 
         for (index, (text, hidden, is_dir)) in rows.iter().enumerate() {
             let color = if *hidden {
@@ -9591,17 +9618,16 @@ impl ApplicationHandler for App {
                 if state == ElementState::Pressed && button == MouseButton::Left {
                     // A "clicked the tab and nothing happened" report needs
                     // this press's whole story: where it was, which row that
-                    // resolved to, and which branch ate it.
+                    // resolved to, and which branch ate it. Strip presses
+                    // only — a terminal full of clicks has nothing to say
+                    // here and would drown the log saying it.
                     let row = self.sidebar_row_at(self.pointer.0, self.pointer.1);
-                    crate::macos_open::trace(&format!(
-                        "press at ({:.0},{:.0}) sidebar_open={} secondary={} ctrl={} row={:?}",
-                        self.pointer.0,
-                        self.pointer.1,
-                        self.sidebar_open,
-                        secondary,
-                        self.ctrl_held,
-                        row,
-                    ));
+                    if row.is_some() {
+                        crate::macos_open::trace(&format!(
+                            "press at ({:.0},{:.0}) secondary={} ctrl={} row={:?}",
+                            self.pointer.0, self.pointer.1, secondary, self.ctrl_held, row,
+                        ));
+                    }
                 }
                 if self.sidebar_open
                     && state == ElementState::Pressed
