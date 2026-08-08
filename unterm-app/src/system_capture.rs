@@ -207,18 +207,57 @@ pub fn capture_selected_region(hide_window: bool) -> anyhow::Result<std::path::P
         );
     }
 
-    // Copy to clipboard so the user can paste it elsewhere (parity with Win path).
-    let _ = std::process::Command::new("osascript")
-        .args([
-            "-e",
-            &format!(
-                "set the clipboard to (read (POSIX file \"{}\") as «class PNGf»)",
-                output_path.display()
-            ),
-        ])
-        .status();
+    // Both flavours on one pasteboard: the PNG for image apps, the file's
+    // path as text for everything else. The AppleScript this replaces wrote
+    // the image ALONE, which left the text flavour empty — and a right-click
+    // paste in the terminal, which reads text, went from working to silently
+    // doing nothing the moment a screenshot was taken.
+    if let Err(err) = clipboard_image_and_path(&output_path) {
+        log::warn!("could not put the capture on the clipboard: {err:#}");
+    }
 
     Ok(output_path)
+}
+
+/// PNG data and its path, together, via NSPasteboard.
+#[cfg(target_os = "macos")]
+fn clipboard_image_and_path(path: &std::path::Path) -> anyhow::Result<()> {
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    let bytes = std::fs::read(path)?;
+    let text = path.display().to_string();
+    // SAFETY: AppKit classes, main-thread-safe pasteboard calls, and every
+    // object handed over is retained by the pasteboard before we return.
+    unsafe {
+        let pasteboard: *mut AnyObject = msg_send![class!(NSPasteboard), generalPasteboard];
+        let _: isize = msg_send![pasteboard, clearContents];
+        let data: *mut AnyObject = msg_send![
+            class!(NSData),
+            dataWithBytes: bytes.as_ptr() as *const std::ffi::c_void,
+            length: bytes.len()
+        ];
+        let png_type = ns_string("public.png")?;
+        let string_type = ns_string("public.utf8-plain-text")?;
+        let ok_image: bool = msg_send![pasteboard, setData: data, forType: png_type];
+        let ns_text = ns_string(&text)?;
+        let ok_text: bool = msg_send![pasteboard, setString: ns_text, forType: string_type];
+        if !ok_image || !ok_text {
+            anyhow::bail!("pasteboard refused the capture (image {ok_image}, text {ok_text})");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn ns_string(text: &str) -> anyhow::Result<*mut objc2::runtime::AnyObject> {
+    use objc2::{class, msg_send};
+    let cstr = std::ffi::CString::new(text)?;
+    let object: *mut objc2::runtime::AnyObject =
+        msg_send![class!(NSString), stringWithUTF8String: cstr.as_ptr()];
+    if object.is_null() {
+        anyhow::bail!("NSString refused {text:?}");
+    }
+    Ok(object)
 }
 
 /// Linux region screenshot. Probes available tools in order and uses the first
