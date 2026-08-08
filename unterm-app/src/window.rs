@@ -623,6 +623,10 @@ pub struct App {
     /// must open a fresh shell rather than adopt whatever session a
     /// populated Core had focused.
     explicit_launch: bool,
+    /// The Core-wide active session this window last saw, so `sync_tabs`
+    /// follows a CHANGE of it (an Inbox jump aimed here) and not its mere
+    /// existence (every click in every other window on the same Core).
+    followed_active: Option<usize>,
     /// What the previous window looked like, when a plain launch should
     /// bring it back.
     restore: Option<crate::session_restore::LastSession>,
@@ -872,6 +876,7 @@ impl App {
             pane_select: None,
             start_directory: None,
             explicit_launch: false,
+            followed_active: None,
             restore: None,
             clipboard_honoured: None,
             clipboard_tx,
@@ -7444,13 +7449,27 @@ impl App {
         // MCP `session.focus` updates the engine from another thread. Mirror
         // that choice into this front end's tab/layout registry so a peer
         // Inbox jump brings the requested pane into view, not only its window.
+        //
+        // Mirror it edge-triggered and only into the window the user is in:
+        // several windows share one Core, and every tab click anywhere
+        // asserts the global active session. A window that levels itself to
+        // that value re-follows every click made in every OTHER window, and
+        // with two windows open the sidebars visibly chase each other. A
+        // CHANGE in the global choice reaches the focused window (that is
+        // the Inbox jump); the rest keep their own selection.
         if let Some(requested) = sessions
             .iter()
             .find(|session| session.is_active)
             .map(|session| session.id)
         {
+            let externally_changed = self.followed_active != Some(requested);
+            self.followed_active = Some(requested);
             let shown = self.state.as_ref().map(|live| live.session_id);
-            if shown != Some(requested) && self.tabs.tab_of_pane(requested).is_some() {
+            if externally_changed
+                && self.focused
+                && shown != Some(requested)
+                && self.tabs.tab_of_pane(requested).is_some()
+            {
                 self.focus_session(requested);
             }
         }
