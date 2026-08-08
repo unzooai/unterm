@@ -31,19 +31,37 @@ final class FinderSyncExtension: FIFinderSync {
         // a catch-all but macOS 26 (Tahoe) silently stopped honouring it —
         // the extension loaded, the process spawned, but `menu(for:)` was
         // never called, so the right-click menu never appeared anywhere.
-        // Listing common roots explicitly works on Tahoe; subfolders are
-        // inherited automatically (right-click in ~/Desktop/foo/bar still
-        // fires because ~/Desktop is under NSHomeDirectory()).
-        let roots: Set<URL> = [
-            URL(fileURLWithPath: NSHomeDirectory()),
-            URL(fileURLWithPath: "/Volumes"),
+        // Watching "/Volumes" turned out to be the same trap one level down:
+        // observation never crosses into a mounted volume, so a window on a
+        // second disk got no menu while the home folder did. Every mounted
+        // volume gets watched by its own root, refreshed as disks come and go.
+        refreshRoots(reason: "init")
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            center.addObserver(
+                forName: name, object: nil, queue: nil
+            ) { [weak self] _ in
+                self?.refreshRoots(reason: "volumes changed")
+            }
+        }
+    }
+
+    private func refreshRoots(reason: String) {
+        var roots: Set<URL> = [
             URL(fileURLWithPath: "/Users"),
             URL(fileURLWithPath: "/Applications"),
             URL(fileURLWithPath: "/private/tmp"),
             URL(fileURLWithPath: "/tmp"),
         ]
+        let mounted = FileManager.default.mountedVolumeURLs(
+            includingResourceValuesForKeys: nil,
+            options: [.skipHiddenVolumes]
+        ) ?? []
+        // "/" stays out: Tahoe ignores it, and listing it would only hide
+        // the volumes that actually need their own entry.
+        roots.formUnion(mounted.filter { $0.path != "/" })
         FIFinderSyncController.default().directoryURLs = roots
-        trace("extension init, watching \(roots.count) roots")
+        trace("watching \(roots.count) roots (\(reason)): \(roots.map(\.path).sorted().joined(separator: ", "))")
     }
 
     // Whether these ever fire tells us if Finder considers the browsed
