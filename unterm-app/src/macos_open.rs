@@ -31,6 +31,20 @@ extern "C" fn open_urls(_this: *mut AnyObject, _cmd: Sel, _app: *mut AnyObject, 
             let url: *mut AnyObject = msg_send![urls, objectAtIndex: index];
             let is_file: bool = msg_send![url, isFileURL];
             if !is_file {
+                // The Finder Sync extension cannot launch us with file URLs —
+                // its sandbox refuses NSWorkspace's open-with-application —
+                // so it deep-links instead: unterm://open?path=<encoded>.
+                let absolute: *mut AnyObject = msg_send![url, absoluteString];
+                if !absolute.is_null() {
+                    let utf8: *const std::os::raw::c_char = msg_send![absolute, UTF8String];
+                    if !utf8.is_null() {
+                        let text =
+                            std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned();
+                        if let Some(path) = scheme_path(&text) {
+                            pending.push(PathBuf::from(path));
+                        }
+                    }
+                }
                 continue;
             }
             let path: *mut AnyObject = msg_send![url, path];
@@ -45,6 +59,40 @@ extern "C" fn open_urls(_this: *mut AnyObject, _cmd: Sel, _app: *mut AnyObject, 
             pending.push(PathBuf::from(text));
         }
     }
+}
+
+/// The folder a `unterm://open?path=<percent-encoded>` deep link points at.
+fn scheme_path(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("unterm://")?;
+    let query = rest.split_once('?')?.1;
+    let value = query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("path="))?;
+    let decoded = percent_decode(value);
+    if decoded.is_empty() {
+        return None;
+    }
+    Some(decoded)
+}
+
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if let Some(hex) = bytes.get(i + 1..i + 3) {
+                if let Ok(byte) = u8::from_str_radix(&String::from_utf8_lossy(hex), 16) {
+                    out.push(byte);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Teach the running application delegate to take openURLs. Call once, on
@@ -82,6 +130,36 @@ pub fn install() {
         // makes AppKit look again.
         let () = msg_send![app, setDelegate: std::ptr::null_mut::<AnyObject>()];
         let () = msg_send![app, setDelegate: delegate];
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{percent_decode, scheme_path};
+
+    #[test]
+    fn deep_link_yields_its_path() {
+        assert_eq!(
+            scheme_path("unterm://open?path=/Users/alexlee").as_deref(),
+            Some("/Users/alexlee")
+        );
+        assert_eq!(
+            scheme_path("unterm://open?path=%2FUsers%2Falex%20lee%2F%E6%A1%8C%E9%9D%A2").as_deref(),
+            Some("/Users/alex lee/桌面")
+        );
+        assert_eq!(
+            scheme_path("unterm://open?other=1&path=%2Ftmp").as_deref(),
+            Some("/tmp")
+        );
+    }
+
+    #[test]
+    fn junk_is_refused_not_misread() {
+        assert_eq!(scheme_path("https://example.com?path=/tmp"), None);
+        assert_eq!(scheme_path("unterm://open"), None);
+        assert_eq!(scheme_path("unterm://open?path="), None);
+        // A malformed escape decays to its literal bytes instead of panicking.
+        assert_eq!(percent_decode("%zz%2F"), "%zz/");
     }
 }
 
