@@ -84,8 +84,76 @@ pub(super) fn prepare_command(
     for (key, value) in env {
         command.env(key, value);
     }
+    ensure_locale_env(&mut command);
     let cwd = command_cwd(&command, None);
     (command, cwd)
+}
+
+/// A GUI launched by Finder/launchd inherits no locale at all, so the
+/// shell starts in the C locale and its line editor treats every
+/// 0x80–0x9F UTF-8 continuation byte as a C1 control — CJK input
+/// renders as `�<009c>` garbage even though the PTY bytes are intact.
+/// Terminal.app, iTerm2 and Ghostty all synthesize a UTF-8 `LANG` for
+/// exactly this reason. Anything already present — inherited from a
+/// shell launch, or passed explicitly — wins.
+#[cfg(unix)]
+fn ensure_locale_env(command: &mut portable_pty::CommandBuilder) {
+    let present = |key: &str| {
+        command
+            .get_env(key)
+            .map_or(false, |value| !value.is_empty())
+    };
+    if present("LC_ALL") || present("LC_CTYPE") || present("LANG") {
+        return;
+    }
+    command.env("LANG", default_utf8_lang());
+}
+
+#[cfg(not(unix))]
+fn ensure_locale_env(_command: &mut portable_pty::CommandBuilder) {}
+
+#[cfg(unix)]
+fn default_utf8_lang() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        static LANG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        return LANG
+            .get_or_init(|| {
+                apple_locale_utf8().unwrap_or_else(|| "en_US.UTF-8".to_string())
+            })
+            .clone();
+    }
+    #[cfg(not(target_os = "macos"))]
+    "C.UTF-8".to_string()
+}
+
+/// The user's region from macOS preferences, as a locale name the OS
+/// actually ships (`zh_CN` → `zh_CN.UTF-8`). `None` when the answer
+/// would not be a real locale — an invalid `LANG` is worse than none.
+#[cfg(target_os = "macos")]
+fn apple_locale_utf8() -> Option<String> {
+    let output = std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleLocale"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let candidate = utf8_locale_candidate(std::str::from_utf8(&output.stdout).ok()?)?;
+    std::path::Path::new("/usr/share/locale")
+        .join(&candidate)
+        .exists()
+        .then_some(candidate)
+}
+
+/// `zh_CN` / `en_GB@rg=uszz` → `zh_CN.UTF-8` / `en_GB.UTF-8`.
+#[cfg(target_os = "macos")]
+fn utf8_locale_candidate(raw: &str) -> Option<String> {
+    let base = raw.trim().split('@').next()?.trim();
+    if base.is_empty() || !base.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    Some(format!("{base}.UTF-8"))
 }
 
 fn complete_launch_policy_decisions(policy: &mut LaunchPolicySnapshot) {
@@ -221,6 +289,54 @@ mod tests {
                 .and_then(|value| value.to_str()),
             Some("http://127.0.0.1:7890")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_locale_free_launch_gets_a_utf8_lang() {
+        let mut command = portable_pty::CommandBuilder::new_default_prog();
+        command.env_remove("LC_ALL");
+        command.env_remove("LC_CTYPE");
+        command.env_remove("LANG");
+        ensure_locale_env(&mut command);
+        let lang = command
+            .get_env("LANG")
+            .and_then(|value| value.to_str())
+            .expect("LANG synthesized");
+        assert!(lang.contains("UTF-8"), "got {:?}", lang);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_locale_is_left_alone() {
+        let mut command = portable_pty::CommandBuilder::new_default_prog();
+        command.env_remove("LC_ALL");
+        command.env_remove("LANG");
+        command.env("LC_CTYPE", "ja_JP.eucJP");
+        ensure_locale_env(&mut command);
+        assert_eq!(
+            command.get_env("LANG").and_then(|value| value.to_str()),
+            None
+        );
+        assert_eq!(
+            command.get_env("LC_CTYPE").and_then(|value| value.to_str()),
+            Some("ja_JP.eucJP")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn apple_locale_normalizes_to_a_utf8_name() {
+        assert_eq!(
+            utf8_locale_candidate("zh_CN").as_deref(),
+            Some("zh_CN.UTF-8")
+        );
+        assert_eq!(
+            utf8_locale_candidate("en_GB@rg=uszz\n").as_deref(),
+            Some("en_GB.UTF-8")
+        );
+        assert_eq!(utf8_locale_candidate(""), None);
+        assert_eq!(utf8_locale_candidate("../evil"), None);
     }
 
     #[test]
