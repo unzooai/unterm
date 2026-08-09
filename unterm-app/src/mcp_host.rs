@@ -113,7 +113,15 @@ impl McpHost for AppMcpHost {
     /// it or it times out -- which is what an unanswered question must
     /// do, or an agent would write before anyone had said yes.
     fn ask_confirmation(&self, request: &Value) -> Result<Value> {
-        match unterm_mcp::handler::prompt_locally(request) {
+        // The banner is painted by the frame loop, and a resting window
+        // schedules no frames: the question sat registered but invisible
+        // for its whole timeout, and every agent write died "unanswered"
+        // with nothing on screen to answer. Ask for the frame that shows
+        // it, and for the one that clears it.
+        request_repaint();
+        let outcome = unterm_mcp::handler::prompt_locally(request);
+        request_repaint();
+        match outcome {
             Some(decision) => Ok(json!(decision.to_wire())),
             None => anyhow::bail!("the confirmation went unanswered"),
         }
