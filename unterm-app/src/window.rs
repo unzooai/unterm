@@ -9278,6 +9278,17 @@ impl ApplicationHandler for App {
                 {
                     self.clear_orphan_preedit();
                 }
+                // A composition that is still alive owns its keystrokes
+                // outright. winit hands over the same presses the input
+                // method is composing with, and forwarding them typed the
+                // pinyin under the hanzi it was about to become: the shell
+                // received "fangjianli" AND the 房间里 the user meant, and
+                // zle's column accounting never recovered. The orphan sweep
+                // above has already run, so a dead preedit cannot wedge
+                // this gate shut.
+                if !self.preedit.is_empty() {
+                    return;
+                }
 
                 use winit::keyboard::Key;
 
