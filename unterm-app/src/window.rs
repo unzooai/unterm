@@ -660,6 +660,9 @@ pub struct App {
     /// follows a CHANGE of it (an Inbox jump aimed here) and not its mere
     /// existence (every click in every other window on the same Core).
     followed_active: Option<usize>,
+    /// Whether the compositor says nobody can see this window. Painting an
+    /// occluded window blocks on drawables that never come.
+    occluded: bool,
     /// What the previous window looked like, when a plain launch should
     /// bring it back.
     restore: Option<crate::session_restore::LastSession>,
@@ -910,6 +913,7 @@ impl App {
             start_directory: None,
             explicit_launch: false,
             followed_active: None,
+            occluded: false,
             restore: None,
             clipboard_honoured: None,
             clipboard_tx,
@@ -1235,6 +1239,13 @@ impl App {
         if self.state.is_none() {
             return;
         }
+        // An occluded window gets no drawables: every acquire blocks its
+        // full timeout, and a loop of those reads as the whole terminal
+        // frozen (2026-08-09, thirty-second "stalls" at 70% CPU). Nothing
+        // needs painting where nothing is shown.
+        if self.occluded {
+            return;
+        }
         let placements = self.placements();
         let dividers = self.divider_quads();
         let Some(window_width) = self.state.as_ref().map(|live| live.width as f32) else {
@@ -1385,8 +1396,22 @@ impl App {
             live.atlas_uploaded_glyphs = self.atlas.len();
         }
 
+        let acquire_started = std::time::Instant::now();
         let frame = match live.surface.get_current_texture() {
             Ok(frame) => frame,
+            // A timeout means the compositor is not taking frames — an
+            // occluded or closing window. The acquire already blocked for
+            // a second; reconfiguring and asking again blocks a second
+            // more, every frame, which is the "clicking close froze the
+            // terminal" hang. The frame is skipped, full stop.
+            Err(wgpu::SurfaceError::Timeout) => {
+                crate::stallwatch::note_if_slow(
+                    "swapchain acquire (timed out)",
+                    acquire_started,
+                    0,
+                );
+                return;
+            }
             // A lost or outdated swapchain (resize race, display sleep,
             // driver reset) heals with one reconfigure. A second failure is
             // this frame given up, not the process.
@@ -9064,6 +9089,18 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         match event {
+            WindowEvent::Occluded(occluded) => {
+                self.occluded = occluded;
+                if !occluded {
+                    // Visible again: whatever changed while hidden gets one
+                    // one frame now rather than at the next input.
+                    self.drawn_revision = None;
+                    if let Some(live) = self.state.as_ref() {
+                        live.window.request_redraw();
+                    }
+                }
+            }
+
             WindowEvent::Focused(focused) => {
                 self.focused = focused;
                 // Anything that turned on focus reporting is told. vim redraws
