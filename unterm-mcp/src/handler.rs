@@ -6361,11 +6361,14 @@ impl McpHandler {
     /// anyone with the token can write to a pane anyway, so trust
     /// management isn't a stronger capability.
     fn agent_trust(&self, params: &Value) -> Result<Value> {
+        // The documented parameter is `agent` (and it's what the CLI
+        // sends); `name` is kept for callers of the original shape.
         let name = params
-            .get("name")
+            .get("agent")
+            .or_else(|| params.get("name"))
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| anyhow!("Missing or empty 'name'"))?;
+            .ok_or_else(|| anyhow!("Missing or empty 'agent'"))?;
         let added = grant_trust(name);
         Ok(json!({ "ok": true, "name": name, "added": added }))
     }
@@ -6377,10 +6380,11 @@ impl McpHandler {
     /// for that — surfaced in the Web Settings panel UI).
     fn agent_untrust(&self, params: &Value) -> Result<Value> {
         let name = params
-            .get("name")
+            .get("agent")
+            .or_else(|| params.get("name"))
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| anyhow!("Missing or empty 'name'"))?;
+            .ok_or_else(|| anyhow!("Missing or empty 'agent'"))?;
         let was = revoke_trust(name);
         Ok(json!({ "ok": true, "name": name, "removed": was }))
     }
