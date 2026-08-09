@@ -84,6 +84,7 @@ pub(super) fn prepare_command(
     for (key, value) in env {
         command.env(key, value);
     }
+    #[cfg(unix)]
     ensure_locale_env(&mut command);
     let cwd = command_cwd(&command, None);
     (command, cwd)
@@ -98,47 +99,27 @@ pub(super) fn prepare_command(
 /// shell launch, or passed explicitly — wins.
 #[cfg(unix)]
 fn ensure_locale_env(command: &mut portable_pty::CommandBuilder) {
-    let present = |key: &str| {
-        command
-            .get_env(key)
-            .map_or(false, |value| !value.is_empty())
-    };
+    let present = |key: &str| command.get_env(key).map_or(false, |value| !value.is_empty());
     if present("LC_ALL") || present("LC_CTYPE") || present("LANG") {
         return;
     }
-    command.env("LANG", default_utf8_lang());
-}
-
-#[cfg(not(unix))]
-fn ensure_locale_env(_command: &mut portable_pty::CommandBuilder) {}
-
-#[cfg(unix)]
-fn default_utf8_lang() -> String {
     #[cfg(target_os = "macos")]
-    {
-        static LANG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-        return LANG
-            .get_or_init(|| {
-                apple_locale_utf8().unwrap_or_else(|| "en_US.UTF-8".to_string())
-            })
-            .clone();
-    }
+    let lang = apple_locale_utf8().unwrap_or_else(|| "en_US.UTF-8".to_string());
     #[cfg(not(target_os = "macos"))]
-    "C.UTF-8".to_string()
+    let lang = "C.UTF-8".to_string();
+    command.env("LANG", lang);
 }
 
 /// The user's region from macOS preferences, as a locale name the OS
-/// actually ships (`zh_CN` → `zh_CN.UTF-8`). `None` when the answer
-/// would not be a real locale — an invalid `LANG` is worse than none.
+/// actually ships (`zh_CN` → `zh_CN.UTF-8`) — an invalid `LANG` is
+/// worse than none.
 #[cfg(target_os = "macos")]
 fn apple_locale_utf8() -> Option<String> {
     let output = std::process::Command::new("defaults")
         .args(["read", "-g", "AppleLocale"])
         .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
+        .ok()
+        .filter(|output| output.status.success())?;
     let candidate = utf8_locale_candidate(std::str::from_utf8(&output.stdout).ok()?)?;
     std::path::Path::new("/usr/share/locale")
         .join(&candidate)
@@ -150,10 +131,8 @@ fn apple_locale_utf8() -> Option<String> {
 #[cfg(target_os = "macos")]
 fn utf8_locale_candidate(raw: &str) -> Option<String> {
     let base = raw.trim().split('@').next()?.trim();
-    if base.is_empty() || !base.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return None;
-    }
-    Some(format!("{base}.UTF-8"))
+    let clean = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    (!base.is_empty() && base.chars().all(clean)).then(|| format!("{base}.UTF-8"))
 }
 
 fn complete_launch_policy_decisions(policy: &mut LaunchPolicySnapshot) {

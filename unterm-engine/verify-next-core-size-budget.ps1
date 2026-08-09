@@ -12,7 +12,12 @@ param(
     # smoothing curve, and search gained its mode plumbing -- capability,
     # not sprawl. The regex crate that tried to ride along was evicted to
     # the front end the same day; dependencies stay at ten.
-    [int]$MaxCoreSourceLines = 12800,
+    # 12800 -> 12950 (2026-08-10): launch gained locale synthesis --
+    # a Finder-launched GUI inherits no LANG, the shell fell into the C
+    # locale, and zle shredded every CJK character with a 0x80-0x9F
+    # continuation byte. Measured 12847 after trimming the fix to its
+    # essentials; recalibrated to measured plus the usual headroom.
+    [int]$MaxCoreSourceLines = 12950,
     [int]$MaxProbeSourceLines = 2500,
     [int]$MaxDirectDependencies = 10,
     # A debug binary carries its debug info, so this tracks the toolchain and
