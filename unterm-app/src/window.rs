@@ -499,6 +499,29 @@ fn configured_color(config: &config::Config, key: &str) -> Option<[f32; 4]> {
     ])
 }
 
+/// An image somebody left on the clipboard, made pasteable: written to the
+/// captures folder so the paste can be its path. The terminal form of "paste
+/// a picture" is a filename an agent can read.
+fn clipboard_image_to_file(picture: &arboard::ImageData) -> anyhow::Result<String> {
+    let dir = unterm_protocol::state_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(".").join(".unterm"))
+        .join("captures");
+    std::fs::create_dir_all(&dir)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|at| at.as_millis())
+        .unwrap_or(0);
+    let path = dir.join(format!("clipboard-{stamp}.png"));
+    let image = image::RgbaImage::from_raw(
+        picture.width as u32,
+        picture.height as u32,
+        picture.bytes.clone().into_owned(),
+    )
+    .ok_or_else(|| anyhow::anyhow!("the clipboard image does not match its stated size"))?;
+    image.save_with_format(&path, image::ImageFormat::Png)?;
+    Ok(path.display().to_string())
+}
+
 /// A held sidebar row, from press until release. `engaged` stays false
 /// until the pointer has moved past the click-jitter slack — only then do
 /// cursor moves start carrying the tab through the strip.
@@ -4249,8 +4272,21 @@ impl App {
         let tx = self.clipboard_tx.clone();
         crate::clipboard::run(tx, move || {
             let result = arboard::Clipboard::new()
-                .and_then(|mut board| board.get_text())
-                .map_err(|err| err.to_string());
+                .map_err(|err| err.to_string())
+                .and_then(|mut board| match board.get_text() {
+                    Ok(text) if !text.is_empty() => Ok(text),
+                    // No text — a system screenshot or a browser's "copy
+                    // image" leaves an image alone on the clipboard, and a
+                    // paste that silently does nothing reads as broken. In
+                    // a terminal the useful form of an image is a path to
+                    // it, so it becomes a file in the captures folder.
+                    _ => match board.get_image() {
+                        Ok(picture) => clipboard_image_to_file(&picture)
+                            .map(|path| format!("{} ", shell_quoted_path(&path)))
+                            .map_err(|err| err.to_string()),
+                        Err(err) => Err(err.to_string()),
+                    },
+                });
             ClipboardResult::Read {
                 pane_id: session_id,
                 result,
