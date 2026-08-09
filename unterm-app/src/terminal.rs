@@ -538,16 +538,28 @@ impl TerminalFont {
         };
 
         let target = self.metrics.width * span.max(1) as f32;
-        // Natural size, shrink-only: ink decides everything.
-        let mut scale = 1.0f32;
-        // And never overflow the cell box: the ink itself has to stay inside
-        // `span` columns and one row, which can pull the scale below 1.0 for
-        // a glyph that was already too big.
+        // A single-cell fallback glyph keeps its natural size, shrink-only:
+        // a symbol or icon blown up to fill its cell stops matching the
+        // text beside it. A double-width glyph is different: "natural size
+        // with a little air" assumed two cells are about 1.2 ems, but with
+        // this grid's aspect they are nearer 1.4 — a hanzi at its em filled
+        // 70% of its slot and a pasted sentence read as tracked-out,
+        // "而 呢 吗" for 而呢吗. Wide glyphs therefore grow toward their
+        // span — stopped a touch short of it, and always inside the row's
+        // height, which is what kept enlargement from towering over the
+        // latin beside it the last time it was tried unchecked.
+        let (ceiling, width_room, height_room) = if span >= 2 {
+            (4.0f32, 0.94, 0.95)
+        } else {
+            // Byte-identical to what single-cell fallbacks always got.
+            (1.0, 1.0, 1.0)
+        };
+        let mut scale = ceiling;
         if ink_width > 0 {
-            scale = scale.min(target / ink_width as f32);
+            scale = scale.min(target * width_room / ink_width as f32);
         }
         if ink_height > 0 {
-            scale = scale.min(self.metrics.height / ink_height as f32);
+            scale = scale.min(self.metrics.height * height_room / ink_height as f32);
         }
         let scale = scale.max(MIN_FIT_SCALE);
 
@@ -1818,8 +1830,9 @@ mod fallback_fit_tests {
             .max_by(|a, b| a.quad.width.total_cmp(&b.quad.width))
             .expect("the hanzi should draw");
         assert!(
-            glyph.quad.width > 1.1 * metrics.width,
-            "a fallback hanzi is wider than one cell at its natural size: ink {} in {}-wide cells",
+            glyph.quad.width > 1.3 * metrics.width,
+            "a fallback hanzi has to fill most of its two cells, or a pasted \
+             sentence reads as tracked-out: ink {} in {}-wide cells",
             glyph.quad.width,
             metrics.width
         );
