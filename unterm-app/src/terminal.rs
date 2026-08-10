@@ -859,8 +859,21 @@ fn push_cursor(
         return None;
     }
 
-    let left = origin.0 + cursor.x as f32 * metrics.width;
+    // A wide character owns two columns and its cursor must own both: a
+    // one-cell block on a hanzi reads as a cursor wedged against half the
+    // glyph. A cursor reported on the continuation cell snaps back to the
+    // lead so the block covers the character rather than its tail.
+    let mut x = cursor.x;
+    let mut cells_wide = 1;
+    if let Some(line) = snapshot.lines.get(row) {
+        if x > 0 && line.cells.get(x).map_or(false, |cell| cell.width == 0) {
+            x -= 1;
+        }
+        cells_wide = line.cells.get(x).map_or(1, |cell| cell.width.max(1));
+    }
+    let left = origin.0 + x as f32 * metrics.width;
     let top = origin.1 + row as f32 * metrics.height;
+    let cell_span = metrics.width * cells_wide as f32;
 
     // This is how the previous front end said which pane had the keyboard --
     // rather than dimming the pane itself, which leaves a visible brightness
@@ -869,7 +882,7 @@ fn push_cursor(
         quads.backgrounds.extend(unterm_render::strokes::rectangle(
             left,
             top,
-            metrics.width,
+            cell_span,
             metrics.height,
             (metrics.height / 14.0).round().max(1.0),
             colors.foreground,
@@ -901,14 +914,14 @@ fn push_cursor(
         shape if shape.contains("Underline") => Quad {
             left,
             top: top + metrics.height - (metrics.height * 0.12).max(1.0),
-            width: metrics.width,
+            width: cell_span,
             height: (metrics.height * 0.12).max(1.0),
             color: colors.foreground,
         },
         _ => Quad {
             left,
             top,
-            width: metrics.width,
+            width: cell_span,
             height: metrics.height,
             color: colors.foreground,
         },
@@ -919,7 +932,7 @@ fn push_cursor(
     // Only a block covers the whole cell, so only a block needs the character
     // inverted to stay readable.
     let covers_cell = quad.width >= metrics.width && quad.height >= metrics.height;
-    covers_cell.then_some((cursor.x, row))
+    covers_cell.then_some((x, row))
 }
 
 /// Put a character in the atlas if it is not already there.
@@ -1413,6 +1426,63 @@ mod tests {
             .find(|quad| quad.color == colors.foreground)
             .expect("a visible cursor should be drawn");
         assert!((cursor.left - metrics.width * 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_block_cursor_on_a_wide_character_covers_both_its_cells() {
+        let Some(mut font) = font() else {
+            return;
+        };
+        let mut atlas = GlyphAtlas::new(256, 256);
+        let colors = FrameColors {
+            foreground: [1.0; 4],
+            background: [0.0, 0.0, 0.0, 1.0],
+            palette: &unterm_render::quads::DEFAULT_PALETTE,
+        };
+        let metrics = font.metrics();
+        let wide_line = || {
+            vec![
+                StyledCell {
+                    ch: '地',
+                    style: CellStyle::default(),
+                    width: 2,
+                },
+                StyledCell {
+                    ch: ' ',
+                    style: CellStyle::default(),
+                    width: 0,
+                },
+                StyledCell {
+                    ch: 'b',
+                    style: CellStyle::default(),
+                    width: 1,
+                },
+            ]
+        };
+
+        let mut snap = snapshot_with_cursor("xxx", 0, 0, true, "Block");
+        snap.lines[0].cells = wide_line();
+        let quads = frame_quads(&snap, &mut font, &mut atlas, colors);
+        let cursor = quads
+            .backgrounds
+            .iter()
+            .find(|quad| quad.color == colors.foreground)
+            .expect("a visible cursor should be drawn");
+        assert!((cursor.left - 0.0).abs() < 0.01);
+        assert!((cursor.width - metrics.width * 2.0).abs() < 0.01);
+
+        // Reported on the continuation cell, the cursor snaps to the lead
+        // rather than straddling the glyph's tail and the next character.
+        let mut snap = snapshot_with_cursor("xxx", 1, 0, true, "Block");
+        snap.lines[0].cells = wide_line();
+        let quads = frame_quads(&snap, &mut font, &mut atlas, colors);
+        let cursor = quads
+            .backgrounds
+            .iter()
+            .find(|quad| quad.color == colors.foreground)
+            .expect("a visible cursor should be drawn");
+        assert!((cursor.left - 0.0).abs() < 0.01);
+        assert!((cursor.width - metrics.width * 2.0).abs() < 0.01);
     }
 
     #[test]

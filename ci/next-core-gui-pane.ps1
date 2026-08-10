@@ -272,8 +272,9 @@ $Suites = @(
         Name = "app frame"
         Package = "unterm-app"
         Filter = "terminal::tests::"
-        ExpectedCount = 16
+        ExpectedCount = 17
         RequiredTests = @(
+            "terminal::tests::a_block_cursor_on_a_wide_character_covers_both_its_cells",
             "terminal::tests::a_window_sized_to_exactly_n_cells_gets_n",
             "terminal::tests::a_window_too_small_for_one_cell_still_asks_for_one",
             "terminal::tests::every_glyph_is_rasterized_before_any_quad_is_built",
