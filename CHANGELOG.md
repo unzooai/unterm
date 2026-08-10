@@ -1,5 +1,68 @@
 # Changelog
 
+## v0.64.0 — 2026-08-10
+
+Three days of live debugging with CJK as the crash-test dummy. Four
+bugs that looked unrelated — garbled typing, spaces appearing in
+pasted text, double-click selecting one character, the cursor wedged
+between characters — all turned out to be corners of the same debt: a
+wide character owns two grid columns, and every consumer had its own
+opinion about the second one.
+
+### Fixed
+
+- **Typing CJK no longer shatters into `<009d>` byte junk.** A GUI
+  launched from Finder inherits no locale, so shells ran under
+  `LC_CTYPE=C` and zle treated every 0x80–0x9F UTF-8 continuation
+  byte as a C1 control. Unterm now synthesizes `LANG` from the
+  system region (validated against the locales the OS ships), the
+  way Terminal.app, iTerm2 and Ghostty do. Anything already set wins.
+- **Copied text is the text, not the grid.** The spacer cell behind
+  every wide glyph went onto the clipboard as a real space — 你好
+  pasted as 你 好. All copy paths now strip it.
+- **Double-click selects the CJK word, and keeps it.** The spacer
+  posed as a word boundary (one hanzi per double-click), and the
+  micro-move inside a real double-click re-extended the drag to the
+  pointer cell, shrinking the selection. A held drag now grows by the
+  granularity its click streak established: word by word after a
+  double-click, row by row after a triple-click.
+- **The cursor owns both columns of a wide character.** The block was
+  one cell wide, covering half the glyph — cursor movement through
+  CJK text looked broken while the position was right all along.
+  Block, underline and the unfocused outline now span the character;
+  a cursor reported on the continuation cell snaps to the lead.
+- **A live IME composition owns its keys.** Keystrokes inside an
+  active pinyin composition also arrived as raw letters — 房间里
+  landed as "fangjianli房间里". Composition keys no longer reach the
+  shell; switching input sources mid-composition no longer strands a
+  phantom candidate window.
+- **"Open in Unterm" works from every entry point.** The Finder
+  extension now deep-links around the sandbox that silently ate its
+  open requests, watches every mounted volume (watching /Volumes
+  itself watches nothing), refuses App Nap, and leads with the deep
+  link instead of a doomed document-open that raised an alarm dialog.
+  The two Services menu items, dead buttons since v0.40, are wired.
+- **A window opened at a directory starts there.** It used to adopt
+  the focused old session and ignore the request.
+- **The tab strip holds still.** Rows no longer teleport between a
+  pinned section, reorder under the pointer, or start a drag from a
+  mere click; a drag ends the instant the button lifts.
+- **Quit and close never hang.** Session drain moved off the UI
+  thread with a three-second fuse, and an occluded window no longer
+  spins 70% CPU waiting for a drawable nobody will show.
+- **Right-click follows one rule everywhere**: selection copies,
+  no selection pastes — every pane, every platform. A screen capture
+  leaves both the image and its file path on the clipboard, and
+  pasting an image pastes a shell-quoted path to it.
+- **MCP confirmations appear when asked.** The banner was painted by
+  the frame loop, and a resting window schedules no frames — every
+  agent write died unanswered with nothing on screen. It repaints on
+  registration now. `unterm-cli agent trust/untrust` accepts the
+  documented parameter name it always printed in its own help.
+- **A Windows upgrade leaves a terminal behind**, and a failed one
+  leaves a trace; the default font is staged where the MSI actually
+  looks.
+
 ## v0.63.2 — 2026-08-07
 
 ### Fixed
