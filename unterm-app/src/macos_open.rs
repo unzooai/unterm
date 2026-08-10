@@ -293,16 +293,25 @@ mod tests {
 
 /// One line into `<state>/open.log`, so a wrong-folder report comes with
 /// the folder that was actually delivered.
+///
+/// Capped: a debugging probe once left a per-frame trace in a draw path
+/// and the file quietly grew to 8 GB. Ten megabytes holds weeks of the
+/// event-rate lines this is for; past that, the old log gives way rather
+/// than the disk.
 pub fn trace(message: &str) {
     let Some(dir) = unterm_protocol::state_dir() else {
         return;
     };
     use std::io::Write as _;
+    let path = dir.join("open.log");
+    if std::fs::metadata(&path).map_or(false, |meta| meta.len() > 10 * 1024 * 1024) {
+        let _ = std::fs::remove_file(&path);
+    }
     let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(dir.join("open.log"))
+        .open(path)
     {
         let _ = writeln!(file, "{stamp} {message}");
     }
