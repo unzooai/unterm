@@ -52,6 +52,24 @@ dmgname=$stagedir.dmg
 # chmod 600).
 notary_submit() {
   artifact="$1"
+  # The S3 upload behind notarytool flakes behind rotating proxy nodes
+  # (deadlineExceeded mid-multipart, TLS -9816); an aborted upload leaves
+  # its submission id In Progress forever, so the only correct move is a
+  # fresh submit. Retry the whole submit, never wait on the dead id.
+  local i
+  for i in 1 2 3 4 5; do
+    if notary_submit_once "$artifact"; then
+      return 0
+    fi
+    echo "notarytool submit attempt $i failed (upload flake?) — retrying in 30s" >&2
+    sleep 30
+  done
+  echo "notarytool submit failed after 5 attempts" >&2
+  return 1
+}
+
+notary_submit_once() {
+  artifact="$1"
   if xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 ; then
     xcrun notarytool submit "$artifact" --keychain-profile "$NOTARY_PROFILE" --wait
     return
