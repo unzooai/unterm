@@ -293,9 +293,10 @@ $Suites = @(
         Name = "app shell"
         Package = "unterm-app"
         Filter = "window::tests::"
-        ExpectedCount = 13
+        ExpectedCount = 14
         RequiredTests = @(
             @(
+                "window::tests::a_wide_glyph_copies_without_its_spacer_cell",
                 "window::tests::the_configured_shell_is_used",
                 "window::tests::a_shell_can_carry_its_arguments",
                 "window::tests::cycling_forward_from_the_last_tab_wraps_to_the_first",
