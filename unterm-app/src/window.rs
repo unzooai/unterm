@@ -732,6 +732,11 @@ pub struct App {
     /// Where the last selection started, so Shift+click extends it instead
     /// of starting over.
     select_anchor: Option<unterm_engine::next_core::selection::SelectionPoint>,
+    /// How the held drag grows: by cell, by word after a double-click, by
+    /// line after a triple-click. Without this the micro-move inside a real
+    /// double-click re-extends the drag to the pointer cell and shrinks the
+    /// word selection to wherever the pointer happened to sit.
+    select_granularity: SelectGranularity,
     /// Whether the close confirmation has been answered.
     close_confirmed: bool,
     /// The window rect before a work-area maximise, so the second press
@@ -973,6 +978,7 @@ impl App {
             terminal_click: None,
             last_tree_click: None,
             select_anchor: None,
+            select_granularity: SelectGranularity::Cell,
             close_confirmed: false,
             unmaximized_rect: None,
             tab_titles: Default::default(),
@@ -3872,12 +3878,12 @@ impl App {
             .iter()
             .map(|line| SelectionRow {
                 row: line.row,
-                text: line.cells.iter().map(|cell| cell.ch).collect(),
+                text: selection_row_text(&line.cells),
                 wrapped: line.wrapped,
             })
             .collect();
 
-        let text = selected_text(&selection, &rows);
+        let text = strip_spacer_marks(selected_text(&selection, &rows));
         if !text.is_empty() {
             // What was selected, so a copy that comes out wrong can be traced
             // to the selection rather than to the clipboard.
@@ -3886,25 +3892,18 @@ impl App {
         self.selected = (!text.is_empty()).then_some(text);
     }
 
-    /// Select the run of non-space characters under a double-click.
-    fn select_word_at(&mut self, cell: unterm_engine::next_core::selection::SelectionPoint) {
-        use unterm_engine::next_core::selection::{SelectionPoint, SelectionShape};
-        let Some(live) = self.state.as_ref() else {
-            return;
-        };
-        let Ok(snapshot) = self.engine.read_styled_screen(live.session_id) else {
-            return;
-        };
-        let Some(line) = snapshot.lines.iter().find(|line| line.row == cell.row) else {
-            return;
-        };
-        let chars: Vec<char> = line.cells.iter().map(|c| c.ch).collect();
+    /// The columns of the non-space run around a column, on one grid row.
+    fn word_bounds_at(&self, row: i64, column: usize) -> Option<(usize, usize)> {
+        let live = self.state.as_ref()?;
+        let snapshot = self.engine.read_styled_screen(live.session_id).ok()?;
+        let line = snapshot.lines.iter().find(|line| line.row == row)?;
+        let chars: Vec<char> = selection_row_text(&line.cells).chars().collect();
         if chars.is_empty() {
-            return;
+            return None;
         }
-        let at = cell.column.min(chars.len() - 1);
+        let at = column.min(chars.len() - 1);
         if chars[at].is_whitespace() {
-            return;
+            return None;
         }
         let mut start = at;
         while start > 0 && !chars[start - 1].is_whitespace() {
@@ -3914,6 +3913,15 @@ impl App {
         while end + 1 < chars.len() && !chars[end + 1].is_whitespace() {
             end += 1;
         }
+        Some((start, end))
+    }
+
+    /// Select the run of non-space characters under a double-click.
+    fn select_word_at(&mut self, cell: unterm_engine::next_core::selection::SelectionPoint) {
+        use unterm_engine::next_core::selection::{SelectionPoint, SelectionShape};
+        let Some((start, end)) = self.word_bounds_at(cell.row, cell.column) else {
+            return;
+        };
         let mut drag = crate::select::Drag::start(
             SelectionPoint::new(start, cell.row),
             SelectionShape::Linear,
@@ -3938,6 +3946,73 @@ impl App {
         drag.extend(SelectionPoint::new(width.saturating_sub(1), cell.row));
         self.drag = Some(drag);
         self.update_selection();
+    }
+
+    /// Grow the held drag to the pointer, snapping to what the click streak
+    /// established: a double-click drag grows word by word, a triple-click
+    /// drag row by row, and a plain drag cell by cell.
+    fn extend_drag_to(&mut self, point: unterm_engine::next_core::selection::SelectionPoint) {
+        use unterm_engine::next_core::selection::{SelectionPoint, SelectionShape};
+        if self.drag.is_none() {
+            return;
+        }
+        let anchor = match (self.select_granularity, self.select_anchor) {
+            (SelectGranularity::Cell, _) | (_, None) => {
+                if let Some(drag) = self.drag.as_mut() {
+                    drag.extend(point);
+                }
+                return;
+            }
+            (_, Some(anchor)) => anchor,
+        };
+        let forward = (point.row, point.column) >= (anchor.row, anchor.column);
+        let (from, to) = match self.select_granularity {
+            SelectGranularity::Word => {
+                let (a_start, a_end) = self
+                    .word_bounds_at(anchor.row, anchor.column)
+                    .unwrap_or((anchor.column, anchor.column));
+                let pointer_word = self.word_bounds_at(point.row, point.column);
+                if forward {
+                    (
+                        SelectionPoint::new(a_start, anchor.row),
+                        SelectionPoint::new(
+                            pointer_word.map_or(point.column, |(_, end)| end),
+                            point.row,
+                        ),
+                    )
+                } else {
+                    (
+                        SelectionPoint::new(a_end, anchor.row),
+                        SelectionPoint::new(
+                            pointer_word.map_or(point.column, |(start, _)| start),
+                            point.row,
+                        ),
+                    )
+                }
+            }
+            SelectGranularity::Line => {
+                let cols = self
+                    .state
+                    .as_ref()
+                    .and_then(|live| self.engine.read_styled_screen(live.session_id).ok())
+                    .map_or(1, |snapshot| snapshot.cols.max(1));
+                if forward {
+                    (
+                        SelectionPoint::new(0, anchor.row),
+                        SelectionPoint::new(cols - 1, point.row),
+                    )
+                } else {
+                    (
+                        SelectionPoint::new(cols - 1, anchor.row),
+                        SelectionPoint::new(0, point.row),
+                    )
+                }
+            }
+            SelectGranularity::Cell => unreachable!("handled above"),
+        };
+        let mut drag = crate::select::Drag::start(from, SelectionShape::Linear);
+        drag.extend(to);
+        self.drag = Some(drag);
     }
 
     /// Put the selection on the clipboard.
@@ -5476,11 +5551,7 @@ impl App {
 
         let mut out = String::new();
         for row in start_row..=end_row.min(last) {
-            let text: String = snapshot.lines[row]
-                .cells
-                .iter()
-                .map(|cell| cell.ch)
-                .collect();
+            let text = selection_row_text(&snapshot.lines[row].cells);
             // The shape decides the columns: whole rows for `V`, the same
             // column band on every row for `Ctrl+v`, and the vim sweep
             // otherwise.
@@ -5506,7 +5577,7 @@ impl App {
                 out.push('\n');
             }
         }
-        Some(out.trim_end().to_string())
+        Some(strip_spacer_marks(out.trim_end().to_string()))
     }
 
     /// Put text on the clipboard, and say so.
@@ -9594,9 +9665,7 @@ impl ApplicationHandler for App {
                         }
                     }
                     let point = self.cell_under_pointer();
-                    if let Some(drag) = self.drag.as_mut() {
-                        drag.extend(point);
-                    }
+                    self.extend_drag_to(point);
                     self.update_selection();
                 }
             }
@@ -9916,6 +9985,11 @@ impl ApplicationHandler for App {
                             SelectionShape::Linear
                         };
                         self.select_anchor = Some(cell);
+                        self.select_granularity = match streak {
+                            2 => SelectGranularity::Word,
+                            n if n >= 3 => SelectGranularity::Line,
+                            _ => SelectGranularity::Cell,
+                        };
                         match streak {
                             2 => self.select_word_at(cell),
                             n if n >= 3 => self.select_line_at(cell),
@@ -10166,6 +10240,39 @@ fn shell_quoted_path(path: &str) -> String {
     }
 }
 
+/// What a held drag snaps to, decided by the click streak that started it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SelectGranularity {
+    Cell,
+    Word,
+    Line,
+}
+
+/// One screen row as a per-column string for selection work.
+///
+/// A wide glyph owns two grid columns; the second holds a space the user
+/// never typed. Copy paths that keep it turn 你好 into 你 好 on paste, and
+/// word selection sees a boundary in the middle of every CJK word. The
+/// spacer becomes a NUL so columns still line up for the extraction math,
+/// and `strip_spacer_marks` removes it from anything headed to the
+/// clipboard. The parser never stores a NUL in a cell, so the marker
+/// cannot collide with real content.
+fn selection_row_text(cells: &[unterm_engine::StyledCell]) -> String {
+    cells
+        .iter()
+        .map(|cell| if cell.width == 0 { '\u{0}' } else { cell.ch })
+        .collect()
+}
+
+/// Drop the wide-glyph spacer markers from text bound for the clipboard.
+fn strip_spacer_marks(text: String) -> String {
+    if text.contains('\u{0}') {
+        text.replace('\u{0}', "")
+    } else {
+        text
+    }
+}
+
 /// Times a close-path suspect and reports it if it held the GUI thread.
 struct SlowGuard {
     what: &'static str,
@@ -10317,6 +10424,30 @@ fn encode(logical: &winit::keyboard::Key, held: crate::mouse::Held) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wide_glyph_copies_without_its_spacer_cell() {
+        let cell = |ch: char, width: usize| unterm_engine::StyledCell {
+            ch,
+            style: Default::default(),
+            width,
+        };
+        // 你好 ab on the grid: each hanzi owns a lead cell and a spacer.
+        let cells = vec![
+            cell('你', 2),
+            cell(' ', 0),
+            cell('好', 2),
+            cell(' ', 0),
+            cell(' ', 1),
+            cell('a', 1),
+            cell('b', 1),
+        ];
+        let text = selection_row_text(&cells);
+        // Column math still sees one entry per grid column...
+        assert_eq!(text.chars().count(), cells.len());
+        // ...but nothing the user never typed reaches the clipboard.
+        assert_eq!(strip_spacer_marks(text), "你好 ab");
+    }
 
     #[test]
     fn display_scale_is_applied_once_to_fonts_and_chrome() {
