@@ -832,6 +832,22 @@ Bring this instance's window to the foreground. **Cross-instance focus is intent
 
 In v0.9 the actual window-raise side effect is a stub — the call returns `ok: true` so client code doesn't have to special-case it, but the OS-level raise is tracked as a v0.10 polish item.
 
+### `instance.lifecycle`
+
+Read registration, liveness, ownership, and shutdown diagnostics for the current instance. This is the structured form of "is the registry entry healthy, who owns this window, and what would shutdown/unregister touch?" It is intended for agents that need to distinguish stale metadata from a live window before routing work.
+
+**Params:** none.
+
+**Returns:** `{ instance, registry, lifecycle }`, with tokens and other sensitive values redacted.
+
+### `instance.close`
+
+Unregister the current instance from the product registry, or return the unregister plan without mutating anything. This is not a pane-kill primitive; use `session.destroy` for panes. Use `dry_run: true` before automation that is cleaning stale instance state.
+
+**Params:** `dry_run` (bool, optional, default `false`).
+
+**Returns:** `{ ok, dry_run, instance, registry }`
+
 ---
 
 ## Agent identity and trust

@@ -49,6 +49,56 @@ Historical note: builds before v0.61 also inherited a few flags from the WezTerm
 
 The `--json` flag is the one to remember. Everything below has `--json` examples next to the human ones because that is how you should be driving the CLI from a script.
 
+## start
+
+Launch the Unterm GUI from a script or shell. With no program arguments it starts the normal desktop app; with a trailing program it asks Unterm to start that command instead.
+
+```text
+unterm-cli start [--cwd DIR] [--title TITLE] [-- PROGRAM [ARGS...]]
+```
+
+## setup-ai
+
+Register or unregister Unterm in local AI coding-agent config files. This writes the managed AGENTS.md / config snippets that point agents at `unterm-cli mcp-stdio`.
+
+```text
+unterm-cli setup-ai [--dry-run] [--remove]
+```
+
+## mcp-stdio
+
+Run a stdio MCP bridge for agents that expect MCP over stdin/stdout rather than Unterm's local TCP JSON-RPC socket.
+
+```text
+unterm-cli mcp-stdio
+```
+
+## profile
+
+Manage identity profiles: GitHub/AWS/npm tokens, git identity, SSH key routing metadata, and the default profile binding used by new panes.
+
+```text
+unterm-cli profile ...
+```
+
+## Terminal compatibility commands
+
+These top-level families are retained for terminal compatibility and low-level workflows:
+
+```text
+unterm-cli cli
+unterm-cli connect
+unterm-cli ssh
+unterm-cli imgcat
+unterm-cli ls-fonts
+unterm-cli show-keys
+unterm-cli set-working-directory
+unterm-cli record
+unterm-cli replay
+```
+
+Use `unterm-cli reference --section cli --filter <name>` or `unterm-cli <name> --help` for the exact flags in the installed build.
+
 ## proxy
 
 Read or change the system-wide proxy state. The shape mirrors the GUI's Settings → Proxy panel: there's a global on/off, a `mode` (`auto`/`manual`/`off`), an HTTP and a SOCKS endpoint, an optional list of named "nodes" you can switch between, and a `no_proxy` exclusion list.

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 49.5 43.5" role="img" aria-label="Unterm">
+  <path
+    d="M4.5 7 24.5 23 4.5 39"
+    fill="none"
+    stroke="#EDF2EE"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="9"
+  />
+  <circle cx="40.5" cy="9" r="9" fill="#E8B34B" />
+</svg>

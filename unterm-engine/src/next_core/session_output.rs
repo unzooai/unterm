@@ -25,17 +25,18 @@ pub(super) fn apply_chunk(
     chunk: &str,
     pending_terminal_query: &mut String,
 ) -> OutputApplyStats {
+    let chunk = pty_io::strip_powershell_startup_noise(chunk);
     let started_at = Instant::now();
     {
         let mut output = handles.output.lock();
-        pty_io::append_bounded_output(&mut output, chunk, MAX_OUTPUT_BYTES);
+        pty_io::append_bounded_output(&mut output, chunk.as_str(), MAX_OUTPUT_BYTES);
     }
 
     {
         let mut screen = handles.screen.lock();
-        screen.feed(chunk);
+        screen.feed(chunk.as_str());
         let terminal_response_bytes = terminal_queries::answer_with_pending(
-            chunk,
+            chunk.as_str(),
             &screen,
             handles.writer,
             pending_terminal_query,
@@ -43,7 +44,7 @@ pub(super) fn apply_chunk(
         drop(screen);
 
         let recorded = if let Some(recording) = handles.recording.lock().as_mut() {
-            recording_output::append_now(recording, chunk);
+            recording_output::append_now(recording, chunk.as_str());
             true
         } else {
             false
@@ -124,4 +125,5 @@ mod tests {
             }
         );
     }
+
 }

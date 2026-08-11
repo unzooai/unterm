@@ -41,6 +41,14 @@ function untermSettings() {
     clashCtl: { controller: '', secret: '' },
     nodeFilter: '',
     recording: { active: false },
+    shells: {
+      loading: false,
+      loaded: false,
+      busyId: null,
+      list: [],
+      platform: 'unknown',
+      error: null,
+    },
 
     // MCP trust + audit state. Backed by /api/mcp/*. Same lazy-load
     // pattern as profiles — only fetched when the user navigates to
@@ -112,6 +120,7 @@ function untermSettings() {
     get nav() {
       return [
         { id: 'general', label: this.t('web.nav.general') },
+        { id: 'shells', label: this.t('web.nav.shells') === 'web.nav.shells' ? 'Shells' : this.t('web.nav.shells') },
         { id: 'profiles', label: this.t('web.nav.profiles') },
         { id: 'agents', label: this.t('web.nav.agents'), badge: !this._agentsSeen },
         { id: 'review', label: this.t('web.nav.review'), badge: this.reviewBadge },
@@ -734,6 +743,7 @@ function untermSettings() {
       if (id === 'profiles' && !this.profiles.loaded) this.loadProfiles();
       if (id === 'mcp' && !this.mcp.loaded) this.loadMcp();
       if (id === 'reference' && !this.reference.loaded) this.loadReference();
+      if (id === 'shells') this.loadShells();
       if (id === 'agents') {
         // Re-detect every time the tab is opened, not just the first time.
         // Otherwise a binary the user installs in a shell side-by-side won't
@@ -741,6 +751,43 @@ function untermSettings() {
         // installed" can lead them to click Install for something that's
         // already on PATH (we hit this on 2026-05-20 with Claude Code).
         this.loadAgents();
+      }
+    },
+
+    async loadShells() {
+      this.shells.loading = true;
+      this.shells.error = null;
+      try {
+        const res = await this.api('GET', '/api/shells');
+        this.shells.platform = res.platform || this.platform || 'unknown';
+        this.shells.list = res.shells || [];
+        this.shells.loaded = true;
+      } catch (e) {
+        this.shells.error = e.message;
+        this.toast('Shell detection failed: ' + e.message, 'error');
+      } finally {
+        this.shells.loading = false;
+      }
+    },
+
+    copyShellInstall(shell) {
+      if (!shell || !shell.install_command) return;
+      this.copyText(shell.install_command);
+      this.toast('Install command copied', 'info');
+    },
+
+    async installShell(shell) {
+      if (!shell || !shell.id || !shell.install_command) return;
+      if (!window.confirm('Install ' + shell.name + ' by running: ' + shell.install_command + '?')) return;
+      this.shells.busyId = shell.id;
+      try {
+        const res = await this.api('POST', '/api/shells/install', { id: shell.id });
+        this.toast('Installer started: ' + (res.command || shell.install_command), 'success');
+        setTimeout(() => this.loadShells(), 1500);
+      } catch (e) {
+        this.toast('Install failed: ' + e.message, 'error');
+      } finally {
+        this.shells.busyId = null;
       }
     },
 

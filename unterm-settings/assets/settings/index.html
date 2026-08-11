@@ -62,15 +62,21 @@
     >
       <div class="mx-auto flex max-w-6xl items-center gap-4 px-6 py-3">
         <div class="flex items-center gap-2">
-          <span
-            class="inline-block h-2.5 w-2.5 rounded-full"
-            :class="health.ok ? 'bg-notion-teal' : 'bg-rose-500'"
-            :title="health.ok ? t('web.health.online') : t('web.health.offline')"
-          ></span>
+          <img
+            src="/static/logo.svg"
+            alt=""
+            aria-hidden="true"
+            class="unterm-settings-logo"
+          />
           <span class="text-sm font-semibold tracking-tight">Unterm</span>
           <span class="text-xs text-notion-faint" x-text="state.version"></span>
         </div>
-        <div class="ml-auto text-xs text-notion-faint">
+        <div class="ml-auto flex items-center gap-2 text-xs text-notion-faint">
+          <span
+            class="inline-block h-2 w-2 rounded-full"
+            :class="health.ok ? 'bg-notion-teal' : 'bg-rose-500'"
+            :title="health.ok ? t('web.health.online') : t('web.health.offline')"
+          ></span>
           <span x-text="`${state.hostname || ''} · 127.0.0.1:${state.ports.http || '?'}`"></span>
         </div>
       </div>
@@ -170,6 +176,87 @@
                 </template>
               </select>
             </div>
+          </div>
+        </div>
+
+        <!-- Shells -->
+        <div x-show="active==='shells'">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-semibold">Shells</h2>
+              <p class="mt-1 text-sm text-notion-muted">
+                Manage the shells Unterm can launch. New installs apply to new tabs after the shell is on PATH.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="rounded-md border border-notion-borderStrong px-3 py-2 text-sm text-notion-ink hover:bg-notion-surface"
+              @click="loadShells()"
+              :disabled="shells.loading"
+              x-text="shells.loading ? 'Checking...' : 'Refresh'"
+            ></button>
+          </div>
+
+          <div
+            x-show="shells.error"
+            class="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
+            x-text="shells.error"
+          ></div>
+
+          <div class="mt-6 grid gap-4">
+            <template x-for="shell in shells.list" :key="shell.id">
+              <div class="rounded-lg border border-notion-border bg-notion-surface p-5">
+                <div class="flex items-start justify-between gap-4">
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2">
+                      <h3 class="font-medium text-notion-ink" x-text="shell.name"></h3>
+                      <span
+                        x-show="shell.recommended"
+                        class="rounded-full bg-notion-green/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-notion-teal"
+                      >Recommended</span>
+                    </div>
+                    <p class="mt-1 text-sm text-notion-muted" x-text="shell.description"></p>
+                    <div class="mt-3 space-y-1 text-xs text-notion-faint">
+                      <div>
+                        <span>Status: </span>
+                        <span
+                          :class="shell.installed ? 'text-notion-teal' : 'text-orange-300'"
+                          x-text="shell.installed ? 'Installed' : 'Not installed'"
+                        ></span>
+                      </div>
+                      <div x-show="shell.version">
+                        <span>Version: </span>
+                        <code class="text-notion-ink" x-text="shell.version"></code>
+                      </div>
+                      <div x-show="shell.path">
+                        <span>Path: </span>
+                        <code class="break-all text-notion-ink" x-text="shell.path"></code>
+                      </div>
+                      <div x-show="!shell.installed && shell.install_command">
+                        <span>Install: </span>
+                        <code class="break-all text-notion-ink" x-text="shell.install_command"></code>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      x-show="!shell.installed && shell.install_command"
+                      class="rounded-md border border-notion-borderStrong px-3 py-2 text-sm text-notion-ink hover:bg-notion-sunken"
+                      @click="copyShellInstall(shell)"
+                    >Copy</button>
+                    <button
+                      type="button"
+                      x-show="!shell.installed && shell.install_command"
+                      class="rounded-md bg-notion-green px-3 py-2 text-sm font-medium text-black hover:opacity-90 disabled:opacity-50"
+                      :disabled="shells.busyId === shell.id"
+                      @click="installShell(shell)"
+                      x-text="shells.busyId === shell.id ? 'Starting...' : 'Install'"
+                    ></button>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
 

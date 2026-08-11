@@ -10,6 +10,7 @@ pub const APP_JS: &str = include_str!("../assets/settings/app.js");
 pub const STYLE_CSS: &str = include_str!("../assets/settings/style.css");
 pub const TAILWIND_JS: &str = include_str!("../assets/settings/tailwind.js");
 pub const ALPINE_JS: &str = include_str!("../assets/settings/alpine.js");
+pub const LOGO_SVG: &str = include_str!("../assets/settings/logo.svg");
 
 /// Match a `/static/<name>` request to a `(content_type, body)` pair.
 pub fn lookup_static(name: &str) -> Option<(&'static str, &'static str)> {
@@ -18,6 +19,7 @@ pub fn lookup_static(name: &str) -> Option<(&'static str, &'static str)> {
         "style.css" => Some(("text/css; charset=utf-8", STYLE_CSS)),
         "tailwind.js" => Some(("application/javascript; charset=utf-8", TAILWIND_JS)),
         "alpine.js" => Some(("application/javascript; charset=utf-8", ALPINE_JS)),
+        "logo.svg" => Some(("image/svg+xml; charset=utf-8", LOGO_SVG)),
         _ => None,
     }
 }

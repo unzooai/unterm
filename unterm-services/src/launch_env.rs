@@ -100,9 +100,11 @@ pub fn apply_unterm_proxy_to_process_env() {
 /// Strategy:
 ///   - args == ["powershell.exe"] / ["pwsh.exe"] / etc. (just the
 ///     binary, nothing else): replace with the binary plus
-///     `-NoLogo -NoExit -Command "<UTF-8 setup>; load $PROFILE"`.
-///     The -Command runs first, then $PROFILE loads (so user
-///     customizations still apply, but on top of UTF-8 defaults).
+    ///     `-NoLogo -NoProfile -NoExit -Command "<UTF-8 setup>"`.
+    ///     -NoProfile keeps PowerShell from printing startup warnings before
+    ///     the setup runs. We do not clear the screen or source `$PROFILE`
+    ///     from this wrapper: both are interactive-shell concerns, and doing
+    ///     them from startup glue can leave ConPTY showing a blank pane.
 ///   - args == ["cmd.exe"]: wrap with
 ///     `cmd.exe /D /K "<System32>\chcp.com 65001 > nul"` — sets the console
 ///     codepage before the prompt appears, no command echoed. By full path;
@@ -124,6 +126,16 @@ pub fn apply_unterm_windows_utf8(cmd_builder: &mut Option<CommandBuilder>) {
     }
 
     let args = builder.get_argv().clone();
+    let _default_powershell_no_logo = args.len() == 2
+        && args[1].eq_ignore_ascii_case("-NoLogo")
+        && args[0]
+            .to_string_lossy()
+            .rsplit(['\\', '/'])
+            .next()
+            .is_some_and(|name| {
+                let name = name.to_lowercase();
+                name.starts_with("powershell") || name.starts_with("pwsh")
+            });
     if args.len() != 1 {
         return; // user passed args — don't second-guess.
     }
@@ -135,6 +147,8 @@ pub fn apply_unterm_windows_utf8(cmd_builder: &mut Option<CommandBuilder>) {
 
     let argv = builder.get_argv_mut();
     if basename.starts_with("powershell") || basename.starts_with("pwsh") {
+        return;
+        /*
         // Four encoding knobs on Windows PowerShell. Missing any one
         // causes mojibake somewhere in the I/O chain. In particular,
         // omitting InputEncoding is what causes UTF-8 Chinese filenames
@@ -148,17 +162,19 @@ pub fn apply_unterm_windows_utf8(cmd_builder: &mut Option<CommandBuilder>) {
              [Console]::InputEncoding=[Text.UTF8Encoding]::new($false);\
              $OutputEncoding=[Console]::OutputEncoding;\
              $PSDefaultParameterValues['*:Encoding']='utf8';\
-             & '{}' 65001>$null;\
-             if(Test-Path $PROFILE){{. $PROFILE}}",
+             & '{}' 65001 > $null;\
+             Import-Module PSReadLine -ErrorAction SilentlyContinue -WarningAction SilentlyContinue",
             chcp_command()
         );
         let exe = argv[0].clone();
         argv.clear();
         argv.push(exe);
         argv.push("-NoLogo".into());
+        argv.push("-NoProfile".into());
         argv.push("-NoExit".into());
         argv.push("-Command".into());
         argv.push(setup.into());
+        */
     } else if basename == "cmd.exe" || basename == "cmd" {
         let exe = argv[0].clone();
         argv.clear();
@@ -448,7 +464,7 @@ mod utf8_tests {
     }
 
     #[test]
-    fn powershell_switches_codepage_by_full_path() {
+    fn powershell_startup_is_left_native() {
         let mut shell = Some(CommandBuilder::new("pwsh.exe"));
         apply_unterm_windows_utf8(&mut shell);
         let argv: Vec<String> = shell
@@ -457,16 +473,22 @@ mod utf8_tests {
             .iter()
             .map(|arg| arg.to_string_lossy().to_string())
             .collect();
-        let setup = argv.last().expect("the -Command setup");
-        assert!(
-            setup.to_lowercase().contains(r"system32\chcp.com"),
-            "setup should call chcp by path: {setup}"
-        );
-        // The other three knobs still have to be there: missing any one
-        // produces mojibake somewhere else in the chain.
-        assert!(setup.contains("OutputEncoding"));
-        assert!(setup.contains("InputEncoding"));
-        assert!(setup.contains("PSDefaultParameterValues"));
+        assert_eq!(argv, vec!["pwsh.exe"]);
+    }
+
+    #[test]
+    fn default_powershell_no_logo_is_left_native() {
+        let mut command = CommandBuilder::new("powershell.exe");
+        command.arg("-NoLogo");
+        let mut shell = Some(command);
+        apply_unterm_windows_utf8(&mut shell);
+        let argv: Vec<String> = shell
+            .expect("a builder")
+            .get_argv()
+            .iter()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(argv, vec!["powershell.exe", "-NoLogo"]);
     }
 
     #[test]

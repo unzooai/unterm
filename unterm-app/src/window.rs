@@ -9275,6 +9275,16 @@ impl ApplicationHandler for App {
                 // is input on its way to an echo.
                 self.quiet_since = None;
                 self.last_ime_event = Some(std::time::Instant::now());
+                let modal_owns_ime = self.quick_menu.is_some()
+                    || unterm_mcp::handler::pending_confirmation_view().is_some();
+                if modal_owns_ime {
+                    self.preedit = crate::ime::Preedit::default();
+                    if let Some(live) = self.state.as_ref() {
+                        live.window.request_redraw();
+                    }
+                    self.drawn_revision = None;
+                    return;
+                }
                 match ime {
                     Ime::Preedit(text, caret) => {
                         self.preedit = crate::ime::Preedit {
@@ -9577,6 +9587,7 @@ impl ApplicationHandler for App {
                             live.window.request_redraw();
                         }
                     }
+                    return;
                 }
                 if let Some(TabDrag { tab_id, origin, engaged }) = self.dragging_tab {
                     // A held row is not a carried row until the pointer has
@@ -9735,22 +9746,20 @@ impl ApplicationHandler for App {
                     ElementState::Pressed => MouseEventKind::Press,
                     ElementState::Released => MouseEventKind::Release,
                 };
-                // The dropdown takes the press before anything: a click on
-                // a row must not also press what the card is covering.
-                if self.quick_menu.is_some()
-                    && state == ElementState::Pressed
-                    && button == MouseButton::Left
-                    && !secondary
-                    && self.click_quick_menu()
-                {
-                    return;
-                }
-                if self.quick_menu.is_some() && state == ElementState::Pressed {
-                    // Any other button just closes it.
-                    self.quick_menu = None;
-                    self.drawn_revision = None;
-                    if secondary && button == MouseButton::Left {
-                        self.swallow_left_after_secondary = true;
+                // The dropdown is modal for the whole mouse gesture. The
+                // press may choose a row; the matching release must not leak
+                // into the pane underneath as terminal mouse input.
+                if self.quick_menu.is_some() {
+                    if state == ElementState::Pressed {
+                        if button == MouseButton::Left && !secondary {
+                            self.click_quick_menu();
+                        } else {
+                            self.quick_menu = None;
+                            self.drawn_revision = None;
+                            if secondary && button == MouseButton::Left {
+                                self.swallow_left_after_secondary = true;
+                            }
+                        }
                     }
                     return;
                 }
@@ -9835,6 +9844,18 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
+                // Chrome belongs to the terminal, not the program inside it.
+                // TUIs such as Claude enable mouse reporting; if top-bar
+                // presses wait until after report_mouse, the chevron click is
+                // delivered to the TUI and the quick menu never opens.
+                if state == ElementState::Pressed
+                    && button == MouseButton::Left
+                    && !secondary
+                    && self.pointer.1 < self.top_bar_height()
+                    && self.click_top_bar()
+                {
+                    return;
+                }
                 // The copy/paste gesture, ahead of mouse reporting when a
                 // selection proves the user is mid-gesture: in a reporting
                 // pane it can only have been made with Shift held, and its
@@ -9894,9 +9915,6 @@ impl ApplicationHandler for App {
                             return;
                         }
                     }
-                }
-                if state == ElementState::Pressed && self.click_top_bar() {
-                    return;
                 }
                 if state == ElementState::Pressed && button == MouseButton::Left {
                     if let Some(session_id) =
@@ -10819,7 +10837,7 @@ fn launcher_entries() -> Vec<crate::palette::Entry> {
             "Windows PowerShell",
             "Built-in (5.1)",
             "powershell.exe".into(),
-            &["-NoLogo"],
+            &["-NoLogo", "-NoProfile"],
         );
         add("Command Prompt", "cmd.exe", "cmd.exe".into(), &[]);
         add(

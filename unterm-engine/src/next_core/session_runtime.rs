@@ -137,6 +137,7 @@ fn spawn_reader_thread(
             let mut buf = [0u8; 8192];
             let mut pending_utf8 = Vec::new();
             let mut pending_terminal_query = String::new();
+            let mut startup_output_filter = pty_io::StartupOutputFilter::default();
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => {
@@ -146,6 +147,9 @@ fn spawn_reader_thread(
                     Ok(n) => {
                         let Some(chunk) = pty_io::decode_pty_chunk(&mut pending_utf8, &buf[..n])
                         else {
+                            continue;
+                        };
+                        let Some(chunk) = startup_output_filter.filter(chunk) else {
                             continue;
                         };
                         session_output::apply_chunk(

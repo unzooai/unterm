@@ -250,7 +250,11 @@ pub fn preferred_platform_shell() -> Option<Vec<String>> {
                 "-NoLogo".to_string(),
             ]);
         }
-        Some(vec!["powershell.exe".to_string(), "-NoLogo".to_string()])
+        Some(vec![
+            "powershell.exe".to_string(),
+            "-NoLogo".to_string(),
+            "-NoProfile".to_string(),
+        ])
     }
     #[cfg(not(windows))]
     {

@@ -257,3 +257,336 @@ input[type="checkbox"]::after {
 input[type="checkbox"]:checked::after {
   transform: translateX(1rem);
 }
+
+/* App-chrome pass: keep Web Settings visually aligned with the native window. */
+:root {
+  --unterm-bg: #141414;
+  --unterm-surface: #232323;
+  --unterm-surface-raised: #2c2c2c;
+  --unterm-sunken: #101112;
+  --unterm-border: #343434;
+  --unterm-border-strong: #484848;
+  --unterm-ink: #f2f1ee;
+  --unterm-muted: #b7b7b1;
+  --unterm-faint: #85857f;
+  --unterm-accent: #d7b46a;
+  --unterm-accent-2: #69d7c1;
+  --unterm-danger: #fb7185;
+  --unterm-radius: 8px;
+  --unterm-radius-sm: 6px;
+  --unterm-scrollbar-thumb: #4b4b4b;
+  --cockpit-cyan: var(--unterm-accent-2);
+  --cockpit-blue: #8ab4f8;
+  --cockpit-violet: #b7a4ff;
+  --cockpit-amber: var(--unterm-accent);
+}
+
+body {
+  min-width: 320px;
+  background: var(--unterm-bg) !important;
+  color: var(--unterm-ink);
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  letter-spacing: 0;
+}
+
+body::selection {
+  color: var(--unterm-ink);
+  background: rgba(215, 180, 106, .28);
+}
+
+header {
+  border-bottom-color: var(--unterm-border) !important;
+  background: rgba(44, 44, 44, .96) !important;
+  backdrop-filter: blur(10px);
+}
+
+.unterm-settings-logo {
+  width: 1.422rem;
+  height: 1.25rem;
+  flex: none;
+  display: block;
+}
+
+main {
+  max-width: 1280px !important;
+  gap: 1.5rem !important;
+  padding-top: 1.5rem !important;
+  padding-bottom: 2rem !important;
+}
+
+h2 {
+  font-size: 1rem !important;
+  line-height: 1.35 !important;
+}
+
+h3 {
+  font-size: .9rem !important;
+}
+
+p,
+dd,
+td,
+li,
+summary,
+label,
+input,
+select,
+textarea,
+button {
+  letter-spacing: 0 !important;
+}
+
+.rounded,
+.rounded-md,
+.rounded-lg,
+.rounded-xl,
+.rounded-2xl {
+  border-radius: var(--unterm-radius) !important;
+}
+
+.rounded-full {
+  border-radius: 9999px !important;
+}
+
+nav {
+  position: sticky;
+  top: 4rem;
+  align-self: start;
+}
+
+nav ul {
+  padding: .35rem;
+  border: 1px solid var(--unterm-border);
+  border-radius: var(--unterm-radius);
+  background: var(--unterm-surface);
+}
+
+nav button {
+  min-height: 2.25rem;
+  border: 1px solid transparent;
+}
+
+nav button:hover,
+button:hover {
+  transform: none !important;
+}
+
+section > div[x-show] > h2 + p {
+  max-width: 48rem;
+}
+
+.bg-notion-bg,
+.bg-notion-sunken {
+  background-color: var(--unterm-sunken) !important;
+}
+
+.bg-notion-surface,
+.bg-notion-surface\/40,
+.bg-notion-surface\/60 {
+  background-color: var(--unterm-surface) !important;
+}
+
+.border-notion-border,
+.divide-notion-border > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--unterm-border) !important;
+}
+
+.border-notion-borderStrong {
+  border-color: var(--unterm-border-strong) !important;
+}
+
+.text-notion-ink,
+.text-white {
+  color: var(--unterm-ink) !important;
+}
+
+.text-notion-muted {
+  color: var(--unterm-muted) !important;
+}
+
+.text-notion-faint {
+  color: var(--unterm-faint) !important;
+}
+
+.text-notion-green,
+.text-notion-teal,
+.text-cyan-300 {
+  color: var(--unterm-accent) !important;
+}
+
+.bg-notion-green,
+.bg-notion-green\/90,
+.checked\:bg-notion-green:checked {
+  background-color: var(--unterm-accent) !important;
+}
+
+.bg-notion-teal {
+  background-color: var(--unterm-accent) !important;
+}
+
+.bg-notion-blue {
+  background-color: var(--cockpit-blue) !important;
+}
+
+.bg-notion-faint,
+.bg-notion-borderStrong {
+  background-color: #585858 !important;
+}
+
+.bg-orange-400,
+.bg-amber-400 {
+  background-color: var(--unterm-accent) !important;
+}
+
+.bg-rose-500,
+.bg-red-500,
+.bg-rose-700,
+.bg-rose-800 {
+  background-color: var(--unterm-danger) !important;
+}
+
+.bg-rose-500\/10,
+.bg-red-500\/10,
+.bg-rose-900\/30,
+.bg-rose-900\/50,
+.bg-rose-950\/40 {
+  background-color: rgba(251, 113, 133, .12) !important;
+}
+
+.bg-notion-green\/10,
+.bg-notion-green\/15,
+.bg-notion-green\/20 {
+  background-color: rgba(215, 180, 106, .12) !important;
+}
+
+.border-notion-green,
+.border-notion-green\/40,
+.border-notion-green\/50,
+.border-notion-green\/60 {
+  border-color: rgba(215, 180, 106, .48) !important;
+}
+
+.ring-notion-green\/40 {
+  --tw-ring-color: rgba(215, 180, 106, .36) !important;
+}
+
+.accent-notion-green {
+  accent-color: var(--unterm-accent) !important;
+}
+
+.text-amber-400 {
+  color: var(--unterm-accent) !important;
+}
+
+.text-rose-200,
+.text-rose-300,
+.text-red-300 {
+  color: #ff9aaa !important;
+}
+
+.border-rose-500\/50,
+.border-rose-700,
+.border-rose-800 {
+  border-color: rgba(251, 113, 133, .45) !important;
+}
+
+.inline-block.h-1\.5.w-1\.5.rounded-full,
+.inline-block.h-2.w-2.rounded-full,
+.inline-block.h-2\.5.w-2\.5.rounded-full,
+.h-1\.5.w-1\.5.shrink-0.rounded-full,
+.h-2.w-2.shrink-0.rounded-full {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .06);
+}
+
+button,
+a,
+summary {
+  transition:
+    background-color .12s ease,
+    border-color .12s ease,
+    color .12s ease,
+    opacity .12s ease !important;
+}
+
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(215, 180, 106, .75) !important;
+  outline-offset: 2px;
+}
+
+input,
+select,
+textarea {
+  border-color: var(--unterm-border-strong) !important;
+  background-color: var(--unterm-sunken) !important;
+  color: var(--unterm-ink) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--unterm-faint) !important;
+}
+
+code,
+pre,
+.font-mono {
+  font-family:
+    "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace !important;
+}
+
+thead {
+  background: var(--unterm-surface-raised) !important;
+}
+
+tbody tr:hover {
+  background: rgba(255, 255, 255, .035) !important;
+}
+
+.shadow-lg {
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .28) !important;
+}
+
+.cockpit-hero,
+.cockpit-fleet-card,
+.cockpit-diff-stage {
+  border-color: var(--unterm-border) !important;
+  border-radius: var(--unterm-radius) !important;
+  background: var(--unterm-surface) !important;
+  box-shadow: inset 0 1px rgba(255,255,255,.035) !important;
+}
+
+.cockpit-hero::after {
+  display: none !important;
+}
+
+.cockpit-member,
+.cockpit-verification,
+.cockpit-metric,
+.cockpit-refresh,
+.cockpit-rank,
+.cockpit-verify-action {
+  border-radius: var(--unterm-radius-sm) !important;
+}
+
+@media (max-width: 850px) {
+  main {
+    display: block !important;
+  }
+
+  nav {
+    position: static;
+    margin-bottom: 1rem;
+  }
+
+  nav ul {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -331,6 +331,8 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
     match (req.method.as_str(), path) {
         ("GET", "/api/health") => Response::ok_json(json!({"ok": true})),
         ("GET", "/api/state") => api_state(handler),
+        ("GET", "/api/shells") => api_shells(),
+        ("POST", "/api/shells/install") => api_shell_install(&req.body),
         ("POST", "/api/proxy") => api_proxy(handler, &req.body),
         ("POST", "/api/proxy/rotation") => api_proxy_rotation(handler, &req.body),
         ("POST", "/api/proxy/nodes") => api_proxy_set_nodes(handler, &req.body),
@@ -967,6 +969,451 @@ fn api_state(handler: &McpHandler) -> Response {
             "max": 999_999_999u64,
         },
     }))
+}
+
+fn api_shells() -> Response {
+    Response::ok_json(json!({
+        "platform": std::env::consts::OS,
+        "shells": shell_inventory(),
+    }))
+}
+
+fn api_shell_install(body: &[u8]) -> Response {
+    let body = parse_json_body(body);
+    let id = match body.get("id").and_then(|v| v.as_str()) {
+        Some(id) if !id.trim().is_empty() => id.trim(),
+        _ => return Response::err(400, "Bad Request", "missing shell id"),
+    };
+    let Some(plan) = shell_install_plan(id) else {
+        return Response::err(400, "Bad Request", "shell has no supported installer");
+    };
+    if !program_exists(&plan.program) {
+        return Response::err(
+            409,
+            "Conflict",
+            &format!("installer '{}' was not found", plan.program),
+        );
+    }
+    match std::process::Command::new(&plan.program)
+        .args(&plan.args)
+        .spawn()
+    {
+        Ok(_) => Response::ok_json(json!({
+            "ok": true,
+            "id": id,
+            "command": plan.command_line(),
+            "requires_new_shell": true,
+        })),
+        Err(e) => Response::err(500, "Internal Error", &format!("launch installer: {e}")),
+    }
+}
+
+struct ShellInstallPlan {
+    program: String,
+    args: Vec<String>,
+}
+
+impl ShellInstallPlan {
+    fn command_line(&self) -> String {
+        std::iter::once(self.program.as_str())
+            .chain(self.args.iter().map(String::as_str))
+            .map(shell_arg)
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+fn shell_inventory() -> Vec<Value> {
+    let mut shells = Vec::new();
+    push_shell(
+        &mut shells,
+        "pwsh",
+        "PowerShell 7",
+        "Modern PowerShell recommended for Windows users",
+        &["pwsh.exe", "pwsh"],
+        &[
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            "$PSVersionTable.PSVersion.ToString()",
+        ],
+        shell_install_plan("pwsh").map(|p| p.command_line()),
+        true,
+    );
+    push_shell(
+        &mut shells,
+        "windows-powershell",
+        "Windows PowerShell",
+        "Built-in Windows shell; supported, but older than PowerShell 7",
+        &["powershell.exe"],
+        &[
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            "$PSVersionTable.PSVersion.ToString()",
+        ],
+        None,
+        false,
+    );
+    push_shell(
+        &mut shells,
+        "cmd",
+        "Command Prompt",
+        "Built-in Windows command shell",
+        &["cmd.exe"],
+        &[],
+        None,
+        false,
+    );
+    push_shell(
+        &mut shells,
+        "git-bash",
+        "Git Bash",
+        "Bash from Git for Windows",
+        &[
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files (x86)\Git\bin\bash.exe",
+            "bash.exe",
+            "bash",
+        ],
+        &["--version"],
+        shell_install_plan("git-bash").map(|p| p.command_line()),
+        false,
+    );
+    push_shell(
+        &mut shells,
+        "msys2",
+        "MSYS2 Bash",
+        "Pacman-based Unix shell environment for Windows",
+        &[
+            r"C:\msys64\usr\bin\bash.exe",
+            r"C:\tools\msys64\usr\bin\bash.exe",
+            "msys2.exe",
+        ],
+        &["--version"],
+        shell_install_plan("msys2").map(|p| p.command_line()),
+        false,
+    );
+    push_shell(
+        &mut shells,
+        "cygwin",
+        "Cygwin Bash",
+        "POSIX-compatible shell environment for Windows",
+        &[r"C:\cygwin64\bin\bash.exe", r"C:\cygwin\bin\bash.exe"],
+        &["--version"],
+        shell_install_plan("cygwin").map(|p| p.command_line()),
+        false,
+    );
+    push_shell(
+        &mut shells,
+        "clink",
+        "Clink",
+        "Enhanced cmd.exe editing and completion",
+        &["clink.exe"],
+        &["--version"],
+        shell_install_plan("clink").map(|p| p.command_line()),
+        false,
+    );
+    push_shell(
+        &mut shells,
+        "cmder",
+        "Cmder",
+        "Portable console environment built around cmd and Clink",
+        &[
+            r"C:\tools\cmder\Cmder.exe",
+            r"C:\cmder\Cmder.exe",
+            "Cmder.exe",
+        ],
+        &[],
+        None,
+        false,
+    );
+    push_shell(
+        &mut shells,
+        "wsl",
+        "WSL",
+        "Linux shell through Windows Subsystem for Linux",
+        &["wsl.exe", "wsl"],
+        &["--version"],
+        shell_install_plan("wsl").map(|p| p.command_line()),
+        false,
+    );
+    push_shell(
+        &mut shells,
+        "nushell",
+        "Nushell",
+        "Structured data shell",
+        &["nu.exe", "nu"],
+        &["--version"],
+        shell_install_plan("nushell").map(|p| p.command_line()),
+        false,
+    );
+    if std::env::consts::OS != "windows" {
+        push_shell(
+            &mut shells,
+            "bash",
+            "Bash",
+            "Bourne Again Shell",
+            &["bash"],
+            &["--version"],
+            shell_install_plan("bash").map(|p| p.command_line()),
+            false,
+        );
+        push_shell(
+            &mut shells,
+            "zsh",
+            "Zsh",
+            "Z shell",
+            &["zsh"],
+            &["--version"],
+            shell_install_plan("zsh").map(|p| p.command_line()),
+            false,
+        );
+        push_shell(
+            &mut shells,
+            "fish",
+            "fish",
+            "Friendly interactive shell",
+            &["fish"],
+            &["--version"],
+            shell_install_plan("fish").map(|p| p.command_line()),
+            false,
+        );
+        push_shell(
+            &mut shells,
+            "elvish",
+            "Elvish",
+            "Expressive interactive shell",
+            &["elvish"],
+            &["--version"],
+            shell_install_plan("elvish").map(|p| p.command_line()),
+            false,
+        );
+        push_shell(
+            &mut shells,
+            "xonsh",
+            "Xonsh",
+            "Python-powered shell",
+            &["xonsh"],
+            &["--version"],
+            shell_install_plan("xonsh").map(|p| p.command_line()),
+            false,
+        );
+        push_shell(
+            &mut shells,
+            "oil",
+            "Oil Shell",
+            "Shell language compatible with bash scripts",
+            &["osh", "oil"],
+            &["--version"],
+            shell_install_plan("oil").map(|p| p.command_line()),
+            false,
+        );
+    }
+    shells
+}
+
+fn push_shell(
+    shells: &mut Vec<Value>,
+    id: &str,
+    name: &str,
+    description: &str,
+    candidates: &[&str],
+    version_args: &[&str],
+    install_command: Option<String>,
+    recommended: bool,
+) {
+    let path = candidates
+        .iter()
+        .find_map(|candidate| resolve_program(candidate));
+    let version = (!version_args.is_empty()).then_some(()).and(
+        path.as_ref()
+            .and_then(|path| command_output(path, version_args))
+            .and_then(|output| {
+                output
+                    .lines()
+                    .find(|line| !line.trim().is_empty())
+                    .map(str::trim)
+                    .map(str::to_string)
+            }),
+    );
+    shells.push(json!({
+        "id": id,
+        "name": name,
+        "description": description,
+        "installed": path.is_some(),
+        "path": path.unwrap_or_default(),
+        "version": version,
+        "install_command": install_command,
+        "recommended": recommended,
+    }));
+}
+
+fn shell_install_plan(id: &str) -> Option<ShellInstallPlan> {
+    match (std::env::consts::OS, id) {
+        ("windows", "pwsh") => Some(ShellInstallPlan {
+            program: "winget.exe".to_string(),
+            args: vec![
+                "install".to_string(),
+                "--id".to_string(),
+                "Microsoft.PowerShell".to_string(),
+                "--source".to_string(),
+                "winget".to_string(),
+            ],
+        }),
+        ("windows", "git-bash") => Some(ShellInstallPlan {
+            program: "winget.exe".to_string(),
+            args: vec![
+                "install".to_string(),
+                "--id".to_string(),
+                "Git.Git".to_string(),
+                "--source".to_string(),
+                "winget".to_string(),
+            ],
+        }),
+        ("windows", "msys2") => Some(ShellInstallPlan {
+            program: "winget.exe".to_string(),
+            args: vec![
+                "install".to_string(),
+                "--id".to_string(),
+                "MSYS2.MSYS2".to_string(),
+                "--source".to_string(),
+                "winget".to_string(),
+            ],
+        }),
+        ("windows", "cygwin") => Some(ShellInstallPlan {
+            program: "winget.exe".to_string(),
+            args: vec![
+                "install".to_string(),
+                "--id".to_string(),
+                "Cygwin.Cygwin".to_string(),
+                "--source".to_string(),
+                "winget".to_string(),
+            ],
+        }),
+        ("windows", "clink") => Some(ShellInstallPlan {
+            program: "winget.exe".to_string(),
+            args: vec![
+                "install".to_string(),
+                "--id".to_string(),
+                "chrisant996.Clink".to_string(),
+                "--source".to_string(),
+                "winget".to_string(),
+            ],
+        }),
+        ("windows", "wsl") => Some(ShellInstallPlan {
+            program: "wsl.exe".to_string(),
+            args: vec!["--install".to_string()],
+        }),
+        ("windows", "nushell") => Some(ShellInstallPlan {
+            program: "winget.exe".to_string(),
+            args: vec![
+                "install".to_string(),
+                "--id".to_string(),
+                "Nushell.Nushell".to_string(),
+                "--source".to_string(),
+                "winget".to_string(),
+            ],
+        }),
+        ("macos", "pwsh") => Some(ShellInstallPlan {
+            program: "brew".to_string(),
+            args: vec!["install".to_string(), "powershell".to_string()],
+        }),
+        ("macos", "nushell") => Some(ShellInstallPlan {
+            program: "brew".to_string(),
+            args: vec!["install".to_string(), "nushell".to_string()],
+        }),
+        ("macos", "bash") => Some(ShellInstallPlan {
+            program: "brew".to_string(),
+            args: vec!["install".to_string(), "bash".to_string()],
+        }),
+        ("macos", "zsh") => Some(ShellInstallPlan {
+            program: "brew".to_string(),
+            args: vec!["install".to_string(), "zsh".to_string()],
+        }),
+        ("macos", "fish") => Some(ShellInstallPlan {
+            program: "brew".to_string(),
+            args: vec!["install".to_string(), "fish".to_string()],
+        }),
+        ("macos", "elvish") => Some(ShellInstallPlan {
+            program: "brew".to_string(),
+            args: vec!["install".to_string(), "elvish".to_string()],
+        }),
+        ("macos", "xonsh") => Some(ShellInstallPlan {
+            program: "brew".to_string(),
+            args: vec!["install".to_string(), "xonsh".to_string()],
+        }),
+        ("linux", "fish") => Some(ShellInstallPlan {
+            program: "sh".to_string(),
+            args: vec!["-lc".to_string(), "command -v apt >/dev/null && sudo apt install -y fish || command -v dnf >/dev/null && sudo dnf install -y fish || command -v pacman >/dev/null && sudo pacman -S --noconfirm fish".to_string()],
+        }),
+        _ => None,
+    }
+}
+
+fn resolve_program(program: &str) -> Option<String> {
+    let path = std::path::Path::new(program);
+    if path.is_absolute() && path.is_file() {
+        return Some(program.to_string());
+    }
+    if program.contains(std::path::MAIN_SEPARATOR) {
+        return None;
+    }
+    let path_var = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(program);
+        if candidate.is_file() {
+            return Some(candidate.display().to_string());
+        }
+        #[cfg(windows)]
+        {
+            for ext in ["exe", "cmd", "bat"] {
+                let candidate = dir.join(format!("{program}.{ext}"));
+                if candidate.is_file() {
+                    return Some(candidate.display().to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn program_exists(program: &str) -> bool {
+    resolve_program(program).is_some()
+}
+
+fn command_output(program: &str, args: &[&str]) -> Option<String> {
+    let output = std::process::Command::new(program)
+        .args(args)
+        .output()
+        .ok()?;
+    let mut text = decode_command_output(&output.stdout);
+    if text.trim().is_empty() {
+        text = decode_command_output(&output.stderr);
+    }
+    Some(text)
+}
+
+fn decode_command_output(bytes: &[u8]) -> String {
+    if bytes.len() >= 2 && bytes[1] == 0 {
+        let words: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        return String::from_utf16_lossy(&words);
+    }
+    String::from_utf8_lossy(bytes).replace('\0', "")
+}
+
+fn shell_arg(arg: &str) -> String {
+    if arg
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '/' | '\\' | ':'))
+    {
+        arg.to_string()
+    } else {
+        format!("\"{}\"", arg.replace('"', "\\\""))
+    }
 }
 
 // --- Scrollback override ---------------------------------------------------

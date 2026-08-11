@@ -34,7 +34,7 @@ together means your longest-lived tool is defined by its shortest-lived
 part. You already have great agents. They don't need a brain. They need
 hands.
 
-So: Unterm has NO AI inside at all. Instead it exposes 67 MCP methods —
+So: Unterm has NO AI inside at all. Instead it exposes 103 MCP methods —
 exec, screen reads, scrolling screenshots (it re-renders your entire
 scrollback into one tall PNG), session recording, identity profiles. On
 install it auto-registers with every AI CLI on your machine.
