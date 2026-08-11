@@ -265,6 +265,7 @@ use std::sync::Arc;
 use unterm_engine::next_core::{config, key_encoding};
 use unterm_engine::{
     CreateSessionRequest, InputEngine, LaunchPolicySnapshot, ScreenEngine, SessionEngine,
+    SessionSnapshot,
 };
 use unterm_render::atlas::GlyphAtlas;
 use unterm_render::gpu::Renderer;
@@ -839,6 +840,9 @@ pub struct App {
     /// A window that has been still for a while is asked about far less often:
     /// a terminal left open on a desk should not cost a core.
     quiet_since: Option<std::time::Instant>,
+    startup_session: Option<std::thread::JoinHandle<anyhow::Result<SessionSnapshot>>>,
+    startup_input: String,
+    restore_extra_tabs_pending: bool,
 }
 
 struct Live {
@@ -1031,6 +1035,9 @@ impl App {
             window_title: None,
             picture,
             quiet_since: None,
+            startup_session: None,
+            startup_input: String::new(),
+            restore_extra_tabs_pending: false,
             pane_sizes: Default::default(),
             focused: true,
             kept_house_at: std::time::Instant::now(),
@@ -1268,21 +1275,27 @@ impl App {
                 // This window's grid decides the size, not the one the
                 // previous window left behind.
                 let _ = self.engine.resize_session(existing.id, cols, rows);
-                existing
+                Some(existing)
             }
-            None if pending_core_session.is_some() => pending_core_session
-                .expect("checked pending core session")
-                .join()
-                .map_err(|_| anyhow::anyhow!("startup session worker panicked"))??,
-            None => self.engine.create_session(
+            None if pending_core_session.is_some() => {
+                self.startup_session = pending_core_session;
+                None
+            }
+            None => Some(self.engine.create_session(
                 startup_request.expect("new startup session request is present"),
-            )?,
+            )?),
         };
-        crate::startup_trace::mark("session.ready");
+        if session.is_some() {
+            crate::startup_trace::mark("session.ready");
+        } else {
+            crate::startup_trace::mark("session.pending");
+        }
 
         // The first pane is a tab of one. Recording it here means a later split
         // has an arrangement to grow rather than one to infer.
-        self.tab_id = self.tabs.create_tab(session.id).ok();
+        if let Some(session) = &session {
+            self.tab_id = self.tabs.create_tab(session.id).ok();
+        }
 
         // Uploaded once: a photograph re-read every frame is a photograph read
         // sixty times a second.
@@ -1299,7 +1312,7 @@ impl App {
             background,
             background_size: picture.map(|image| (image.width, image.height)),
             background_opacity: picture.map(|image| image.opacity).unwrap_or(0.0),
-            session_id: session.id,
+            session_id: session.as_ref().map(|session| session.id).unwrap_or(0),
             width: size.width.max(1),
             height: size.height.max(1),
         };
@@ -1397,29 +1410,31 @@ impl App {
             }
         }
         if placements.is_empty() {
-            let Ok(snapshot) = self.engine.read_styled_screen(session_id) else {
-                return;
-            };
-            revision = snapshot.revision;
-            self.mouse_modes = snapshot.mouse;
-            self.note_bells(snapshot.bells);
-            self.take_clipboard_request(snapshot.clipboard_request.clone());
-            // Below the top bar, like every other pane. Drawn at the window's
-            // own origin it lands on the bar, which is what the first frame
-            // with a bar in it looked like.
-            let origin = (self.terminal_left(), self.terminal_top());
-            screen_blink = crate::terminal::blinking_cells(&snapshot);
-            crate::terminal::append_pane(
-                &snapshot,
-                &mut self.font,
-                &mut self.atlas,
-                self.colors,
-                origin,
-                solid_cursor,
-                cursor,
-                blink,
-                &mut quads,
-            );
+            if session_id != 0 {
+                let Ok(snapshot) = self.engine.read_styled_screen(session_id) else {
+                    return;
+                };
+                revision = snapshot.revision;
+                self.mouse_modes = snapshot.mouse;
+                self.note_bells(snapshot.bells);
+                self.take_clipboard_request(snapshot.clipboard_request.clone());
+                // Below the top bar, like every other pane. Drawn at the window's
+                // own origin it lands on the bar, which is what the first frame
+                // with a bar in it looked like.
+                let origin = (self.terminal_left(), self.terminal_top());
+                screen_blink = crate::terminal::blinking_cells(&snapshot);
+                crate::terminal::append_pane(
+                    &snapshot,
+                    &mut self.font,
+                    &mut self.atlas,
+                    self.colors,
+                    origin,
+                    solid_cursor,
+                    cursor,
+                    blink,
+                    &mut quads,
+                );
+            }
         }
         self.append_selection(&mut quads);
         quads.backgrounds.extend(dividers);
@@ -9072,6 +9087,15 @@ impl App {
     /// cockpit reads every pane's screen. Running those as fast as the loop
     /// spins is most of what an idle window used to cost.
     fn tick(&mut self) {
+        self.finish_startup_session();
+        if self.restore_extra_tabs_pending
+            && self.startup_first_frame_marked
+            && self.startup_session.is_none()
+            && self.state.as_ref().is_some_and(|live| live.session_id != 0)
+        {
+            self.restore_extra_tabs_pending = false;
+            self.restore_extra_tabs();
+        }
         if let Some(request) = unterm_services::theme_state::after(self.theme_request_seen) {
             self.theme_request_seen = request.generation;
             self.apply_theme(&request.id);
@@ -9106,6 +9130,50 @@ impl App {
         }
     }
 
+    fn finish_startup_session(&mut self) {
+        let ready = self
+            .startup_session
+            .as_ref()
+            .is_some_and(std::thread::JoinHandle::is_finished);
+        if !ready {
+            return;
+        }
+        let Some(worker) = self.startup_session.take() else {
+            return;
+        };
+        match worker.join() {
+            Ok(Ok(session)) => {
+                crate::startup_trace::mark("session.ready");
+                self.tab_id = self.tabs.create_tab(session.id).ok();
+                if let Some(live) = self.state.as_mut() {
+                    live.session_id = session.id;
+                    live.window.request_redraw();
+                }
+                if !self.startup_input.is_empty() {
+                    let input = std::mem::take(&mut self.startup_input);
+                    if let Err(err) = self.engine.write_input(session.id, &input) {
+                        log::warn!("could not replay startup input: {err:#}");
+                    }
+                }
+                self.drawn_revision = None;
+            }
+            Ok(Err(err)) => {
+                log::error!("startup session failed: {err:#}");
+                let err = err.to_string();
+                self.show_notice(unterm_services::i18n::t_args(
+                    "profile.toast.spawn_failed",
+                    &[("err", err.as_str())],
+                ));
+                self.startup_input.clear();
+            }
+            Err(_) => {
+                log::error!("startup session worker panicked");
+                self.show_notice("Startup shell failed".to_string());
+                self.startup_input.clear();
+            }
+        }
+    }
+
     /// How long to wait before asking again.
     ///
     /// A frame while anything is happening, so output appears as soon as a
@@ -9134,6 +9202,9 @@ impl App {
         // way it can -- per-pane revisions in this process, the frame
         // cache's own counter when the sessions are in a Core.
         let placements = self.placements();
+        if placements.is_empty() && live.session_id == 0 {
+            return self.drawn_revision != Some(0);
+        }
         let panes: Vec<usize> = if placements.is_empty() {
             vec![live.session_id]
         } else {
@@ -9216,9 +9287,11 @@ impl ApplicationHandler for App {
         }
         match self.start(event_loop) {
             Ok(live) => {
-                live.window.request_redraw();
                 self.state = Some(live);
-                self.restore_extra_tabs();
+                self.restore_extra_tabs_pending = true;
+                if let Some(live) = self.state.as_ref() {
+                    live.window.request_redraw();
+                }
                 crate::startup_trace::mark("window.state.ready");
             }
             Err(err) => {
@@ -9583,6 +9656,7 @@ impl ApplicationHandler for App {
                 }
 
                 let pane = self.focused_session();
+                let startup_pending = live.session_id == 0;
                 if crate::ghost::is_accept_key(
                     &event.logical_key,
                     self.ctrl_held,
@@ -9610,6 +9684,9 @@ impl ApplicationHandler for App {
                     self.shift_held,
                     self.alt_held,
                 ) {
+                    if startup_pending {
+                        return;
+                    }
                     self.run_key_action(action, live.session_id);
                     return;
                 }
@@ -9620,6 +9697,12 @@ impl ApplicationHandler for App {
                     alt: self.alt_held,
                 };
                 if let Some(text) = encode(&event.logical_key, held) {
+                    if startup_pending {
+                        if self.startup_input.len() + text.len() <= 4096 {
+                            self.startup_input.push_str(&text);
+                        }
+                        return;
+                    }
                     if self.engine.write_input(pane, &text).is_ok() {
                         if crate::ghost::observe_key(
                             pane as u64,
