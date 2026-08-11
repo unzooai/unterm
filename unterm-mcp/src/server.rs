@@ -318,6 +318,13 @@ fn handle_client(stream: TcpStream, auth_token: &str, handler: &McpHandler) -> R
                 let client_token = params.get("token").and_then(|t| t.as_str()).unwrap_or("");
                 if client_token == auth_token {
                     authenticated = true;
+                    if let Some(client) = params
+                        .get("client")
+                        .cloned()
+                        .and_then(|value| serde_json::from_value(value).ok())
+                    {
+                        handler.register_client(conn_id, client);
+                    }
                     let resp = make_success_response(id, serde_json::json!({"status": "ok"}));
                     write_response(&mut writer, &resp)?;
                 } else {

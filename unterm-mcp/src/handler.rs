@@ -444,6 +444,15 @@ fn current_agent_label() -> String {
     "anonymous".to_string()
 }
 
+fn current_client_role() -> Option<unterm_protocol::ProcessRole> {
+    let conn_id = CURRENT_CONN_ID.with(|cell| *cell.borrow())?;
+    let state = mcp_state().lock();
+    state
+        .clients_by_connection
+        .get(&conn_id)
+        .map(|client| client.process_role)
+}
+
 /// Pull the agent label off the most recent audit entry. Used in
 /// `audit()` to mark "first PTY write from this agent" — by the time
 /// we get here, the new entry has already been pushed with its
@@ -941,6 +950,36 @@ impl ConnectionContext {
             conn_id: 0,
             peer_addr: format!("internal:{source}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod client_identity_tests {
+    use super::{ConnectionContext, McpHandler};
+    use serde_json::json;
+
+    #[test]
+    fn whoami_reports_authenticated_client_role() {
+        let handler = McpHandler::new();
+        let conn_id = 9_000_000 + u64::from(std::process::id());
+        let ctx = ConnectionContext {
+            conn_id,
+            peer_addr: "127.0.0.1:12345".to_string(),
+        };
+        handler.register_client(
+            conn_id,
+            unterm_protocol::BuildHandshake::current(
+                unterm_protocol::ProcessRole::Cli,
+                std::process::id(),
+                "test",
+            ),
+        );
+
+        let who = handler.handle(&ctx, "agent.whoami", &json!({})).unwrap();
+
+        assert_eq!(who["name"], "anonymous");
+        assert_eq!(who["client_role"], "cli");
+        handler.drop_connection(conn_id);
     }
 }
 
@@ -4476,6 +4515,8 @@ struct McpState {
     /// `agent.identify` are absent from the map and rendered as
     /// "anonymous" in audit views. Cleared when the connection drops.
     agents_by_connection: HashMap<u64, AgentIdentity>,
+    /// Per-connection client process identity from `auth.login`.
+    clients_by_connection: HashMap<u64, unterm_protocol::BuildHandshake>,
     /// First time we ever saw a given agent name (across all
     /// connections). Used by the (future, P0.3) "first-time per agent"
     /// confirmation flow to decide whether this agent is novel enough
@@ -5329,6 +5370,7 @@ fn mcp_state() -> &'static Mutex<McpState> {
             input_event_count: 0,
             last_input_at: None,
             agents_by_connection: HashMap::new(),
+            clients_by_connection: HashMap::new(),
             known_agents: HashMap::new(),
             pane_agents: HashMap::new(),
             agents_with_input_history: std::collections::HashSet::new(),
@@ -5347,6 +5389,13 @@ pub struct McpHandler;
 impl McpHandler {
     pub fn new() -> Self {
         Self
+    }
+
+    pub fn register_client(&self, conn_id: u64, client: unterm_protocol::BuildHandshake) {
+        mcp_state()
+            .lock()
+            .clients_by_connection
+            .insert(conn_id, client);
     }
 
     pub fn handle(&self, ctx: &ConnectionContext, method: &str, params: &Value) -> Result<Value> {
@@ -6405,6 +6454,10 @@ impl McpHandler {
         // 1) Configured `Never` → no banner ever.
         // 2) Agent name on the static trust list → skip.
         // 3) User previously chose AlwaysAllow this session → skip.
+        if current_client_role() == Some(unterm_protocol::ProcessRole::Cli) {
+            return Ok(GateOutcome::Allow);
+        }
+
         let policy = cfg.mcp_input_confirmation;
         let trusted_static = cfg.mcp_trusted_agents.iter().any(|n| n == &agent);
         let already_confirmed = {
@@ -6793,11 +6846,22 @@ impl McpHandler {
     /// `agent.identify` was never called).
     fn agent_whoami(&self, ctx: &ConnectionContext) -> Result<Value> {
         let state = mcp_state().lock();
+        let client_role = state
+            .clients_by_connection
+            .get(&ctx.conn_id)
+            .map(|client| client.process_role);
         match state.agents_by_connection.get(&ctx.conn_id) {
-            Some(identity) => Ok(json!(identity)),
+            Some(identity) => {
+                let mut value = serde_json::to_value(identity)?;
+                if let Some(role) = client_role {
+                    value["client_role"] = json!(role);
+                }
+                Ok(value)
+            }
             None => Ok(json!({
                 "name": "anonymous",
                 "peer_addr": ctx.peer_addr,
+                "client_role": client_role,
             })),
         }
     }
@@ -7230,6 +7294,7 @@ impl McpHandler {
     pub fn drop_connection(&self, conn_id: u64) {
         let mut state = mcp_state().lock();
         state.agents_by_connection.remove(&conn_id);
+        state.clients_by_connection.remove(&conn_id);
     }
 
     // --- Ghost text debug ---
