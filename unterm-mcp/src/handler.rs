@@ -5386,6 +5386,22 @@ fn mcp_state() -> &'static Mutex<McpState> {
 
 pub struct McpHandler;
 
+fn selftest_limited_without_window(err: anyhow::Error) -> Value {
+    let reason = err.to_string();
+    if reason.contains("no Unterm window is attached") {
+        json!({
+            "ok": true,
+            "limited": true,
+            "reason": reason,
+        })
+    } else {
+        json!({
+            "ok": false,
+            "error": reason,
+        })
+    }
+}
+
 impl McpHandler {
     pub fn new() -> Self {
         Self
@@ -9510,18 +9526,17 @@ impl McpHandler {
             }));
 
             let styled_capture = self.selftest_next_core_styled_scrollback_capture(&caps);
+            let styled_capture_detail = match styled_capture {
+                Ok(value) => value,
+                Err(err) => selftest_limited_without_window(err),
+            };
             checks.push(json!({
                 "name": "next_core.styled_scrollback_capture",
-                "ok": styled_capture
-                    .as_ref()
-                    .ok()
-                    .and_then(|value| value.get("ok"))
+                "ok": styled_capture_detail
+                    .get("ok")
                     .and_then(|value| value.as_bool())
                     .unwrap_or(false),
-                "detail": match styled_capture {
-                    Ok(value) => value,
-                    Err(err) => json!({"error": err.to_string()}),
-                },
+                "detail": styled_capture_detail,
             }));
         }
 
@@ -9561,29 +9576,30 @@ impl McpHandler {
         }));
 
         let capture = self.capture_window(&json!({}));
-        let capture_ok = capture
-            .as_ref()
-            .ok()
-            .and_then(|value| value.pointer("/image/path"))
-            .and_then(|value| value.as_str())
-            .map(|path| std::path::Path::new(path).exists())
+        let capture_detail = match capture {
+            Ok(value) => value,
+            Err(err) => selftest_limited_without_window(err),
+        };
+        let capture_ok = capture_detail
+            .get("limited")
+            .and_then(|value| value.as_bool())
             .unwrap_or(false)
-            && (!cfg!(windows)
-                || matches!(
-                    capture
-                        .as_ref()
-                        .ok()
-                        .and_then(|value| value.pointer("/image/mode"))
-                        .and_then(|value| value.as_str()),
-                    Some("print_window" | "focused_screen")
-                ));
+            || (capture_detail
+                .pointer("/image/path")
+                .and_then(|value| value.as_str())
+                .map(|path| std::path::Path::new(path).exists())
+                .unwrap_or(false)
+                && (!cfg!(windows)
+                    || matches!(
+                        capture_detail
+                            .pointer("/image/mode")
+                            .and_then(|value| value.as_str()),
+                        Some("print_window" | "focused_screen")
+                    )));
         checks.push(json!({
             "name": "capture.window",
             "ok": capture_ok,
-            "detail": match capture {
-                Ok(value) => value,
-                Err(err) => json!({"error": err.to_string()}),
-            },
+            "detail": capture_detail,
         }));
 
         if let Some(session_id) = params.get("session_id").and_then(|v| v.as_str()) {
@@ -9628,19 +9644,30 @@ impl McpHandler {
             .ok()
             .and_then(|sessions| sessions.first())
             .map(|session| session.id as u64);
-        let rec_status = self.session_recording_status(&json!({"id": probe_id.unwrap_or(0)}));
-        checks.push(json!({
-            "name": "session.recording_status",
-            "ok": rec_status.is_ok(),
-            "detail": match rec_status {
-                Ok(value) => json!({
-                    "status": value,
-                    "probe_session_id": probe_id,
-                    "probe_source": if probe_id.is_some() { "engine.list_sessions" } else { "fallback_zero" },
-                }),
-                Err(err) => json!({"error": err.to_string()}),
-            },
-        }));
+        if let Some(probe_id) = probe_id {
+            let rec_status = self.session_recording_status(&json!({"id": probe_id}));
+            checks.push(json!({
+                "name": "session.recording_status",
+                "ok": rec_status.is_ok(),
+                "detail": match rec_status {
+                    Ok(value) => json!({
+                        "status": value,
+                        "probe_session_id": probe_id,
+                        "probe_source": "engine.list_sessions",
+                    }),
+                    Err(err) => json!({"error": err.to_string()}),
+                },
+            }));
+        } else {
+            checks.push(json!({
+                "name": "session.recording_status",
+                "ok": true,
+                "detail": {
+                    "skipped": true,
+                    "reason": "no live session available for non-mutating recording probe",
+                },
+            }));
+        }
 
         let ok = checks
             .iter()
@@ -9936,12 +9963,12 @@ impl McpHandler {
         let destroyed = self.session_destroy(&json!({ "pane_id": pane_id }));
         let mut detail = match probe {
             Ok(value) => value,
-            Err(err) => json!({
-                "ok": false,
-                "pane_id": pane_id,
-                "advertised": advertised,
-                "error": err.to_string(),
-            }),
+            Err(err) => {
+                let mut value = selftest_limited_without_window(err);
+                value["pane_id"] = json!(pane_id);
+                value["advertised"] = json!(advertised);
+                value
+            }
         };
         detail["destroyed"] = json!(destroyed.is_ok());
         if let Err(err) = destroyed {
