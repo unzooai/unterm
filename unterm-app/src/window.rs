@@ -9182,6 +9182,8 @@ impl App {
             Ok(Ok(session)) => {
                 crate::startup_trace::mark("session.ready");
                 self.tab_id = self.tabs.create_tab(session.id).ok();
+                self.engine.refresh_cached_frame(session.id);
+                self.quiet_since = None;
                 if let Some(live) = self.state.as_mut() {
                     live.session_id = session.id;
                     live.window.request_redraw();
@@ -9223,6 +9225,12 @@ impl App {
         const BUSY: std::time::Duration = std::time::Duration::from_millis(8);
         const RESTING: std::time::Duration = std::time::Duration::from_millis(96);
         const SETTLES_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+
+        if !self.startup_terminal_content_marked
+            && self.state.as_ref().is_some_and(|live| live.session_id != 0)
+        {
+            return BUSY;
+        }
 
         match self.quiet_since {
             Some(since) if since.elapsed() > SETTLES_AFTER => RESTING,
