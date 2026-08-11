@@ -203,6 +203,23 @@
             x-text="shells.error"
           ></div>
 
+          <div class="mt-4 rounded-lg border border-notion-border bg-notion-surface p-4 text-sm">
+            <div class="text-xs uppercase tracking-wider text-notion-faint">Default shell</div>
+            <div class="mt-1 flex flex-wrap items-center gap-2">
+              <code
+                class="break-all rounded bg-notion-bg px-2 py-1 text-xs text-notion-ink"
+                x-text="(shells.defaultShell?.argv || []).join(' ') || 'Platform default'"
+              ></code>
+              <span
+                class="rounded-full bg-notion-sunken px-2 py-0.5 text-[11px] text-notion-muted"
+                x-text="shells.defaultShell?.source === 'config' ? 'Configured' : 'Platform default'"
+              ></span>
+            </div>
+            <p class="mt-2 text-xs text-notion-faint">
+              Changes apply to newly opened shells. Existing panes keep running.
+            </p>
+          </div>
+
           <div class="mt-6 grid gap-4">
             <template x-for="shell in shells.list" :key="shell.id">
               <div class="rounded-lg border border-notion-border bg-notion-surface p-5">
@@ -239,6 +256,14 @@
                     </div>
                   </div>
                   <div class="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      x-show="shell.installed"
+                      class="rounded-md border border-notion-borderStrong px-3 py-2 text-sm text-notion-ink hover:bg-notion-sunken disabled:opacity-50"
+                      :disabled="isDefaultShell(shell) || shells.defaultBusyId === shell.id"
+                      @click="useDefaultShell(shell)"
+                      x-text="isDefaultShell(shell) ? 'Default' : (shells.defaultBusyId === shell.id ? 'Saving...' : 'Use as default')"
+                    ></button>
                     <button
                       type="button"
                       x-show="!shell.installed && shell.install_command"

@@ -45,6 +45,8 @@ function untermSettings() {
       loading: false,
       loaded: false,
       busyId: null,
+      defaultBusyId: null,
+      defaultShell: null,
       list: [],
       platform: 'unknown',
       error: null,
@@ -768,6 +770,7 @@ function untermSettings() {
         const res = await this.api('GET', '/api/shells');
         this.shells.platform = res.platform || this.platform || 'unknown';
         this.shells.list = res.shells || [];
+        this.shells.defaultShell = res.default_shell || null;
         this.shells.loaded = true;
       } catch (e) {
         this.shells.error = e.message;
@@ -775,6 +778,28 @@ function untermSettings() {
       } finally {
         this.shells.loading = false;
       }
+    },
+
+    async useDefaultShell(shell) {
+      if (!shell || !shell.id || !shell.installed) return;
+      this.shells.defaultBusyId = shell.id;
+      try {
+        const res = await this.api('POST', '/api/shells/default', { id: shell.id });
+        this.shells.defaultShell = res.default_shell || null;
+        this.toast(shell.name + ' will be used for new shells', 'success');
+      } catch (e) {
+        this.toast('Default shell update failed: ' + e.message, 'error');
+      } finally {
+        this.shells.defaultBusyId = null;
+      }
+    },
+
+    isDefaultShell(shell) {
+      const argv = this.shells.defaultShell?.argv || [];
+      const current = (argv[0] || '').toLowerCase().replaceAll('\\', '/');
+      const path = (shell.path || '').toLowerCase().replaceAll('\\', '/');
+      if (!current || !path) return false;
+      return current === path || current.endsWith('/' + path.split('/').pop());
     },
 
     copyShellInstall(shell) {

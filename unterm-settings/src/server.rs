@@ -333,6 +333,7 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         ("GET", "/api/state") => api_state(handler),
         ("GET", "/api/shells") => api_shells(),
         ("POST", "/api/shells/install") => api_shell_install(&req.body),
+        ("POST", "/api/shells/default") => api_shell_default_set(&req.body),
         ("POST", "/api/proxy") => api_proxy(handler, &req.body),
         ("POST", "/api/proxy/rotation") => api_proxy_rotation(handler, &req.body),
         ("POST", "/api/proxy/nodes") => api_proxy_set_nodes(handler, &req.body),
@@ -975,6 +976,47 @@ fn api_shells() -> Response {
     Response::ok_json(json!({
         "platform": std::env::consts::OS,
         "shells": shell_inventory(),
+        "default_shell": current_default_shell(),
+    }))
+}
+
+fn current_default_shell() -> Value {
+    let (config, _) = unterm_services::settings::load(None);
+    let explicit = unterm_services::settings::Settings::from_config(&config).shell;
+    let (source, argv) = if let Some(argv) = explicit {
+        ("config", argv)
+    } else {
+        (
+            "platform",
+            unterm_services::settings::preferred_platform_shell().unwrap_or_default(),
+        )
+    };
+    json!({
+        "source": source,
+        "argv": argv,
+        "label": argv.first().map(|s| short_program_name(s)).unwrap_or_default(),
+    })
+}
+
+fn api_shell_default_set(body: &[u8]) -> Response {
+    let body = parse_json_body(body);
+    let id = match body.get("id").and_then(|v| v.as_str()) {
+        Some(id) if !id.trim().is_empty() => id.trim(),
+        _ => return Response::err(400, "Bad Request", "missing shell id"),
+    };
+    let Some(argv) = shell_default_argv(id) else {
+        return Response::err(400, "Bad Request", "shell cannot be used as a default");
+    };
+    if argv.is_empty() {
+        return Response::err(400, "Bad Request", "shell command is empty");
+    }
+    if let Err(err) = write_default_shell(&argv) {
+        return Response::err(500, "Internal Error", &err.to_string());
+    }
+    Response::ok_json(json!({
+        "applied": true,
+        "requires_new_shell": true,
+        "default_shell": current_default_shell(),
     }))
 }
 
@@ -1365,6 +1407,127 @@ fn shell_install_plan(id: &str) -> Option<ShellInstallPlan> {
         }),
         _ => None,
     }
+}
+
+fn shell_default_argv(id: &str) -> Option<Vec<String>> {
+    let (candidates, args): (&[&str], &[&str]) = match (std::env::consts::OS, id) {
+        ("windows", "pwsh") => (
+            &[
+                r"C:\Program Files\PowerShell\7\pwsh.exe",
+                "pwsh.exe",
+                "pwsh",
+            ],
+            &["-NoLogo", "-NoProfile"],
+        ),
+        ("windows", "windows-powershell") => (&["powershell.exe"], &["-NoLogo", "-NoProfile"]),
+        ("windows", "cmd") => (&["cmd.exe"], &[]),
+        ("windows", "git-bash") => (
+            &[
+                r"C:\Program Files\Git\bin\bash.exe",
+                r"C:\Program Files (x86)\Git\bin\bash.exe",
+                "bash.exe",
+                "bash",
+            ],
+            &[],
+        ),
+        ("windows", "msys2") => (
+            &[
+                r"C:\msys64\usr\bin\bash.exe",
+                r"C:\tools\msys64\usr\bin\bash.exe",
+                "msys2.exe",
+            ],
+            &[],
+        ),
+        ("windows", "cygwin") => (
+            &[r"C:\cygwin64\bin\bash.exe", r"C:\cygwin\bin\bash.exe"],
+            &[],
+        ),
+        ("windows", "wsl") => (&["wsl.exe", "wsl"], &[]),
+        ("windows", "nushell") => (&["nu.exe", "nu"], &[]),
+        (_, "bash") => (&["bash"], &[]),
+        (_, "zsh") => (&["zsh"], &[]),
+        (_, "fish") => (&["fish"], &[]),
+        (_, "elvish") => (&["elvish"], &[]),
+        (_, "xonsh") => (&["xonsh"], &[]),
+        (_, "oil") => (&["osh", "oil"], &[]),
+        (_, "pwsh") => (&["pwsh"], &["-NoLogo", "-NoProfile"]),
+        (_, "nushell") => (&["nu"], &[]),
+        _ => return None,
+    };
+    let program = candidates
+        .iter()
+        .find_map(|candidate| resolve_program(candidate))?;
+    let mut argv = vec![program];
+    argv.extend(args.iter().map(|arg| arg.to_string()));
+    Some(argv)
+}
+
+fn write_default_shell(argv: &[String]) -> std::io::Result<()> {
+    let path = unterm_services::settings::default_path()
+        .unwrap_or_else(|| std::path::PathBuf::from(".unterm").join("unterm.conf"));
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let source = std::fs::read_to_string(&path).unwrap_or_default();
+    let updated = set_top_level_shell(&source, argv);
+    std::fs::write(path, updated)
+}
+
+fn set_top_level_shell(source: &str, argv: &[String]) -> String {
+    let shell_line = format!("shell = {}\n", config_string_list(argv));
+    let mut output = String::new();
+    let mut replaced = false;
+    let mut inserted = false;
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        let starts_section = trimmed.starts_with('[');
+        if starts_section && !inserted && !replaced {
+            output.push_str(&shell_line);
+            if !output.ends_with("\n\n") {
+                output.push('\n');
+            }
+            inserted = true;
+        }
+        if !starts_section && !replaced && top_level_shell_line(line) {
+            output.push_str(&shell_line);
+            replaced = true;
+            inserted = true;
+        } else {
+            output.push_str(line);
+            output.push('\n');
+        }
+    }
+    if !inserted && !replaced {
+        output.push_str(&shell_line);
+    }
+    output
+}
+
+fn top_level_shell_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with('#') || trimmed.starts_with('[') {
+        return false;
+    }
+    trimmed
+        .strip_prefix("shell")
+        .is_some_and(|rest| rest.trim_start().starts_with('='))
+}
+
+fn config_string_list(values: &[String]) -> String {
+    let quoted = values
+        .iter()
+        .map(|value| format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\"")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("[{quoted}]")
+}
+
+fn short_program_name(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path)
+        .to_string()
 }
 
 fn resolve_program(program: &str) -> Option<String> {
@@ -2128,7 +2291,11 @@ mod tests {
     #[test]
     fn api_routes_require_the_instance_bearer_token() {
         let handler = McpHandler::new();
-        let response = route(&request("GET", "/api/health", None, Vec::new()), "secret", &handler);
+        let response = route(
+            &request("GET", "/api/health", None, Vec::new()),
+            "secret",
+            &handler,
+        );
         assert_eq!(response.status, 401);
 
         let response = route(
@@ -2244,6 +2411,58 @@ mod tests {
     }
 
     #[test]
+    fn default_shell_config_is_written_before_sections() {
+        let updated = set_top_level_shell(
+            "font_size = 12\n\n[window]\ninitial_cols = 120\n",
+            &[
+                "powershell.exe".to_string(),
+                "-NoLogo".to_string(),
+                "-NoProfile".to_string(),
+            ],
+        );
+
+        assert!(updated.starts_with("font_size = 12\n\nshell = ["));
+        assert!(updated.contains("\"powershell.exe\""));
+        assert!(updated.contains("\n[window]\n"));
+        let parsed = unterm_engine::next_core::config::parse(&updated).expect("valid config");
+        let settings = unterm_services::settings::Settings::from_config(&parsed);
+        assert_eq!(
+            settings.shell,
+            Some(vec![
+                "powershell.exe".to_string(),
+                "-NoLogo".to_string(),
+                "-NoProfile".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn default_shell_api_round_trips_through_state_config() {
+        let _guard = StateDirGuard::new("shell-default");
+        #[cfg(windows)]
+        let id = "cmd";
+        #[cfg(not(windows))]
+        let id = "bash";
+
+        let body = json!({ "id": id }).to_string();
+        let response = api_shell_default_set(body.as_bytes());
+        assert_eq!(response.status, 200);
+        let value = response_json(response);
+        assert_eq!(value["applied"], true);
+        assert_eq!(value["requires_new_shell"], true);
+        assert_eq!(value["default_shell"]["source"], "config");
+
+        let path = unterm_services::settings::default_path().expect("state config path");
+        let source = std::fs::read_to_string(path).expect("default shell config");
+        assert!(source.contains("shell = ["));
+        let (config, errors) = unterm_services::settings::load(None);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(unterm_services::settings::Settings::from_config(&config)
+            .shell
+            .is_some());
+    }
+
+    #[test]
     fn compat_api_round_trips_term_program_in_state_dir() {
         let _guard = StateDirGuard::new("compat-roundtrip");
 
@@ -2286,17 +2505,14 @@ mod tests {
 
     impl StateDirGuard {
         fn new(name: &str) -> Self {
-            static ENV_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> =
-                std::sync::OnceLock::new();
+            static ENV_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
             let lock = ENV_LOCK
                 .get_or_init(|| std::sync::Mutex::new(()))
                 .lock()
                 .expect("state dir env lock");
             let original = std::env::var_os("UNTERM_STATE_DIR");
-            let path = std::env::temp_dir().join(format!(
-                "unterm-settings-{name}-{}",
-                std::process::id()
-            ));
+            let path =
+                std::env::temp_dir().join(format!("unterm-settings-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&path);
             std::fs::create_dir_all(&path).expect("create isolated state dir");
             std::env::set_var("UNTERM_STATE_DIR", &path);
