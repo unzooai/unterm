@@ -9184,17 +9184,18 @@ impl App {
                 self.tab_id = self.tabs.create_tab(session.id).ok();
                 self.engine.refresh_cached_frame(session.id);
                 self.quiet_since = None;
+                self.drawn_revision = None;
                 if let Some(live) = self.state.as_mut() {
                     live.session_id = session.id;
                     live.window.request_redraw();
                 }
+                self.draw();
                 if !self.startup_input.is_empty() {
                     let input = std::mem::take(&mut self.startup_input);
                     if let Err(err) = self.engine.write_input(session.id, &input) {
                         log::warn!("could not replay startup input: {err:#}");
                     }
                 }
-                self.drawn_revision = None;
             }
             Ok(Err(err)) => {
                 log::error!("startup session failed: {err:#}");
