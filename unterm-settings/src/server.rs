@@ -2242,6 +2242,81 @@ mod tests {
         let response = api_shell_install(body);
         assert_eq!(response.status, 400);
     }
+
+    #[test]
+    fn compat_api_round_trips_term_program_in_state_dir() {
+        let _guard = StateDirGuard::new("compat-roundtrip");
+
+        let response = api_compat_get();
+        assert_eq!(response.status, 200);
+        assert_eq!(response_json(response)["term_program"], "Unterm");
+
+        let body = json!({ "term_program": "WezTerm" }).to_string();
+        let response = api_compat_set(body.as_bytes());
+        assert_eq!(response.status, 200);
+        let value = response_json(response);
+        assert_eq!(value["term_program"], "WezTerm");
+        assert_eq!(value["requires_new_shell"], true);
+
+        let response = api_compat_get();
+        assert_eq!(response.status, 200);
+        assert_eq!(response_json(response)["term_program"], "WezTerm");
+    }
+
+    #[test]
+    fn compat_api_rejects_empty_and_control_values() {
+        let _guard = StateDirGuard::new("compat-reject");
+
+        let response = api_compat_set(br#"{"term_program":"   "}"#);
+        assert_eq!(response.status, 400);
+
+        let response = api_compat_set(b"{\"term_program\":\"bad\\nvalue\"}");
+        assert_eq!(response.status, 400);
+
+        let response = api_compat_get();
+        assert_eq!(response.status, 200);
+        assert_eq!(response_json(response)["term_program"], "Unterm");
+    }
+
+    struct StateDirGuard {
+        original: Option<std::ffi::OsString>,
+        path: std::path::PathBuf,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl StateDirGuard {
+        fn new(name: &str) -> Self {
+            static ENV_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> =
+                std::sync::OnceLock::new();
+            let lock = ENV_LOCK
+                .get_or_init(|| std::sync::Mutex::new(()))
+                .lock()
+                .expect("state dir env lock");
+            let original = std::env::var_os("UNTERM_STATE_DIR");
+            let path = std::env::temp_dir().join(format!(
+                "unterm-settings-{name}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("create isolated state dir");
+            std::env::set_var("UNTERM_STATE_DIR", &path);
+            Self {
+                original,
+                path,
+                _lock: lock,
+            }
+        }
+    }
+
+    impl Drop for StateDirGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(value) => std::env::set_var("UNTERM_STATE_DIR", value),
+                None => std::env::remove_var("UNTERM_STATE_DIR"),
+            }
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
 }
 
 fn sessions_path_string() -> String {
