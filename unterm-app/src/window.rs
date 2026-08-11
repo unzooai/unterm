@@ -9337,6 +9337,7 @@ impl ApplicationHandler for App {
                 if let Some(live) = self.state.as_ref() {
                     live.window.request_redraw();
                 }
+                self.draw();
                 crate::startup_trace::mark("window.state.ready");
             }
             Err(err) => {
