@@ -1300,7 +1300,7 @@ Run a battery of internal probes — mux availability, server health, capabiliti
 
 **Returns:** `{ ok: bool, checks: [{ name, ok, detail }, ...] }`
 
-`ok` is true iff every check is true. Each `detail` is the full method response (or an `{ error }` object on failure). The `unterm-cli selftest` subcommand is a thin wrapper around this method.
+`ok` is true iff every check is true. Each `detail` is the full method response (or an `{ error }` object on failure). The `unterm-cli server selftest` subcommand is a thin wrapper around this method.
 
 ```json
 {"jsonrpc":"2.0","id":8,"method":"selftest.run","params":{"session_id":"0"}}
