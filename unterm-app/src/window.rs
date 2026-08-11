@@ -381,6 +381,10 @@ fn styled_lines_have_text(lines: &[unterm_engine::StyledScreenLine]) -> bool {
     })
 }
 
+fn quick_menu_owns_keyboard(pending_confirmation_visible: bool) -> bool {
+    !pending_confirmation_visible
+}
+
 #[cfg(test)]
 mod quick_menu_tests {
     use super::*;
@@ -430,6 +434,12 @@ mod quick_menu_tests {
         menu.hover = Some(8);
         menu.reveal_hover();
         assert_eq!(menu.top_row, 4);
+    }
+
+    #[test]
+    fn quick_menu_keeps_keyboard_unless_a_confirmation_is_visible() {
+        assert!(quick_menu_owns_keyboard(false));
+        assert!(!quick_menu_owns_keyboard(true));
     }
 }
 
@@ -9569,11 +9579,16 @@ impl ApplicationHandler for App {
                     );
                 }
 
-                // While an agent write waits on its banner, the banner owns
-                // the keys -- even over an open quick menu, whose Enter
-                // would otherwise double as silent consent.
+                let pending_confirmation = unterm_mcp::handler::pending_confirmation_view();
+
+                // While an agent write waits on its visible banner, the
+                // banner owns the keys -- even over an open quick menu, whose
+                // Enter would otherwise double as silent consent. Otherwise an
+                // open quick menu is modal and must swallow every key; a stale
+                // pending-confirmation count must not leak letters into the
+                // shell under Claude or another mouse-reporting TUI.
                 if self.quick_menu.is_some()
-                    && unterm_mcp::handler::pending_confirmation_count() == 0
+                    && quick_menu_owns_keyboard(pending_confirmation.is_some())
                 {
                     match event.logical_key {
                         Key::Named(winit::keyboard::NamedKey::Escape) => {
@@ -9612,9 +9627,7 @@ impl ApplicationHandler for App {
                     // fall through to the shell under an open menu.
                     return;
                 }
-                if unterm_mcp::handler::pending_confirmation_view().is_none()
-                    && self.handle_suggestion_key(&event)
-                {
+                if pending_confirmation.is_none() && self.handle_suggestion_key(&event) {
                     return;
                 }
                 if self.quick_select.is_some() && self.handle_quick_select_key(&event) {
@@ -9623,7 +9636,7 @@ impl ApplicationHandler for App {
                 if self.copy_mode.is_some() && self.handle_copy_mode_key(&event) {
                     return;
                 }
-                if unterm_mcp::handler::pending_confirmation_view().is_none()
+                if pending_confirmation.is_none()
                     && self.inbox_open
                     && self.handle_inbox_key(&event)
                 {
@@ -9660,7 +9673,7 @@ impl ApplicationHandler for App {
                 // these keys answer it rather than reaching the shell, and
                 // everything else is ignored so a stray keystroke cannot be
                 // mistaken for consent.
-                if let Some(pending) = unterm_mcp::handler::pending_confirmation_view() {
+                if let Some(pending) = pending_confirmation {
                     let decision = match &event.logical_key {
                         Key::Named(winit::keyboard::NamedKey::Escape) => {
                             Some(unterm_mcp::handler::ConfirmationDecision::Block)
