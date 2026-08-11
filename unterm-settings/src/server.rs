@@ -2108,8 +2108,99 @@ fn current_recording_info() -> Value {
 mod tests {
     use super::*;
 
+    fn request(method: &str, path: &str, token: Option<&str>, body: Vec<u8>) -> Request {
+        let headers = token
+            .map(|token| vec![("Authorization".into(), format!("Bearer {token}"))])
+            .unwrap_or_default();
+        Request {
+            method: method.into(),
+            path: path.into(),
+            query: String::new(),
+            headers,
+            body,
+        }
+    }
+
     fn response_json(response: Response) -> Value {
         serde_json::from_slice(&response.body).expect("response body should be json")
+    }
+
+    #[test]
+    fn api_routes_require_the_instance_bearer_token() {
+        let handler = McpHandler::new();
+        let response = route(&request("GET", "/api/health", None, Vec::new()), "secret", &handler);
+        assert_eq!(response.status, 401);
+
+        let response = route(
+            &request("GET", "/api/health", Some("wrong"), Vec::new()),
+            "secret",
+            &handler,
+        );
+        assert_eq!(response.status, 401);
+
+        let response = route(
+            &request("GET", "/api/health", Some("secret"), Vec::new()),
+            "secret",
+            &handler,
+        );
+        assert_eq!(response.status, 200);
+        assert_eq!(response_json(response)["ok"], true);
+    }
+
+    #[test]
+    fn bootstrap_remains_public_but_api_reference_is_token_gated() {
+        let handler = McpHandler::new();
+        let bootstrap = route(
+            &request("GET", "/bootstrap.json", None, Vec::new()),
+            "secret",
+            &handler,
+        );
+        assert_eq!(bootstrap.status, 200);
+        assert!(response_json(bootstrap).get("auth_token").is_some());
+
+        let reference = route(
+            &request("GET", "/api/reference", None, Vec::new()),
+            "secret",
+            &handler,
+        );
+        assert_eq!(reference.status, 401);
+    }
+
+    #[test]
+    fn api_reference_uses_the_same_meta_surface_as_mcp() {
+        let handler = McpHandler::new();
+        let response = route(
+            &request("GET", "/api/reference", Some("secret"), Vec::new()),
+            "secret",
+            &handler,
+        );
+        assert_eq!(response.status, 200);
+        let from_settings = response_json(response);
+        let from_mcp = unterm_mcp::meta::surface(&Value::Null).expect("meta.surface");
+
+        assert_eq!(from_settings["mcp_methods"], from_mcp["mcp_methods"]);
+        assert_eq!(from_settings["cli_commands"], from_mcp["cli_commands"]);
+    }
+
+    #[test]
+    fn shell_inventory_keeps_recommended_powershell_and_install_plan() {
+        let response = api_shells();
+        assert_eq!(response.status, 200);
+        let value = response_json(response);
+        let shells = value["shells"].as_array().expect("shells array");
+        let pwsh = shells
+            .iter()
+            .find(|shell| shell["id"] == "pwsh")
+            .expect("PowerShell 7 entry");
+
+        assert_eq!(pwsh["recommended"], true);
+        assert_eq!(pwsh["name"], "PowerShell 7");
+        assert!(
+            pwsh["install_command"]
+                .as_str()
+                .is_some_and(|command| command.contains("PowerShell")),
+            "pwsh entry should expose an install command: {pwsh:?}"
+        );
     }
 
     #[test]
