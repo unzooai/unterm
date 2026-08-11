@@ -59,11 +59,13 @@ unterm-cli start [--cwd DIR] [--title TITLE] [-- PROGRAM [ARGS...]]
 
 ## setup-ai
 
-Register or unregister Unterm in local AI coding-agent config files. This writes the managed AGENTS.md / config snippets that point agents at `unterm-cli mcp-stdio`.
+Register or unregister Unterm in local AI coding-agent config files. This writes managed MCP entries that point agents at `unterm-cli mcp-stdio`, plus optional context blocks and cockpit lifecycle hooks.
 
 ```text
-unterm-cli setup-ai [--dry-run] [--remove]
+unterm-cli setup-ai [--dry-run] [--remove] [--no-context] [--no-hooks] [--client ID]
 ```
+
+Supported client ids are `claude-code`, `codex`, `gemini`, `cursor`, `windsurf`, and `opencode`. By default `setup-ai` detects all of them and updates only config directories that exist.
 
 ## mcp-stdio
 

@@ -15,33 +15,40 @@ Concretely, every Unterm window opens two local servers on launch:
 - **MCP server** on `127.0.0.1:<auto-port>` — line-delimited JSON-RPC over TCP, auth-token gated, exposes every product operation (create pane, send input, read screen, capture screenshot, record, manage proxy, query instances).
 - **HTTP settings server** on `127.0.0.1:<auto-port>` — REST endpoints for human-driven config (theme, font, profile) and a Tailwind+Alpine SPA at the root. Theme switching, font tweaks, and profile edits are HTTP-only — they're not on MCP because they're settings the user owns, not actions an agent should script.
 
-Both ports plus the auth token are written to `~/.unterm/server.json` on launch. That file is the canonical handshake — every external tool reads it to figure out where to connect.
+Both ports plus the auth token are written to `~/.unterm/server.json` on launch for older scripts. Modern MCP clients should be registered through `unterm-cli mcp-stdio`: the bridge reads the active instance registry, authenticates to the right local TCP server, and keeps the static client config working across restarts and multiple windows.
 
 For the full schema of every MCP method see the [MCP reference](/docs/mcp-reference). For the layout of `~/.unterm/` see the [configuration guide](/docs/configuration). For driving more than one window at a time see the [multi-instance guide](/docs/multi-instance). For shell scripting, see the [CLI reference](/docs/cli-reference).
 
 ## Quick start: connecting Claude Code
 
-Claude Code is the canonical example because it ships native MCP support. Two minutes of setup:
+Claude Code is the canonical example because it ships native MCP support. The supported setup path is:
 
-1. Install Unterm and launch it once. Verify `~/.unterm/server.json` appears.
-2. Add Unterm as an MCP server to your Claude Code config (typically `~/.claude/mcp.json`):
+1. Install Unterm and launch it once.
+2. Run the idempotent installer:
+
+```sh
+unterm-cli setup-ai
+```
+
+3. Restart Claude Code. Type `/mcp` and you should see `unterm` listed as a connected server with its tool list.
+
+`setup-ai` writes a managed `unterm` stdio MCP server into supported local clients, including Claude Code, Codex CLI, Gemini CLI, Cursor, Windsurf and OpenCode when their config directories exist. For Claude Code that means a `mcpServers.unterm` entry in `~/.claude.json`:
 
 ```json
 {
-  "servers": {
+  "mcpServers": {
     "unterm": {
-      "type": "tcp",
-      "host": "127.0.0.1",
-      "port_from_file": "~/.unterm/server.json:mcp_port",
-      "auth_token_from_file": "~/.unterm/server.json:auth_token"
+      "type": "stdio",
+      "command": "C:\\Program Files\\Unterm\\unterm-cli.exe",
+      "args": ["mcp-stdio"]
     }
   }
 }
 ```
 
-3. Restart Claude Code. Type `/mcp` and you should see `unterm` listed as a connected server with its tool list.
+Use the actual `unterm-cli` path on your machine. The bridge self-discovers the active Unterm window at connection time, so you do not hard-code the port or token into Claude's config. Cursor, Gemini, Windsurf and OpenCode use the same bridge with their own config-file shapes; Codex uses `[mcp_servers.unterm]` in `~/.codex/config.toml`.
 
-Cursor and Aider follow the same pattern — point an MCP client at the local socket described in `server.json`. If you want to drive multiple Unterm windows from one agent, see the [multi-instance guide](/docs/multi-instance) — each window gets its own port and token, and there's a small registry under `~/.unterm/instances/` to enumerate them.
+If you want to drive multiple Unterm windows from one agent, see the [multi-instance guide](/docs/multi-instance) — each window gets its own port and token, and there's a small registry under `~/.unterm/instances/` to enumerate them.
 
 ## Headless task runner
 
