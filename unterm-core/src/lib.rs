@@ -878,6 +878,7 @@ fn dispatch_inner(
         "core.health" => {
             let is_draining = draining.load(Ordering::Acquire);
             let status = if is_draining { "draining" } else { "ready" };
+            let active_session_count = engine.list_sessions()?.len();
             serde_json::to_string(&response_ok(
                 id,
                 serde_json::json!({
@@ -886,12 +887,15 @@ fn dispatch_inner(
                     "ready": !is_draining,
                     "accepting_sessions": !is_draining,
                     "draining": is_draining,
+                    "active_session_count": active_session_count,
+                    "drained": is_draining && active_session_count == 0,
                 }),
             ))?
         }
         "core.readiness" => {
             let is_draining = draining.load(Ordering::Acquire);
             let status = if is_draining { "not_ready" } else { "ready" };
+            let active_session_count = engine.list_sessions()?.len();
             serde_json::to_string(&response_ok(
                 id,
                 serde_json::json!({
@@ -899,6 +903,8 @@ fn dispatch_inner(
                     "ready": !is_draining,
                     "accepting_sessions": !is_draining,
                     "reason": if is_draining { "draining" } else { "ready" },
+                    "active_session_count": active_session_count,
+                    "drained": is_draining && active_session_count == 0,
                 }),
             ))?
         }
@@ -916,9 +922,15 @@ fn dispatch_inner(
             if then_exit {
                 exit_when_idle.store(true, Ordering::Release);
             }
+            let active_session_count = engine.list_sessions()?.len();
             serde_json::to_string(&response_ok(
                 id,
-                serde_json::json!({"status":"draining", "exit_when_idle": then_exit}),
+                serde_json::json!({
+                    "status":"draining",
+                    "exit_when_idle": then_exit,
+                    "active_session_count": active_session_count,
+                    "drained": active_session_count == 0,
+                }),
             ))?
         }
         "core.shutdown" => serde_json::to_string(&response_ok(

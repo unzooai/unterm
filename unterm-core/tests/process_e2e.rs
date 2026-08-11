@@ -250,6 +250,8 @@ fn health_and_readiness_split_liveness_from_accepting_work() {
     assert_eq!(health["result"]["alive"], true);
     assert_eq!(health["result"]["ready"], true);
     assert_eq!(health["result"]["accepting_sessions"], true);
+    assert_eq!(health["result"]["active_session_count"], 0);
+    assert_eq!(health["result"]["drained"], false);
 
     let readiness = request(
         &mut stream,
@@ -263,6 +265,19 @@ fn health_and_readiness_split_liveness_from_accepting_work() {
     );
     assert_eq!(readiness["result"]["ready"], true);
     assert_eq!(readiness["result"]["accepting_sessions"], true);
+    assert_eq!(readiness["result"]["active_session_count"], 0);
+    assert_eq!(readiness["result"]["drained"], false);
+
+    let existing = request(
+        &mut stream,
+        &discovery.token,
+        "session.create",
+        serde_json::json!({"cols": 80, "rows": 24}),
+    );
+    assert_eq!(existing["ok"], true, "session.create failed: {existing}");
+    let pane_id = existing["result"]["id"]
+        .as_u64()
+        .expect("created session has id");
 
     let drain = request(
         &mut stream,
@@ -271,6 +286,8 @@ fn health_and_readiness_split_liveness_from_accepting_work() {
         serde_json::json!({"exit_when_idle": false}),
     );
     assert_eq!(drain["ok"], true, "core.drain failed: {drain}");
+    assert_eq!(drain["result"]["active_session_count"], 1);
+    assert_eq!(drain["result"]["drained"], false);
 
     let health = request(
         &mut stream,
@@ -282,6 +299,8 @@ fn health_and_readiness_split_liveness_from_accepting_work() {
     assert_eq!(health["result"]["status"], "draining");
     assert_eq!(health["result"]["ready"], false);
     assert_eq!(health["result"]["accepting_sessions"], false);
+    assert_eq!(health["result"]["active_session_count"], 1);
+    assert_eq!(health["result"]["drained"], false);
 
     let readiness = request(
         &mut stream,
@@ -293,6 +312,26 @@ fn health_and_readiness_split_liveness_from_accepting_work() {
     assert_eq!(readiness["result"]["ready"], false);
     assert_eq!(readiness["result"]["accepting_sessions"], false);
     assert_eq!(readiness["result"]["reason"], "draining");
+    assert_eq!(readiness["result"]["active_session_count"], 1);
+    assert_eq!(readiness["result"]["drained"], false);
+
+    let closed = request(
+        &mut stream,
+        &discovery.token,
+        "session.close",
+        serde_json::json!({"pane_id": pane_id}),
+    );
+    assert_eq!(closed["ok"], true, "session.close failed: {closed}");
+
+    let health = request(
+        &mut stream,
+        &discovery.token,
+        "core.health",
+        serde_json::Value::Null,
+    );
+    assert_eq!(health["result"]["status"], "draining");
+    assert_eq!(health["result"]["active_session_count"], 0);
+    assert_eq!(health["result"]["drained"], true);
 
     let created = request(
         &mut stream,

@@ -42,7 +42,9 @@ unterm-engine next-core（PTY、Screen、Scrollback、revision）
   不与版本偏差的 Core 通信，也不会在其旁边误拉第二个 Core。
 - **drain**：`core.drain` 后 `core.health` 继续报告进程存活但状态为
   `draining`，`core.readiness` 报告 `not_ready`，`session.create` 返回
-  `draining` 错误码，存量会话继续可用。
+  `draining` 错误码，存量会话继续可用。`core.drain`、`core.health` 与
+  `core.readiness` 都返回 `active_session_count` 和 `drained`，供托管方判断
+  何时排空完成。
   这是 GUI「排空后退出」语义的 Core 侧基础。`core.shutdown` 报告
   `stopping` 并停止服务。
 
@@ -50,9 +52,9 @@ unterm-engine next-core（PTY、Screen、Scrollback、revision）
 
 ```text
 core.info                BuildHandshake 身份与版本
-core.health              进程存活/排空状态（ready | draining，alive=true）
-core.readiness           是否接受新工作（ready | not_ready）
-core.drain               拒新会话（create/split），保存量
+core.health              进程存活/排空状态（ready | draining，alive=true，含排空计数）
+core.readiness           是否接受新工作（ready | not_ready，含排空计数）
+core.drain               拒新会话（create/split），保存量，返回排空计数
 core.shutdown            停止服务
 core.events              连接转为单向事件推送流（见下）
 session.create           cols/rows/cwd/argv/env/launch_policy -> SessionSnapshot
