@@ -20,7 +20,8 @@ const MCP_HOST: &str = "127.0.0.1";
 const LEGACY_MCP_PORT: u16 = 19876;
 
 const NOT_RUNNING_HINT: &str =
-    "Unterm is not running; open Unterm.app or run 'unterm start' to start the MCP server";
+    "Unterm control server is not running; open Unterm.app, run 'unterm start', or start \
+     unterm-core --headless";
 static TARGET_INSTANCE: OnceLock<String> = OnceLock::new();
 
 pub struct McpClient {

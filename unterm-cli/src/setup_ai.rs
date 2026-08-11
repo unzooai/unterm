@@ -61,8 +61,8 @@ read/write files in the real terminal session the user is looking at.
 It also exposes safe suggestion, scrollback search, audit-log, server-health,
 and trusted-agent inspection surfaces for AI workflows.
 
-- If the `unterm` tools aren't loaded, Unterm.app must be running — ask the user
-  to open it, then reconnect.
+- If the `unterm` tools aren't loaded, ask the user to open Unterm.app or start
+  `unterm-core --headless`, then reconnect.
 - Full tool + CLI surface from any shell: `unterm-cli reference`.
 - Multiple Unterm windows may be open (named alpha, bravo, …); tools target the
   active one unless you pass an instance. List them with the `instance.list` tool.";
@@ -709,7 +709,10 @@ fn render(
         println!("Gemini CLI, Cursor, Windsurf, OpenCode) then re-run `unterm-cli setup-ai`.");
     } else if !cmd.remove {
         println!("\nDone. Agents will reach Unterm via the `unterm` MCP server");
-        println!("(needs Unterm.app running). Re-run any time to re-sync; `--remove` to undo.");
+        println!(
+            "(needs Unterm.app or unterm-core running). Re-run any time to re-sync; \
+             `--remove` to undo."
+        );
     }
 }
 

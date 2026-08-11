@@ -32,11 +32,11 @@ use std::io::{BufRead, Write};
 /// widely-supported revision; clients negotiate down if needed.
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
-/// Friendly per-call error when the GUI isn't up. Returned with
+/// Friendly per-call error when the control server isn't up. Returned with
 /// `isError: true` so the agent can read it and tell the user.
-const GUI_NOT_RUNNING: &str = "Unterm GUI is not running — open Unterm.app (or run \
-`unterm start`), then retry. The tool surface is still listed so you know what \
-will be available once it's up.";
+const GUI_NOT_RUNNING: &str = "Unterm control server is not running — open Unterm.app, run \
+`unterm start`, or start `unterm-core --headless`, then retry. The tool surface \
+is still listed so you know what will be available once it's up.";
 
 pub fn run() -> Result<()> {
     let bridge_started_at = chrono::Utc::now().to_rfc3339();
@@ -94,7 +94,7 @@ pub fn run() -> Result<()> {
         if n == 0 {
             break; // EOF — client closed stdin
         }
-        let trimmed = line.trim();
+        let trimmed = normalize_input_line(&line);
         if trimmed.is_empty() {
             continue;
         }
@@ -367,6 +367,10 @@ fn write_msg(out: &mut impl Write, msg: &Value) -> Result<()> {
     Ok(())
 }
 
+fn normalize_input_line(line: &str) -> &str {
+    line.trim().trim_start_matches('\u{feff}')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,6 +402,14 @@ mod tests {
         assert_eq!(value["id"], 7);
         assert_eq!(value["error"]["code"], -32010);
         assert_eq!(value["error"]["message"], "protocol_incompatible: restart");
+    }
+
+    #[test]
+    fn input_lines_tolerate_utf8_bom() {
+        assert_eq!(
+            normalize_input_line("\u{feff}{\"jsonrpc\":\"2.0\"}\r\n"),
+            "{\"jsonrpc\":\"2.0\"}"
+        );
     }
 
     #[test]

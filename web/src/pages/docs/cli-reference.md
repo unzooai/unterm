@@ -1447,7 +1447,7 @@ The bracketed code in MCP errors (e.g. `[-32603]`) is the JSON-RPC error code â€
 ```sh
 if ! out=$(unterm-cli proxy status 2>&1); then
   case "$out" in
-    *"GUI is not running"*) launchctl start com.unzooai.unterm; sleep 2; ;;
+    *"control server is not running"*) launchctl start com.unzooai.unterm; sleep 2; ;;
     *) echo "unterm-cli failed: $out" >&2; exit 1 ;;
   esac
 fi
