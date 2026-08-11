@@ -1,9 +1,10 @@
 //! `unterm settings open` — print the local Web Settings URL and open it in
 //! the system browser.
 //!
-//! The bound port lives in `~/.unterm/server.json` (written by the GUI's
-//! HTTP server when it binds). We don't require an MCP round trip; we just
-//! read the file and shell out to the platform-native opener.
+//! The bound port lives in the GUI instance registry (`active.json`,
+//! `instances/`, then legacy `server.json`). We don't require an MCP round
+//! trip; we resolve the HTTP endpoint locally and shell out to the
+//! platform-native opener.
 
 use super::client::ServerEndpoint;
 use super::i18n;

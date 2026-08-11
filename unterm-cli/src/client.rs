@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 use unterm_protocol::{BuildHandshake, ProcessRole};
@@ -374,7 +374,13 @@ impl ServerEndpoint {
             return Ok(Self::from_instance_record(info));
         }
 
-        Self::resolve()
+        if let Some(endpoint) = resolve_legacy_http_endpoint(&dir)? {
+            return Ok(endpoint);
+        }
+
+        Err(anyhow!(
+            "Unterm HTTP settings server is not available; open a GUI window first"
+        ))
     }
 
     fn from_instance_record(info: InstanceRecord) -> Self {
@@ -386,6 +392,40 @@ impl ServerEndpoint {
             identity,
         }
     }
+}
+
+fn resolve_legacy_http_endpoint(dir: &Path) -> Result<Option<ServerEndpoint>> {
+    let server_json = dir.join("server.json");
+    let raw = match fs::read_to_string(&server_json) {
+        Ok(raw) => raw,
+        Err(_) => return Ok(None),
+    };
+    let info: Value = match serde_json::from_str(&raw) {
+        Ok(info) => info,
+        Err(_) => return Ok(None),
+    };
+    let token = info
+        .get("auth_token")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+    let mcp_port = info
+        .get("mcp_port")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(LEGACY_MCP_PORT as u64) as u16;
+    let http_port = info
+        .get("http_port")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as u16;
+    if token.is_empty() || http_port == 0 {
+        return Ok(None);
+    }
+    Ok(Some(ServerEndpoint {
+        token,
+        port: mcp_port,
+        http_port,
+        identity: identity_from_value(&info),
+    }))
 }
 
 /// The Core process's discovery record: `core.json` under
@@ -741,6 +781,38 @@ mod compatibility_tests {
     }
 
     #[test]
+    fn http_endpoint_does_not_use_core_discovery_without_a_gui() {
+        let _lock = env_lock();
+        let root = tempfile::tempdir().unwrap();
+        let _guard = StateDirGuard::set(root.path());
+        fs::write(
+            root.path().join("core.json"),
+            serde_json::to_string(&json!({
+                "mcp_port": 25001,
+                "token": "core-token",
+                "pid": std::process::id(),
+                "product_version": unterm_protocol::PRODUCT_VERSION,
+                "build_commit": "core-build",
+                "protocol_version": unterm_protocol::PROTOCOL_VERSION,
+                "data_schema_version": unterm_protocol::DATA_SCHEMA_VERSION,
+                "process_role": "core",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let error = match ServerEndpoint::resolve_http() {
+            Ok(_) => panic!("core-only discovery must not resolve an HTTP endpoint"),
+            Err(err) => err.to_string(),
+        };
+
+        assert!(
+            error.contains("HTTP settings server is not available"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn endpoint_uses_live_active_pointer_when_core_is_absent() {
         let _lock = env_lock();
         let root = tempfile::tempdir().unwrap();
@@ -797,6 +869,30 @@ mod compatibility_tests {
                 .map(|identity| identity.protocol_version.as_str()),
             Some("legacy")
         );
+    }
+
+    #[test]
+    fn http_endpoint_uses_legacy_server_json_without_core_or_instances() {
+        let _lock = env_lock();
+        let root = tempfile::tempdir().unwrap();
+        let _guard = StateDirGuard::set(root.path());
+        fs::write(
+            root.path().join("server.json"),
+            serde_json::to_string(&json!({
+                "mcp_port": 27001,
+                "http_port": 27002,
+                "auth_token": "server-token",
+                "version": unterm_protocol::PRODUCT_VERSION,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let endpoint = ServerEndpoint::resolve_http().unwrap();
+
+        assert_eq!(endpoint.port, 27001);
+        assert_eq!(endpoint.http_port, 27002);
+        assert_eq!(endpoint.token, "server-token");
     }
 
     #[test]
