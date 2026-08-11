@@ -354,6 +354,38 @@ impl ServerEndpoint {
             identity: None,
         })
     }
+
+    pub fn resolve_http() -> Result<Self> {
+        let dir = unterm_dir()?;
+
+        if let Some(instance_id) = requested_instance_id() {
+            let path = dir.join("instances").join(format!("{instance_id}.json"));
+            let Some(info) = read_live_record(&path)? else {
+                return Err(anyhow!(
+                    "Unterm instance '{}' was not found or is not running. Use MCP `instance.list`, or inspect {}.",
+                    instance_id,
+                    dir.join("instances").display()
+                ));
+            };
+            return Ok(Self::from_instance_record(info));
+        }
+
+        if let Some(info) = resolve_live_instance(&dir)? {
+            return Ok(Self::from_instance_record(info));
+        }
+
+        Self::resolve()
+    }
+
+    fn from_instance_record(info: InstanceRecord) -> Self {
+        let identity = info.build_handshake();
+        Self {
+            token: info.auth_token,
+            port: info.mcp_port,
+            http_port: info.http_port,
+            identity,
+        }
+    }
 }
 
 /// The Core process's discovery record: `core.json` under
@@ -415,7 +447,7 @@ fn identity_from_value(value: &Value) -> Option<BuildHandshake> {
 }
 
 pub fn http_post_json(path: &str, body: Value) -> Result<Value> {
-    let info = ServerEndpoint::resolve()?;
+    let info = ServerEndpoint::resolve_http()?;
     if info.http_port == 0 {
         return Err(anyhow!("Unterm HTTP settings server is not available"));
     }
@@ -607,6 +639,34 @@ mod compatibility_tests {
             unterm_protocol::Compatibility::Legacy
         );
         validate_peer_identity(Some(&identity)).unwrap();
+    }
+
+    #[test]
+    fn http_endpoint_keeps_the_live_gui_port() {
+        let record: InstanceRecord = serde_json::from_value(json!({
+            "mcp_port": 19876,
+            "http_port": 19877,
+            "auth_token": "secret",
+            "pid": 42,
+            "started_at": "now",
+            "product_version": unterm_protocol::PRODUCT_VERSION,
+            "build_commit": "abc123",
+            "protocol_version": unterm_protocol::PROTOCOL_VERSION,
+            "data_schema_version": unterm_protocol::DATA_SCHEMA_VERSION,
+        }))
+        .unwrap();
+        let endpoint = ServerEndpoint::from_instance_record(record);
+
+        assert_eq!(endpoint.port, 19876);
+        assert_eq!(endpoint.http_port, 19877);
+        assert_eq!(endpoint.token, "secret");
+        assert_eq!(
+            endpoint
+                .identity
+                .as_ref()
+                .map(|identity| identity.process_role),
+            Some(ProcessRole::Gui)
+        );
     }
 
     #[test]

@@ -70,7 +70,7 @@ pub fn run(cmd: SettingsCommand) -> Result<()> {
             section,
             print_only,
         } => {
-            let info = ServerEndpoint::resolve()?;
+            let info = ServerEndpoint::resolve_http()?;
             if info.http_port == 0 {
                 return Err(anyhow!("{}", i18n::t("cli.settings.no_port")));
             }
