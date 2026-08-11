@@ -17,6 +17,7 @@ mod fleet;
 mod i18n;
 mod instance;
 mod lang;
+mod legacy;
 mod mcp_stdio;
 mod output;
 mod policy;
@@ -40,6 +41,7 @@ use exec::ExecCommand;
 use fleet::FleetCommand;
 use instance::InstanceCommand;
 use lang::LangCommand;
+use legacy::LegacyCommand;
 use policy::PolicyCommand;
 use profile::ProfileCommand;
 use proxy::ProxyCommand;
@@ -254,6 +256,44 @@ enum SubCommand {
     )]
     McpStdio,
 
+    #[command(name = "cli", about = "Legacy mux compatibility command")]
+    Cli(LegacyCommand),
+
+    #[command(name = "show-keys", about = "Show effective key assignments")]
+    ShowKeys,
+
+    #[command(name = "ls-fonts", about = "Display font discovery locations")]
+    LsFonts,
+
+    #[command(name = "imgcat", about = "Output an image to the terminal")]
+    Imgcat {
+        /// Image file to print inline.
+        #[arg(value_hint = ValueHint::FilePath)]
+        path: std::path::PathBuf,
+    },
+
+    #[command(
+        name = "set-working-directory",
+        about = "Emit an OSC 7 escape so Unterm learns the cwd"
+    )]
+    SetWorkingDirectory {
+        /// Directory to report. Defaults to the current directory.
+        #[arg(value_hint = ValueHint::DirPath)]
+        path: Option<std::path::PathBuf>,
+    },
+
+    #[command(name = "record", about = "Legacy recording compatibility command")]
+    Record(LegacyCommand),
+
+    #[command(name = "replay", about = "Legacy replay compatibility command")]
+    Replay(LegacyCommand),
+
+    #[command(name = "ssh", about = "Open an SSH command in a new Unterm pane")]
+    Ssh(LegacyCommand),
+
+    #[command(name = "connect", about = "Legacy mux connect compatibility command")]
+    Connect(LegacyCommand),
+
     /// Generate shell completion information
     #[command(name = "shell-completion")]
     ShellCompletion {
@@ -317,6 +357,15 @@ fn main() -> Result<()> {
         SubCommand::Server(cmd) => run_server(cmd, opts.json),
         SubCommand::SetupAi(cmd) => run_setup_ai(cmd, opts.json),
         SubCommand::McpStdio => run_mcp_stdio(),
+        SubCommand::Cli(cmd) => legacy::run_cli(cmd),
+        SubCommand::ShowKeys => legacy::run_show_keys(opts.json),
+        SubCommand::LsFonts => legacy::run_ls_fonts(opts.json),
+        SubCommand::Imgcat { path } => legacy::run_imgcat(path),
+        SubCommand::SetWorkingDirectory { path } => legacy::run_set_working_directory(path),
+        SubCommand::Record(cmd) => legacy::run_record(cmd, opts.json),
+        SubCommand::Replay(cmd) => legacy::run_replay(cmd),
+        SubCommand::Ssh(cmd) => legacy::run_ssh(cmd),
+        SubCommand::Connect(cmd) => legacy::run_connect(cmd),
         SubCommand::Settings(cmd) => run_settings(cmd),
         SubCommand::Lang(cmd) => run_lang(cmd, opts.json),
         SubCommand::Policy(cmd) => run_policy(cmd, opts.json),
@@ -426,6 +475,31 @@ pub fn run_fleet(cmd: FleetCommand, json_out: bool) -> Result<()> {
 
 pub fn run_review(cmd: ReviewCommand, json_out: bool) -> Result<()> {
     review::run(cmd, json_out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use std::collections::HashSet;
+
+    #[test]
+    fn reference_cli_commands_are_real_clap_subcommands() {
+        let command = Opt::command();
+        let actual: HashSet<_> = command
+            .get_subcommands()
+            .map(|sub| sub.get_name())
+            .collect();
+        let missing: Vec<_> = unterm_agents::mcp_meta::CLI_COMMANDS
+            .iter()
+            .map(|command| command.name)
+            .filter(|name| !actual.contains(name))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "reference advertises CLI commands missing from clap parser: {missing:?}"
+        );
+    }
 }
 
 pub fn run_exec(cmd: ExecCommand, json_out: bool) -> Result<()> {
