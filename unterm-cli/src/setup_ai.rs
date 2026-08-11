@@ -285,30 +285,26 @@ pub fn run(cmd: SetupAiCommand, json_out: bool) -> Result<()> {
         }
     }
 
-    render(&reports, &cmd, &cli, json_out);
-
     // Third channel: cockpit lifecycle hooks (merge-only; .unterm-bak
-    // backups; see cockpit_hooks.rs). Filtered runs skip it — hooks are
+    // backups; see cockpit_hooks.rs). Filtered runs skip it because hooks are
     // machine-global, not per-client.
-    if !cmd.no_hooks && filter.is_none() {
-        let hook_reports = super::cockpit_hooks::apply_all(&cli, cmd.remove, cmd.dry_run);
-        if json_out {
-            let arr: Vec<serde_json::Value> = hook_reports
-                .iter()
-                .map(|r| json!({ "client": r.client, "path": r.path, "action": r.action }))
-                .collect();
-            print_json(&json!({ "cockpit_hooks": arr }));
-        } else if !hook_reports.is_empty() {
-            println!();
-            println!("Cockpit hooks:");
-            for r in &hook_reports {
-                println!("  {:<12} {:<10} {}", r.client, r.action, r.path);
-            }
+    let hook_reports = if !cmd.no_hooks && filter.is_none() {
+        super::cockpit_hooks::apply_all(&cli, cmd.remove, cmd.dry_run)
+    } else {
+        Vec::new()
+    };
+
+    render(&reports, &cmd, &cli, &hook_reports, json_out);
+
+    if !json_out && !hook_reports.is_empty() {
+        println!();
+        println!("Cockpit hooks:");
+        for r in &hook_reports {
+            println!("  {:<12} {:<10} {}", r.client, r.action, r.path);
         }
     }
     Ok(())
 }
-
 /// Absolute path to this `unterm-cli` binary, for embedding in agent configs.
 /// `current_exe()` IS the unterm-cli path (we're running it). Falls back to a
 /// bare `unterm-cli` (resolved via PATH) only if the exe can't be resolved.
@@ -664,26 +660,15 @@ fn write_create(path: &Path, text: &str) -> std::result::Result<(), String> {
 // Reporting
 // ---------------------------------------------------------------------------
 
-fn render(reports: &[ClientReport], cmd: &SetupAiCommand, cli: &str, json_out: bool) {
+fn render(
+    reports: &[ClientReport],
+    cmd: &SetupAiCommand,
+    cli: &str,
+    hook_reports: &[super::cockpit_hooks::HookReport],
+    json_out: bool,
+) {
     if json_out {
-        let clients: Vec<Value> = reports
-            .iter()
-            .map(|r| {
-                json!({
-                    "id": r.id,
-                    "label": r.label,
-                    "detected": r.detected,
-                    "mcp": r.mcp.as_ref().map(|a| a.label()),
-                    "context": r.context.as_ref().map(|a| a.label()),
-                })
-            })
-            .collect();
-        print_json(&json!({
-            "action": if cmd.remove { "remove" } else { "register" },
-            "dry_run": cmd.dry_run,
-            "unterm_cli": cli,
-            "clients": clients,
-        }));
+        print_json(&render_json_value(reports, cmd, cli, hook_reports));
         return;
     }
 
@@ -726,6 +711,37 @@ fn render(reports: &[ClientReport], cmd: &SetupAiCommand, cli: &str, json_out: b
         println!("\nDone. Agents will reach Unterm via the `unterm` MCP server");
         println!("(needs Unterm.app running). Re-run any time to re-sync; `--remove` to undo.");
     }
+}
+
+fn render_json_value(
+    reports: &[ClientReport],
+    cmd: &SetupAiCommand,
+    cli: &str,
+    hook_reports: &[super::cockpit_hooks::HookReport],
+) -> Value {
+    let clients: Vec<Value> = reports
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.id,
+                "label": r.label,
+                "detected": r.detected,
+                "mcp": r.mcp.as_ref().map(|a| a.label()),
+                "context": r.context.as_ref().map(|a| a.label()),
+            })
+        })
+        .collect();
+    let hooks: Vec<Value> = hook_reports
+        .iter()
+        .map(|r| json!({ "client": r.client, "path": r.path, "action": r.action }))
+        .collect();
+    json!({
+        "action": if cmd.remove { "remove" } else { "register" },
+        "dry_run": cmd.dry_run,
+        "unterm_cli": cli,
+        "clients": clients,
+        "cockpit_hooks": hooks,
+    })
 }
 
 #[cfg(test)]
@@ -976,5 +992,38 @@ mod tests {
         assert!(matches!(a, Action::Wrote));
         assert!(!path.exists(), "dry-run must not create the file");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn json_report_contains_clients_and_hooks_in_one_document() {
+        let cmd = SetupAiCommand {
+            remove: false,
+            no_context: false,
+            dry_run: true,
+            no_hooks: false,
+            clients: Vec::new(),
+        };
+        let reports = vec![ClientReport {
+            id: "claude-code",
+            label: "Claude Code",
+            detected: true,
+            mcp: Some(Action::Wrote),
+            context: Some(Action::Unchanged),
+        }];
+        let hooks = vec![super::super::cockpit_hooks::HookReport {
+            client: "claude-code",
+            path: ".claude/settings.json".to_string(),
+            action: "written".to_string(),
+        }];
+
+        let value = render_json_value(&reports, &cmd, "/opt/unterm-cli", &hooks);
+
+        assert_eq!(value["action"], "register");
+        assert_eq!(value["dry_run"], true);
+        assert_eq!(value["clients"].as_array().unwrap().len(), 1);
+        assert_eq!(value["clients"][0]["mcp"], "wrote");
+        assert_eq!(value["clients"][0]["context"], "unchanged");
+        assert_eq!(value["cockpit_hooks"].as_array().unwrap().len(), 1);
+        assert_eq!(value["cockpit_hooks"][0]["client"], "claude-code");
     }
 }
