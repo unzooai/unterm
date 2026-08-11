@@ -158,7 +158,7 @@ impl FontStack {
     /// Build a stack around `primary`, adding whichever fallbacks this machine
     /// actually has.
     pub fn new(primary: FontFace, requested: &[String], pixel_size: u32) -> Self {
-        let index = FontIndex::scan();
+        let index = FontIndex::cached();
         let mut faces = vec![primary];
 
         // The config's own list first: someone who named a font meant it.

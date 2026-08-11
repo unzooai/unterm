@@ -248,7 +248,7 @@ pub fn preferred_platform_shell() -> Option<Vec<String>> {
             "pwsh.exe",
             "pwsh",
         ]) {
-            if windows_shell_version_probe(&pwsh) {
+            if windows_shell_candidate_exists(&pwsh) {
                 return Some(vec![
                     pwsh,
                     "-NoLogo".to_string(),
@@ -269,6 +269,15 @@ pub fn preferred_platform_shell() -> Option<Vec<String>> {
 }
 
 #[cfg(windows)]
+fn windows_shell_candidate_exists(program: &str) -> bool {
+    let path = PathBuf::from(program);
+    if path.is_absolute() {
+        return path.is_file();
+    }
+    resolve_windows_program(program).is_some()
+}
+
+#[cfg(all(windows, test))]
 fn windows_shell_version_probe(program: &str) -> bool {
     let path = PathBuf::from(program);
     if path.is_absolute() && !path.is_file() {

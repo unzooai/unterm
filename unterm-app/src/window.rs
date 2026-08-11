@@ -901,6 +901,20 @@ impl App {
             .max(6.0);
 
         let (clipboard_tx, clipboard_rx) = std::sync::mpsc::channel();
+        let picture = crate::background::configured(config);
+        crate::startup_trace::mark("app.background.loaded");
+        let font = TerminalFont::open_named(
+            family.as_deref(),
+            crate::terminal::pixels_for_points(pixel_size as f32, 1.0),
+            &fallbacks,
+            shape,
+        )?;
+        crate::startup_trace::mark("app.terminal_font.opened");
+        let chrome_font = crate::chrome_font::open(&fallbacks, 1.0)?;
+        crate::startup_trace::mark("app.chrome_font.opened");
+        let shell = shell_from(config);
+        crate::startup_trace::mark("app.shell.selected");
+
         Ok(Self {
             engine: crate::engine_backend::AppEngine::from_environment(),
             drawn_confirmation: None,
@@ -1004,20 +1018,15 @@ impl App {
             held_mouse_button: None,
             alt_held: false,
             window_title: None,
-            picture: crate::background::configured(config),
+            picture,
             quiet_since: None,
             pane_sizes: Default::default(),
             focused: true,
             kept_house_at: std::time::Instant::now(),
             seen_session_epoch: 0,
             core_replaced_at: None,
-            font: TerminalFont::open_named(
-                family.as_deref(),
-                crate::terminal::pixels_for_points(pixel_size as f32, 1.0),
-                &fallbacks,
-                shape,
-            )?,
-            chrome_font: crate::chrome_font::open(&fallbacks, 1.0)?,
+            font,
+            chrome_font,
             font_family: family,
             initial_cols: settings.initial_cols,
             initial_rows: settings.initial_rows,
@@ -1055,7 +1064,7 @@ impl App {
             atlas: GlyphAtlas::new(1024, 1024),
             colors: colors_from(config),
             chrome_overrides: ChromeOverrides::from_config(config),
-            shell: shell_from(config),
+            shell,
             shift_held: false,
             ctrl_held: false,
             pointer: (0.0, 0.0),
