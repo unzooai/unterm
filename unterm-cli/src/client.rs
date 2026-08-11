@@ -1,9 +1,9 @@
 //! Minimal JSON-RPC 2.0 client over TCP for the Unterm MCP server.
 //!
-//! See `wezterm-gui/src/mcp/server.rs` for the server side. The wire format
-//! is line-delimited JSON-RPC 2.0; the first message must be `auth.login`
-//! with the UUID stored at `~/.unterm/server.json` (preferred) or the
-//! legacy `~/.unterm/auth_token` (fallback for older Unterm builds).
+//! The wire format is line-delimited JSON-RPC 2.0; the first message must be
+//! `auth.login` with the token discovered from the Core record, a live GUI
+//! instance record, or the legacy `server.json` / `auth_token` compatibility
+//! files.
 
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
@@ -20,7 +20,7 @@ const MCP_HOST: &str = "127.0.0.1";
 const LEGACY_MCP_PORT: u16 = 19876;
 
 const NOT_RUNNING_HINT: &str =
-    "unterm GUI is not running — open Unterm.app to start the MCP server, or run 'unterm start' first";
+    "Unterm is not running; open Unterm.app or run 'unterm start' to start the MCP server";
 static TARGET_INSTANCE: OnceLock<String> = OnceLock::new();
 
 pub struct McpClient {
@@ -45,9 +45,8 @@ fn is_timeout(err: &std::io::Error) -> bool {
 }
 
 impl McpClient {
-    /// Read the auth token + MCP port from `~/.unterm/server.json` (with
-    /// fallback to the legacy `~/.unterm/auth_token` + 19876), dial the
-    /// MCP server, and complete the `auth.login` handshake.
+    /// Discover the auth token + MCP port, dial the MCP server, and complete
+    /// the `auth.login` handshake.
     pub fn connect() -> Result<Self> {
         Self::connect_as(ProcessRole::Cli)
     }
@@ -184,8 +183,9 @@ impl McpClient {
     }
 }
 
-/// Where to find the MCP server. Pulled from `~/.unterm/server.json` if
-/// present, with fallback to the legacy `~/.unterm/auth_token` + 19876.
+/// Where to find the MCP server. Current builds prefer the Core discovery
+/// record, then live GUI instance records, then the legacy `server.json` and
+/// `auth_token` files older clients and agents know how to read.
 pub struct ServerEndpoint {
     pub token: String,
     pub port: u16,
@@ -621,6 +621,33 @@ fn unterm_dir() -> Result<PathBuf> {
 #[cfg(test)]
 mod compatibility_tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard};
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        LOCK.lock().unwrap()
+    }
+
+    struct StateDirGuard {
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl StateDirGuard {
+        fn set(path: &std::path::Path) -> Self {
+            let previous = std::env::var_os("UNTERM_STATE_DIR");
+            std::env::set_var("UNTERM_STATE_DIR", path);
+            Self { previous }
+        }
+    }
+
+    impl Drop for StateDirGuard {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => std::env::set_var("UNTERM_STATE_DIR", value),
+                None => std::env::remove_var("UNTERM_STATE_DIR"),
+            }
+        }
+    }
 
     #[test]
     fn same_version_legacy_instance_is_allowed() {
@@ -667,6 +694,120 @@ mod compatibility_tests {
                 .map(|identity| identity.process_role),
             Some(ProcessRole::Gui)
         );
+    }
+
+    #[test]
+    fn endpoint_prefers_core_discovery_over_live_gui_registry() {
+        let _lock = env_lock();
+        let root = tempfile::tempdir().unwrap();
+        let _guard = StateDirGuard::set(root.path());
+        fs::create_dir_all(root.path().join("instances")).unwrap();
+        fs::write(
+            root.path().join("core.json"),
+            serde_json::to_string(&json!({
+                "mcp_port": 25001,
+                "token": "core-token",
+                "pid": std::process::id(),
+                "product_version": unterm_protocol::PRODUCT_VERSION,
+                "build_commit": "core-build",
+                "protocol_version": unterm_protocol::PROTOCOL_VERSION,
+                "data_schema_version": unterm_protocol::DATA_SCHEMA_VERSION,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("active.json"),
+            serde_json::to_string(&json!({
+                "id": "alpha",
+                "mcp_port": 26001,
+                "http_port": 26002,
+                "auth_token": "gui-token",
+                "pid": std::process::id(),
+                "started_at": "2026-08-12T00:00:00+08:00",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let endpoint = ServerEndpoint::resolve().unwrap();
+
+        assert_eq!(endpoint.port, 25001);
+        assert_eq!(endpoint.token, "core-token");
+    }
+
+    #[test]
+    fn endpoint_uses_live_active_pointer_when_core_is_absent() {
+        let _lock = env_lock();
+        let root = tempfile::tempdir().unwrap();
+        let _guard = StateDirGuard::set(root.path());
+        fs::write(
+            root.path().join("active.json"),
+            serde_json::to_string(&json!({
+                "id": "alpha",
+                "mcp_port": 26001,
+                "http_port": 26002,
+                "auth_token": "gui-token",
+                "pid": std::process::id(),
+                "started_at": "2026-08-12T00:00:00+08:00",
+                "product_version": unterm_protocol::PRODUCT_VERSION,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let endpoint = ServerEndpoint::resolve().unwrap();
+
+        assert_eq!(endpoint.port, 26001);
+        assert_eq!(endpoint.http_port, 26002);
+        assert_eq!(endpoint.token, "gui-token");
+    }
+
+    #[test]
+    fn endpoint_uses_legacy_server_json_before_auth_token() {
+        let _lock = env_lock();
+        let root = tempfile::tempdir().unwrap();
+        let _guard = StateDirGuard::set(root.path());
+        fs::write(root.path().join("auth_token"), "old-token").unwrap();
+        fs::write(
+            root.path().join("server.json"),
+            serde_json::to_string(&json!({
+                "mcp_port": 27001,
+                "http_port": 27002,
+                "auth_token": "server-token",
+                "version": unterm_protocol::PRODUCT_VERSION,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let endpoint = ServerEndpoint::resolve().unwrap();
+
+        assert_eq!(endpoint.port, 27001);
+        assert_eq!(endpoint.http_port, 27002);
+        assert_eq!(endpoint.token, "server-token");
+        assert_eq!(
+            endpoint
+                .identity
+                .as_ref()
+                .map(|identity| identity.protocol_version.as_str()),
+            Some("legacy")
+        );
+    }
+
+    #[test]
+    fn endpoint_uses_legacy_auth_token_last() {
+        let _lock = env_lock();
+        let root = tempfile::tempdir().unwrap();
+        let _guard = StateDirGuard::set(root.path());
+        fs::write(root.path().join("auth_token"), "old-token\n").unwrap();
+
+        let endpoint = ServerEndpoint::resolve().unwrap();
+
+        assert_eq!(endpoint.port, LEGACY_MCP_PORT);
+        assert_eq!(endpoint.http_port, 0);
+        assert_eq!(endpoint.token, "old-token");
+        assert!(endpoint.identity.is_none());
     }
 
     #[test]

@@ -1020,6 +1020,33 @@ fn claim_compat_files_if_needed(info: &InstanceInfo) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard};
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        LOCK.lock().unwrap()
+    }
+
+    struct StateDirGuard {
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl StateDirGuard {
+        fn set(path: &std::path::Path) -> Self {
+            let previous = std::env::var_os("UNTERM_STATE_DIR");
+            std::env::set_var("UNTERM_STATE_DIR", path);
+            Self { previous }
+        }
+    }
+
+    impl Drop for StateDirGuard {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => std::env::set_var("UNTERM_STATE_DIR", value),
+                None => std::env::remove_var("UNTERM_STATE_DIR"),
+            }
+        }
+    }
 
     #[cfg(unix)]
     #[test]
@@ -1048,6 +1075,68 @@ mod tests {
         )
         .unwrap();
         assert!(info.agents.is_empty());
+    }
+
+    #[test]
+    fn compat_claim_writes_active_server_and_legacy_token_schema() -> Result<()> {
+        let _lock = env_lock();
+        let root = tempfile::tempdir()?;
+        let _guard = StateDirGuard::set(root.path());
+        let info = InstanceInfo {
+            id: "alpha".to_string(),
+            mcp_port: 19876,
+            http_port: 19877,
+            auth_token: "secret-token".to_string(),
+            pid: std::process::id(),
+            started_at: "2026-08-12T00:00:00+08:00".to_string(),
+            title: Some("Home - Powershell".to_string()),
+            cwd: Some("C:\\Users\\Alex".to_string()),
+            profile: Some("default".to_string()),
+            version: unterm_protocol::PRODUCT_VERSION.to_string(),
+            product_version: unterm_protocol::PRODUCT_VERSION.to_string(),
+            build_commit: "abc123".to_string(),
+            protocol_version: unterm_protocol::PROTOCOL_VERSION.to_string(),
+            data_schema_version: unterm_protocol::DATA_SCHEMA_VERSION,
+            process_role: ProcessRole::Gui,
+            platform: std::env::consts::OS.to_string(),
+            agents: Vec::new(),
+        };
+
+        claim_compat_files_if_needed(&info)?;
+
+        let active: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root.path().join("active.json"))?)?;
+        let server: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root.path().join("server.json"))?)?;
+        for written in [&active, &server] {
+            assert_eq!(written["id"], "alpha");
+            assert_eq!(written["mcp_port"], 19876);
+            assert_eq!(written["http_port"], 19877);
+            assert_eq!(written["auth_token"], "secret-token");
+            assert_eq!(written["pid"], std::process::id());
+            assert_eq!(written["started_at"], "2026-08-12T00:00:00+08:00");
+            assert_eq!(written["title"], "Home - Powershell");
+            assert_eq!(written["cwd"], "C:\\Users\\Alex");
+            assert_eq!(written["version"], unterm_protocol::PRODUCT_VERSION);
+            assert_eq!(written["product_version"], unterm_protocol::PRODUCT_VERSION);
+            assert_eq!(written["build_commit"], "abc123");
+            assert_eq!(
+                written["protocol_version"],
+                unterm_protocol::PROTOCOL_VERSION
+            );
+            assert_eq!(
+                written["data_schema_version"],
+                unterm_protocol::DATA_SCHEMA_VERSION
+            );
+            assert_eq!(written["process_role"], "gui");
+            assert_eq!(written["platform"], std::env::consts::OS);
+            assert!(written["agents"].as_array().is_some());
+        }
+        assert_eq!(
+            fs::read_to_string(root.path().join("auth_token"))?,
+            "secret-token"
+        );
+        Ok(())
     }
 
     #[test]
