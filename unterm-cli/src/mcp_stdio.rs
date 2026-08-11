@@ -326,6 +326,7 @@ fn json_schema_type(kind: &str) -> &'static str {
         "int" => "integer",
         "bool" => "boolean",
         "number" | "float" => "number",
+        "array" => "array",
         _ => "string",
     }
 }
@@ -387,5 +388,25 @@ mod tests {
         assert_eq!(value["id"], 7);
         assert_eq!(value["error"]["code"], -32010);
         assert_eq!(value["error"]["message"], "protocol_incompatible: restart");
+    }
+
+    #[test]
+    fn tool_schema_maps_array_params_to_array_type() {
+        assert_eq!(json_schema_type("array"), "array");
+
+        let tools = build_tool_list(&json!({
+            "mcp_methods": [{
+                "name": "session.create",
+                "summary": "Spawn a new tab.",
+                "params": [
+                    { "name": "argv", "kind": "array", "required": false, "summary": "Program argv array." }
+                ]
+            }]
+        }));
+
+        assert_eq!(
+            tools[0]["inputSchema"]["properties"]["argv"]["type"],
+            "array"
+        );
     }
 }

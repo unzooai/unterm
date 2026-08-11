@@ -225,6 +225,7 @@ unterm-cli session list                        # list panes in active/latest ins
 unterm-cli instance list                       # discover alpha/bravo/... windows
 unterm-cli --instance bravo session list       # pin a command to one window
 unterm-cli session create [--cwd DIR] [-- CMD] # spawn a new tab
+unterm-cli --json session create -- pwsh.exe -NoLogo -NoProfile -Command "Write-Output ok"
 unterm-cli session record start [--id N]
 unterm-cli session record stop [--id N]
 unterm-cli session export [--id N] [-o FILE]
@@ -239,7 +240,7 @@ unterm-cli screenshot --scrollback [--pane N] [--max-rows N] [-o FILE]
 unterm-cli screenshot --scroll-app Safari [--scroll-title SUBSTR] [--max-frames N] [-o FILE]
 ```
 
-Pass `--json` to any subcommand for raw JSON-RPC output (suitable for scripts). Pass `--lang <code>` to override the locale for one invocation. Pass `--instance <id>` (or set `UNTERM_INSTANCE=<id>`) when several Unterm windows are open and you need a deterministic target.
+Pass `--json` to any subcommand for raw JSON-RPC output (suitable for scripts); place it before `-- CMD` so it is parsed by `unterm-cli`, not the child command. `session create` preserves multi-token commands as argv, while a single command string still runs through the platform shell. Pass `--lang <code>` to override the locale for one invocation. Pass `--instance <id>` (or set `UNTERM_INSTANCE=<id>`) when several Unterm windows are open and you need a deterministic target.
 
 Multi-instance discovery is available through MCP and CLI: call
 `instance.list`, run `unterm-cli instance list`, or inspect

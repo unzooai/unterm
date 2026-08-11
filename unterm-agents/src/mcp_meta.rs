@@ -66,10 +66,11 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod {
         name: "session.create",
         namespace: "session",
-        summary: "Spawn a new tab; optionally specify cwd, command, or profile.",
+        summary: "Spawn a new tab; optionally specify cwd, shell command, argv, or profile.",
         params: &[
             Param { name: "cwd", kind: "string", required: false, summary: "Working directory." },
-            Param { name: "command", kind: "string", required: false, summary: "Override shell command." },
+            Param { name: "command", kind: "string", required: false, summary: "Shell command string; runs through the platform shell." },
+            Param { name: "argv", kind: "array", required: false, summary: "Program argv array; starts argv[0] directly without shell wrapping." },
             Param { name: "profile", kind: "string", required: false, summary: "Identity profile name." },
         ],
     },
@@ -685,6 +686,28 @@ mod tests {
 
         assert!(confirm.required);
         assert_eq!(confirm.kind, "bool");
+    }
+
+    #[test]
+    fn session_create_declares_command_and_argv_launch_forms() {
+        let create = MCP_METHODS
+            .iter()
+            .find(|method| method.name == "session.create")
+            .expect("MCP_METHODS is missing session.create");
+        let param = |name| {
+            create
+                .params
+                .iter()
+                .find(|param| param.name == name)
+                .unwrap_or_else(|| panic!("session.create params are missing {name}"))
+        };
+
+        let command = param("command");
+        let argv = param("argv");
+        assert_eq!(command.kind, "string");
+        assert_eq!(argv.kind, "array");
+        assert!(command.summary.contains("platform shell"));
+        assert!(argv.summary.contains("without shell wrapping"));
     }
 
     #[test]
