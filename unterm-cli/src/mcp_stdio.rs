@@ -318,16 +318,26 @@ fn build_tool_list(surface: &Value) -> Vec<Value> {
         .collect()
 }
 
-/// Map our param `kind` strings to JSON-Schema `type` values. Unions like
-/// `string|int` degrade to `string` (the agent can pass either; the TCP
-/// server coerces). Unknown kinds default to `string`.
-fn json_schema_type(kind: &str) -> &'static str {
-    match kind {
-        "int" => "integer",
-        "bool" => "boolean",
-        "number" | "float" => "number",
-        "array" => "array",
-        _ => "string",
+/// Map our param `kind` strings to JSON-Schema `type` values. Keep unions as
+/// real JSON Schema type arrays so older clients that pass numeric pane ids do
+/// not get rejected before the bridge can proxy the call.
+fn json_schema_type(kind: &str) -> Value {
+    let parts: Vec<Value> = kind
+        .split('|')
+        .map(|part| match part.trim() {
+            "int" => "integer",
+            "bool" => "boolean",
+            "number" | "float" => "number",
+            "array" => "array",
+            "object" => "object",
+            "null" => "null",
+            _ => "string",
+        })
+        .map(|kind| Value::String(kind.to_string()))
+        .collect();
+    match parts.as_slice() {
+        [single] => single.clone(),
+        _ => Value::Array(parts),
     }
 }
 
@@ -407,6 +417,26 @@ mod tests {
         assert_eq!(
             tools[0]["inputSchema"]["properties"]["argv"]["type"],
             "array"
+        );
+    }
+
+    #[test]
+    fn tool_schema_preserves_union_param_types() {
+        assert_eq!(json_schema_type("string|int"), json!(["string", "integer"]));
+
+        let tools = build_tool_list(&json!({
+            "mcp_methods": [{
+                "name": "session.status",
+                "summary": "Get pane state.",
+                "params": [
+                    { "name": "pane_id", "kind": "string|int", "required": false, "summary": "Target pane." }
+                ]
+            }]
+        }));
+
+        assert_eq!(
+            tools[0]["inputSchema"]["properties"]["pane_id"]["type"],
+            json!(["string", "integer"])
         );
     }
 
