@@ -606,11 +606,15 @@ fn instance_lifecycle_snapshot(
     info: &unterm_services::server_info::InstanceInfo,
     is_current: bool,
 ) -> Value {
+    lifecycle_snapshot_for_pid(info.pid, is_current)
+}
+
+fn lifecycle_snapshot_for_pid(pid: u32, is_current: bool) -> Value {
     let window = unterm_engine::window_identity();
     json!({
         "state": "live",
         "liveness_source": "pid",
-        "pid_alive": unterm_services::server_info::pid_alive(info.pid),
+        "pid_alive": unterm_services::server_info::pid_alive(pid),
         "is_current": is_current,
         "registry_owner": "server_info",
         "metadata_owner": "product_registry",
@@ -5351,6 +5355,7 @@ impl McpHandler {
 
     fn server_info(&self) -> Result<Value> {
         let instance = unterm_services::server_info::read_current();
+        let has_instance = !instance.id.is_empty();
         let window = unterm_engine::window_identity();
         let mut build = instance.build_handshake();
         if build.product_version.is_empty() {
@@ -5365,6 +5370,11 @@ impl McpHandler {
                 "",
             );
         }
+        let lifecycle = if has_instance {
+            instance_lifecycle_snapshot(&instance, true)
+        } else {
+            lifecycle_snapshot_for_pid(build.pid, true)
+        };
         Ok(json!({
             "name": "Unterm MCP Server",
             "version": build.product_version,
@@ -5372,7 +5382,7 @@ impl McpHandler {
             "engine": self.engine_label(),
             "window_engine": window.engine,
             "uses_host_window": window.uses_host_window,
-            "lifecycle": instance_lifecycle_snapshot(&instance, true),
+            "lifecycle": lifecycle,
             "protocol": "json-rpc-2.0",
         }))
     }

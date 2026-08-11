@@ -1150,17 +1150,6 @@ impl App {
         window.set_ime_allowed(true);
 
         let size = window.inner_size();
-        let Graphics {
-            surface,
-            device,
-            queue,
-            format,
-        } = request_graphics(window.clone(), size.width, size.height)?;
-
-        let renderer = Renderer::new(device, queue, format);
-        let atlas_texture = renderer.upload_atlas(&self.atlas);
-        let atlas_uploaded_glyphs = self.atlas.len();
-
         let (cols, rows) = self.font.grid_for(size.width as f32, size.height as f32);
         // A Core that outlived the previous window still holds its
         // sessions; a window that opened onto a populated Core must
@@ -1187,6 +1176,59 @@ impl App {
                     focused.or_else(|| live.into_iter().next())
                 })
         };
+        let mut startup_request = adopted.is_none().then(|| {
+            let env = launch_env_for_new_pane();
+            CreateSessionRequest {
+                cols,
+                rows,
+                command_dir: self
+                    .start_directory
+                    .clone()
+                    .or_else(|| {
+                        self.restore
+                            .as_ref()
+                            .and_then(|saved| saved.cwds.first())
+                            .map(std::path::PathBuf::from)
+                    })
+                    .or_else(|| self.config_default_cwd.clone())
+                    .as_ref()
+                    .map(|path| path.display().to_string()),
+                command: prepare_shell(self.shell.clone()),
+                env,
+                launch_policy: LaunchPolicySnapshot::default(),
+            }
+        });
+        // Core session creation is IPC plus a shell spawn. Start it while the
+        // GPU path is still coming up so a cold window is not serially paying
+        // for both. Local mode stays synchronous because it owns the engine in
+        // this process.
+        let pending_core_session = match (&self.engine, startup_request.take()) {
+            (
+                crate::engine_backend::AppEngine::Core { client, .. },
+                Some(request),
+            ) => {
+                let client = client.clone();
+                Some(std::thread::spawn(move || {
+                    unterm_engine::SessionEngine::create_session(client.as_ref(), request)
+                }))
+            }
+            (_, request) => {
+                startup_request = request;
+                None
+            }
+        };
+
+        let Graphics {
+            surface,
+            device,
+            queue,
+            format,
+        } = request_graphics(window.clone(), size.width, size.height)?;
+
+        let renderer = Renderer::new(device, queue, format);
+        let atlas_texture = renderer.upload_atlas(&self.atlas);
+        let atlas_uploaded_glyphs = self.atlas.len();
+
         let session = match adopted {
             Some(existing) => {
                 // This window's grid decides the size, not the one the
@@ -1194,28 +1236,13 @@ impl App {
                 let _ = self.engine.resize_session(existing.id, cols, rows);
                 existing
             }
-            None => {
-                let env = launch_env_for_new_pane();
-                self.engine.create_session(CreateSessionRequest {
-                    cols,
-                    rows,
-                    command_dir: self
-                        .start_directory
-                        .clone()
-                        .or_else(|| {
-                            self.restore
-                                .as_ref()
-                                .and_then(|saved| saved.cwds.first())
-                                .map(std::path::PathBuf::from)
-                        })
-                        .or_else(|| self.config_default_cwd.clone())
-                        .as_ref()
-                        .map(|path| path.display().to_string()),
-                    command: prepare_shell(self.shell.clone()),
-                    env,
-                    launch_policy: LaunchPolicySnapshot::default(),
-                })?
-            }
+            None if pending_core_session.is_some() => pending_core_session
+                .expect("checked pending core session")
+                .join()
+                .map_err(|_| anyhow::anyhow!("startup session worker panicked"))??,
+            None => self.engine.create_session(
+                startup_request.expect("new startup session request is present"),
+            )?,
         };
 
         // The first pane is a tab of one. Recording it here means a later split
