@@ -18,6 +18,11 @@ struct Discovery {
     token: String,
     pid: u32,
     product_version: String,
+    build_commit: String,
+    protocol_version: String,
+    data_schema_version: u32,
+    process_role: unterm_protocol::ProcessRole,
+    started_at: String,
     #[serde(default)]
     mcp_port: Option<u16>,
 }
@@ -182,6 +187,14 @@ fn real_process_serves_sessions_and_cleans_up() {
     let discovery = wait_for_discovery(&state_dir, Duration::from_secs(10));
     assert_eq!(discovery.pid, child.id());
     assert!(!discovery.product_version.is_empty());
+    assert!(!discovery.build_commit.is_empty());
+    assert_eq!(discovery.protocol_version, unterm_protocol::PROTOCOL_VERSION);
+    assert_eq!(
+        discovery.data_schema_version,
+        unterm_protocol::DATA_SCHEMA_VERSION
+    );
+    assert_eq!(discovery.process_role, unterm_protocol::ProcessRole::Core);
+    assert!(!discovery.started_at.is_empty());
 
     let mut stream = TcpStream::connect(&discovery.endpoint).unwrap();
     stream.set_nodelay(true).unwrap();
@@ -380,6 +393,19 @@ fn headless_mcp_serves_sessions_without_any_gui() {
 
     let auth = mcp("auth.login", serde_json::json!({"token": discovery.token}));
     assert_eq!(auth["result"]["status"], "ok", "auth failed: {auth}");
+
+    let info = mcp("server.info", serde_json::json!({}));
+    assert_eq!(info["result"]["build"]["process_role"], "core");
+    assert_eq!(
+        info["result"]["build"]["protocol_version"],
+        unterm_protocol::PROTOCOL_VERSION
+    );
+    assert!(
+        info["result"]["build"]["started_at"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()),
+        "headless MCP server.info must include core started_at: {info}"
+    );
 
     let created = mcp(
         "session.create",

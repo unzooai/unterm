@@ -61,7 +61,7 @@ fn main() -> Result<()> {
         Ok(count) => eprintln!("unterm-core: requested drain for {count} incompatible bridge(s)"),
     }
 
-    write_discovery(&endpoint.to_string(), &token, mcp_port)?;
+    write_discovery(&endpoint.to_string(), &token, mcp_port, server.started_at())?;
     eprintln!(
         "unterm-core ready endpoint={} mcp_port={:?} pid={}",
         endpoint,

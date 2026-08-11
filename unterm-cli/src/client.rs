@@ -436,7 +436,11 @@ fn identity_from_value(value: &Value) -> Option<BuildHandshake> {
             .get("data_schema_version")
             .and_then(Value::as_u64)
             .unwrap_or(0) as u32,
-        process_role: ProcessRole::Gui,
+        process_role: value
+            .get("process_role")
+            .cloned()
+            .and_then(|role| serde_json::from_value(role).ok())
+            .unwrap_or(ProcessRole::Gui),
         pid: value.get("pid").and_then(Value::as_u64).unwrap_or(0) as u32,
         started_at: value
             .get("started_at")

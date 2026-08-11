@@ -38,6 +38,45 @@ fn default_audit_outcome() -> String {
     "executed".to_string()
 }
 
+fn core_discovery_build() -> Option<unterm_protocol::BuildHandshake> {
+    let path = unterm_protocol::state_path("core.json")?;
+    let raw = std::fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&raw).ok()?;
+    let product_version = value
+        .get("product_version")
+        .or_else(|| value.get("version"))?
+        .as_str()?
+        .to_string();
+    Some(unterm_protocol::BuildHandshake {
+        product_version,
+        build_commit: value
+            .get("build_commit")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string(),
+        protocol_version: value
+            .get("protocol_version")
+            .and_then(Value::as_str)
+            .unwrap_or("legacy")
+            .to_string(),
+        data_schema_version: value
+            .get("data_schema_version")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32,
+        process_role: value
+            .get("process_role")
+            .cloned()
+            .and_then(|role| serde_json::from_value(role).ok())
+            .unwrap_or(unterm_protocol::ProcessRole::Core),
+        pid: value.get("pid").and_then(Value::as_u64).unwrap_or(0) as u32,
+        started_at: value
+            .get("started_at")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    })
+}
+
 fn audit_event_was_allowed(method: &str) -> bool {
     !matches!(
         method,
@@ -5475,16 +5514,20 @@ impl McpHandler {
         let window = unterm_engine::window_identity();
         let mut build = instance.build_handshake();
         if build.product_version.is_empty() {
-            // No instance record to speak for us: a headless Core
-            // serves MCP without registering as a GUI instance. The
-            // process still knows exactly what it is, and a client
-            // that validates identity must not read silence as an
-            // incompatible peer.
-            build = unterm_protocol::BuildHandshake::current(
-                unterm_protocol::ProcessRole::Core,
-                std::process::id(),
-                "",
-            );
+            if let Some(core_build) = core_discovery_build() {
+                build = core_build;
+            } else {
+                // No instance record to speak for us: a headless Core
+                // serves MCP without registering as a GUI instance. The
+                // process still knows exactly what it is, and a client
+                // that validates identity must not read silence as an
+                // incompatible peer.
+                build = unterm_protocol::BuildHandshake::current(
+                    unterm_protocol::ProcessRole::Core,
+                    std::process::id(),
+                    chrono::Utc::now().to_rfc3339(),
+                );
+            }
         }
         let lifecycle = if has_instance {
             instance_lifecycle_snapshot(&instance, true)

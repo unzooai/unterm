@@ -36,6 +36,16 @@ pub struct DiscoveryInfo {
     pub token: String,
     pub pid: u32,
     pub product_version: String,
+    #[serde(default)]
+    pub build_commit: String,
+    #[serde(default)]
+    pub protocol_version: String,
+    #[serde(default)]
+    pub data_schema_version: u32,
+    #[serde(default)]
+    pub process_role: ProcessRole,
+    #[serde(default)]
+    pub started_at: String,
     /// The Core-hosted MCP surface, when serving. Same token as the
     /// engine IPC. This is how agents reach sessions with no GUI
     /// alive; a GUI's own MCP server keeps `server.json` untouched.
@@ -73,7 +83,12 @@ pub fn read_discovery() -> Result<Option<DiscoveryInfo>> {
     )?))
 }
 
-pub fn write_discovery(endpoint: &str, token: &str, mcp_port: Option<u16>) -> Result<()> {
+pub fn write_discovery(
+    endpoint: &str,
+    token: &str,
+    mcp_port: Option<u16>,
+    started_at: &str,
+) -> Result<()> {
     let Some(path) = discovery_path() else {
         return Ok(());
     };
@@ -85,6 +100,11 @@ pub fn write_discovery(endpoint: &str, token: &str, mcp_port: Option<u16>) -> Re
         token: token.into(),
         pid: std::process::id(),
         product_version: unterm_protocol::PRODUCT_VERSION.into(),
+        build_commit: unterm_protocol::BUILD_COMMIT.into(),
+        protocol_version: unterm_protocol::PROTOCOL_VERSION.into(),
+        data_schema_version: unterm_protocol::DATA_SCHEMA_VERSION,
+        process_role: ProcessRole::Core,
+        started_at: started_at.into(),
         mcp_port,
     };
     let tmp = path.with_extension("json.tmp");
@@ -682,6 +702,10 @@ impl CoreServer {
 
     pub fn endpoint(&self) -> Result<std::net::SocketAddr> {
         Ok(self.listener.local_addr()?)
+    }
+
+    pub fn started_at(&self) -> &str {
+        &self.started_at
     }
 
     pub fn run(&self) -> Result<()> {

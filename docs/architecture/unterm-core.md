@@ -26,7 +26,8 @@ unterm-engine next-core（PTY、Screen、Scrollback、revision）
 
 ## 进程生命周期
 
-- **发现**：Core 启动后将 `{endpoint, token, pid, product_version}` 原子写入
+- **发现**：Core 启动后将 `{endpoint, token, pid, product_version, build_commit,
+  protocol_version, data_schema_version, process_role, started_at}` 原子写入
   `%LOCALAPPDATA%\Unterm\core.json`（Unix 为 data_local_dir 对应路径）。
   `UNTERM_STATE_DIR` 覆盖该目录（discovery 与锁一起走）——与 M0-02 给
   bridge registry 的隔离约定一致，测试/headless 环境不会碰真实用户 Core。
