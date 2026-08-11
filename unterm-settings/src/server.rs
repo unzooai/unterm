@@ -987,6 +987,20 @@ fn api_shell_install(body: &[u8]) -> Response {
     let Some(plan) = shell_install_plan(id) else {
         return Response::err(400, "Bad Request", "shell has no supported installer");
     };
+    if body
+        .get("dry_run")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return Response::ok_json(json!({
+            "ok": true,
+            "dry_run": true,
+            "id": id,
+            "command": plan.command_line(),
+            "installer_available": program_exists(&plan.program),
+            "requires_new_shell": true,
+        }));
+    }
     if !program_exists(&plan.program) {
         return Response::err(
             409,
@@ -1000,6 +1014,7 @@ fn api_shell_install(body: &[u8]) -> Response {
     {
         Ok(_) => Response::ok_json(json!({
             "ok": true,
+            "dry_run": false,
             "id": id,
             "command": plan.command_line(),
             "requires_new_shell": true,
@@ -1237,11 +1252,12 @@ fn push_shell(
                     .map(str::to_string)
             }),
     );
+    let installed = path.is_some() && (version_args.is_empty() || version.is_some());
     shells.push(json!({
         "id": id,
         "name": name,
         "description": description,
-        "installed": path.is_some(),
+        "installed": installed,
         "path": path.unwrap_or_default(),
         "version": version,
         "install_command": install_command,
@@ -1387,6 +1403,9 @@ fn command_output(program: &str, args: &[&str]) -> Option<String> {
         .args(args)
         .output()
         .ok()?;
+    if !output.status.success() {
+        return None;
+    }
     let mut text = decode_command_output(&output.stdout);
     if text.trim().is_empty() {
         text = decode_command_output(&output.stderr);
@@ -2083,6 +2102,42 @@ fn current_recording_info() -> Value {
         }
     }
     json!({"active": false})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn response_json(response: Response) -> Value {
+        serde_json::from_slice(&response.body).expect("response body should be json")
+    }
+
+    #[test]
+    fn shell_install_dry_run_returns_a_plan_without_launching() {
+        #[cfg(any(windows, target_os = "macos"))]
+        let id = "pwsh";
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let id = "fish";
+
+        let body = json!({ "id": id, "dry_run": true }).to_string();
+        let response = api_shell_install(body.as_bytes());
+        assert_eq!(response.status, 200);
+
+        let value = response_json(response);
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["dry_run"], true);
+        assert_eq!(value["id"], id);
+        assert_eq!(value["requires_new_shell"], true);
+        assert!(!value["command"].as_str().unwrap_or_default().is_empty());
+        assert!(value["installer_available"].is_boolean());
+    }
+
+    #[test]
+    fn shell_install_rejects_unknown_shells() {
+        let body = br#"{"id":"not-a-shell","dry_run":true}"#;
+        let response = api_shell_install(body);
+        assert_eq!(response.status, 400);
+    }
 }
 
 fn sessions_path_string() -> String {

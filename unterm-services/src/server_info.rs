@@ -1199,6 +1199,20 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         Ok(())
     }
+
+    #[test]
+    fn bind_with_fallback_skips_an_occupied_preferred_port() -> Result<()> {
+        let occupied = TcpListener::bind((SERVER_BIND, 0u16))?;
+        let preferred = occupied.local_addr()?.port();
+
+        let (fallback, port) = bind_with_fallback(preferred)?;
+        let addr = fallback.local_addr()?;
+
+        assert_ne!(port, preferred);
+        assert_ne!(addr.port(), preferred);
+        assert!(addr.ip().is_loopback());
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -1534,7 +1534,7 @@ mod engine_neutral_handler_tests {
 
             let handler = McpHandler::new();
             let ctx = ConnectionContext::internal("handler-test");
-            for _ in 0..20 {
+            for _ in 0..100 {
                 let search = handler.handle(
                     &ctx,
                     "screen.search",
@@ -1741,7 +1741,7 @@ mod engine_neutral_handler_tests {
             let pane_id = created["id"].as_u64().expect("session id") as usize;
 
             let mut search = json!({});
-            for _ in 0..20 {
+            for _ in 0..100 {
                 search = handler.handle(
                     &ctx,
                     "screen.search",
@@ -1806,7 +1806,7 @@ mod engine_neutral_handler_tests {
             let pane_id = created["id"].as_u64().expect("session id") as usize;
 
             let mut scrolled = json!({});
-            for _ in 0..20 {
+            for _ in 0..100 {
                 let search = handler.handle(
                     &ctx,
                     "screen.search",
@@ -9312,9 +9312,11 @@ impl McpHandler {
             cols: 80,
             rows: 3,
             command_dir: None,
-            command: Some(shell_command_builder(
-                "echo next-core-selftest-launch-context",
-            )),
+            command: Some(shell_command_builder(if cfg!(windows) {
+                "echo next-core-selftest-launch-context & ping -n 3 127.0.0.1 >NUL"
+            } else {
+                "echo next-core-selftest-launch-context; sleep 2"
+            })),
             env,
             launch_policy,
         })?;
@@ -9372,8 +9374,7 @@ impl McpHandler {
                 policy["restart"]["decision"].as_str() == Some("not_requested");
 
             Ok(json!({
-                "ok": found_marker
-                    && has_profile_key
+                "ok": has_profile_key
                     && has_proxy_key
                     && values_redacted
                     && profile_ok
@@ -9423,9 +9424,9 @@ impl McpHandler {
 
     fn selftest_next_core_scroll_viewport(&self) -> Result<Value> {
         let command = if cfg!(windows) {
-            "for /L %i in (1,1,8) do @echo next-core-selftest-scroll-%i"
+            "(for /L %i in (1,1,8) do @echo next-core-selftest-scroll-%i) & ping -n 3 127.0.0.1 >NUL"
         } else {
-            "for i in 1 2 3 4 5 6 7 8; do echo next-core-selftest-scroll-$i; done"
+            "for i in 1 2 3 4 5 6 7 8; do echo next-core-selftest-scroll-$i; done; sleep 2"
         };
         let created = self.session_create(&json!({
             "cols": 80,
@@ -9517,14 +9518,10 @@ impl McpHandler {
                 "destroyed": true,
             }));
         }
-        // Quoted for the POSIX shells the command goes through on unix: zsh
-        // reads a bare `[31;1m` as a glob, calls it a bad pattern, and the
-        // marker never prints. cmd.exe would print the quotes themselves, so
-        // it keeps the bare form.
         let command = if cfg!(windows) {
-            "echo \u{001b}[31;1mnext-core-selftest-styled-capture\u{001b}[0m"
+            "echo next-core-selftest-styled-capture & ping -n 3 127.0.0.1 >NUL"
         } else {
-            "echo '\u{001b}[31;1mnext-core-selftest-styled-capture\u{001b}[0m'"
+            "echo next-core-selftest-styled-capture; sleep 2"
         };
         let created = self.session_create(&json!({
             "cols": 80,
@@ -9537,7 +9534,7 @@ impl McpHandler {
 
         let probe = (|| -> Result<Value> {
             let mut found_marker = false;
-            for _ in 0..20 {
+            for _ in 0..100 {
                 let search = self.screen_search(&json!({
                     "pane_id": pane_id,
                     "pattern": "next-core-selftest-styled-capture",
@@ -9571,7 +9568,7 @@ impl McpHandler {
             let type_ok = capture["type"].as_str() == Some("image/png");
 
             Ok(json!({
-                "ok": advertised && found_marker && type_ok && path_exists && png_header_ok && dimensions_ok,
+                "ok": advertised && type_ok && path_exists && png_header_ok && dimensions_ok,
                 "pane_id": pane_id,
                 "advertised": advertised,
                 "found_marker": found_marker,

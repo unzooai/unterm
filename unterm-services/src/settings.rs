@@ -243,12 +243,18 @@ pub fn set_current(config: &Config) {
 pub fn preferred_platform_shell() -> Option<Vec<String>> {
     #[cfg(windows)]
     {
-        let pwsh = PathBuf::from(r"C:\Program Files\PowerShell\7\pwsh.exe");
-        if pwsh.is_file() {
-            return Some(vec![
-                pwsh.to_string_lossy().into_owned(),
-                "-NoLogo".to_string(),
-            ]);
+        for pwsh in windows_program_candidates(&[
+            r"C:\Program Files\PowerShell\7\pwsh.exe",
+            "pwsh.exe",
+            "pwsh",
+        ]) {
+            if windows_shell_version_probe(&pwsh) {
+                return Some(vec![
+                    pwsh,
+                    "-NoLogo".to_string(),
+                    "-NoProfile".to_string(),
+                ]);
+            }
         }
         Some(vec![
             "powershell.exe".to_string(),
@@ -260,6 +266,61 @@ pub fn preferred_platform_shell() -> Option<Vec<String>> {
     {
         None
     }
+}
+
+#[cfg(windows)]
+fn windows_shell_version_probe(program: &str) -> bool {
+    let path = PathBuf::from(program);
+    if path.is_absolute() && !path.is_file() {
+        return false;
+    }
+    std::process::Command::new(program)
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            "$PSVersionTable.PSVersion.ToString()",
+        ])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn windows_program_candidates(programs: &[&str]) -> Vec<String> {
+    let mut found = Vec::new();
+    for program in programs {
+        let path = PathBuf::from(program);
+        if path.is_absolute() {
+            found.push(program.to_string());
+            continue;
+        }
+        if let Some(path) = resolve_windows_program(program) {
+            found.push(path);
+        }
+        found.push(program.to_string());
+    }
+    found
+}
+
+#[cfg(windows)]
+fn resolve_windows_program(program: &str) -> Option<String> {
+    let path_var = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(program);
+        if candidate.is_file() {
+            return Some(candidate.display().to_string());
+        }
+        if std::path::Path::new(program).extension().is_none() {
+            for ext in ["exe", "cmd", "bat"] {
+                let candidate = dir.join(format!("{program}.{ext}"));
+                if candidate.is_file() {
+                    return Some(candidate.display().to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Scrollback capacity for panes created after startup.
@@ -360,7 +421,10 @@ mod tests {
         let settings = Settings::from_config(&config);
         std::fs::remove_dir_all(&dir).ok();
 
-        assert!(errors.is_empty(), "a BOM was reported as a config error: {errors:?}");
+        assert!(
+            errors.is_empty(),
+            "a BOM was reported as a config error: {errors:?}"
+        );
         assert_eq!(
             settings.mcp_input_confirmation,
             McpInputConfirmation::Never,
@@ -487,17 +551,16 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn the_legacy_windows_default_is_powershell_not_cmd() {
-        // What this defends is "a PowerShell, not cmd". Which PowerShell wins
-        // depends on the machine: a runner with PowerShell 7 first is still
-        // giving the right answer.
+    fn the_windows_default_prefers_usable_pwsh_then_powershell_not_cmd() {
         let shell = preferred_platform_shell().expect("Windows has a preferred shell");
         let name = shell[0].to_ascii_lowercase();
-        assert!(
-            name.ends_with("powershell.exe") || name.ends_with("pwsh.exe"),
-            "{shell:?}"
-        );
+        if windows_shell_version_probe("pwsh.exe") || windows_shell_version_probe("pwsh") {
+            assert!(name.ends_with("pwsh.exe") || name == "pwsh", "{shell:?}");
+        } else {
+            assert!(name.ends_with("powershell.exe"), "{shell:?}");
+        }
         assert_eq!(shell.get(1).map(String::as_str), Some("-NoLogo"));
+        assert_eq!(shell.get(2).map(String::as_str), Some("-NoProfile"));
     }
 
     #[test]

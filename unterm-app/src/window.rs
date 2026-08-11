@@ -10595,19 +10595,15 @@ bg_color = "#3a3a3a"
 
     #[test]
     #[cfg(windows)]
-    fn a_config_naming_no_shell_keeps_the_legacy_powershell_default() {
+    fn a_config_naming_no_shell_uses_the_platform_powershell_default() {
         let config = config::parse("font_size = 13").expect("config should parse");
         let shell = shell_from(&config).expect("Windows has a platform shell");
         let argv = shell.get_argv();
+        let name = argv[0].to_string_lossy().to_ascii_lowercase();
 
-        assert!(
-            argv[0]
-                .to_string_lossy()
-                .to_ascii_lowercase()
-                .contains("powershell"),
-            "{argv:?}"
-        );
+        assert!(name.contains("powershell") || name.contains("pwsh"), "{argv:?}");
         assert_eq!(argv[1].to_string_lossy(), "-NoLogo");
+        assert_eq!(argv[2].to_string_lossy(), "-NoProfile");
     }
 
     #[test]

@@ -1296,7 +1296,7 @@ fn cmd_quote(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{headless_args, shell_join};
+    use super::headless_args;
 
     #[test]
     fn agent_headless_args_cover_supported_adapters() {
