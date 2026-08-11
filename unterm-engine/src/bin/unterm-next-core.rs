@@ -40,6 +40,7 @@ struct Args {
     bench_focus_switches: Option<usize>,
     bench_session_create: Option<usize>,
     bench_session_ready: Option<usize>,
+    bench_first_session_ready: bool,
     poll_ms: u64,
     timeout_ms: u64,
     json: bool,
@@ -80,6 +81,7 @@ fn parse_args() -> Result<Args> {
         bench_focus_switches: None,
         bench_session_create: None,
         bench_session_ready: None,
+        bench_first_session_ready: false,
         poll_ms: 5,
         timeout_ms: 5000,
         json: false,
@@ -321,6 +323,9 @@ fn parse_args() -> Result<Args> {
                         .parse()?,
                 );
             }
+            "--bench-first-session-ready" => {
+                parsed.bench_first_session_ready = true;
+            }
             "--write" => {
                 parsed.write = Some(
                     args.next()
@@ -356,7 +361,7 @@ fn parse_args() -> Result<Args> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-key-to-screen N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-page-cycle-lines N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-render-plans N] [--bench-render-cursor-moves N] [--bench-render-application-cursor-moves N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
+                    "Usage: unterm-next-core [--cols N] [--rows N] [--wait-ms N] [--poll-ms N] [--timeout-ms N] [--bench-input-writes N] [--bench-key-to-screen N] [--bench-input-burst N] [--bench-echo N] [--bench-flood-lines N] [--bench-scrollback-lines N] [--bench-viewport-scrolls N] [--bench-viewport-page-cycle-lines N] [--bench-viewport-scroll-flood N] [--bench-paste-kb N] [--bench-dual-agent-lines N] [--bench-agent-startup-lines N] [--bench-screen-read-lines N] [--bench-render-frames N] [--bench-render-plans N] [--bench-render-cursor-moves N] [--bench-render-application-cursor-moves N] [--bench-focus-switches N] [--bench-session-create N] [--bench-session-ready N] [--bench-first-session-ready] [--cwd PATH] [--env KEY=VALUE] [--write TEXT] [--paste TEXT] [--json] [-- COMMAND [ARG...]]"
                 );
                 std::process::exit(0);
             }
@@ -1987,6 +1992,32 @@ fn run_session_ready_benchmark(
     Ok(())
 }
 
+fn run_first_session_ready_benchmark(
+    engine: &unterm_engine::next_core::NextCoreEngine,
+    pane_id: usize,
+    started: Instant,
+    create_elapsed: Duration,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> Result<()> {
+    loop {
+        let text = engine.read_visible_text(pane_id)?;
+        if !text.trim().is_empty() {
+            println!(
+                "bench_first_session_ready elapsed_ms={} create_us={} visible_bytes={}",
+                started.elapsed().as_millis(),
+                create_elapsed.as_micros(),
+                text.len()
+            );
+            return Ok(());
+        }
+        if started.elapsed() >= timeout {
+            bail!("timed out waiting for first session visible text");
+        }
+        std::thread::sleep(poll_interval);
+    }
+}
+
 fn explicit_launch_policy(env: &[(String, String)]) -> LaunchPolicySnapshot {
     LaunchPolicySnapshot {
         profile: env
@@ -2020,6 +2051,7 @@ fn main() -> Result<()> {
     let args = parse_args()?;
     let engine = next_core();
     let launch_policy = explicit_launch_policy(&args.env);
+    let session_started = Instant::now();
     let session = engine.create_session(CreateSessionRequest {
         cols: args.cols,
         rows: args.rows,
@@ -2028,6 +2060,24 @@ fn main() -> Result<()> {
         env: args.env,
         launch_policy,
     })?;
+    let session_create_elapsed = session_started.elapsed();
+
+    if args.bench_first_session_ready {
+        run_first_session_ready_benchmark(
+            &engine,
+            session.id,
+            session_started,
+            session_create_elapsed,
+            Duration::from_millis(args.poll_ms),
+            Duration::from_millis(args.timeout_ms),
+        )
+        .with_context(|| {
+            format!(
+                "bench_first_session_ready failed for session {}",
+                session.id
+            )
+        })?;
+    }
 
     if let Some(rounds) = args.bench_input_writes {
         run_input_write_benchmark(&engine, session.id, rounds)

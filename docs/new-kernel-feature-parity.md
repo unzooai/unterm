@@ -54,7 +54,7 @@ does not constitute parity.
 | FR-TERM-003 | Verified | Copy/paste, copy mode, search, quick select, character select, clearing and ordinary scrolling are implemented. The next core records OSC 133 prompt-start rows, keeps them aligned through history trimming/clearing, and exposes `Ctrl+Shift+Up/Down` navigation. In a real Windows pane, three emitted OSC 133 prompt blocks appeared in scrollback; selecting the production `Previous Prompt` action (shown with `CTRL\|SHIFT Up`) moved the live viewport from the bottom back to `PROMPT-3`. Parser, trimming, navigation and binding tests cover the underlying state transitions. |
 | FR-TERM-004 | Verified | `mouse::right_click` routes selection to copy-and-clear and an empty selection to paste. In a real pane, dragging across `PROMPT-3` then right-clicking placed exactly `PROMPT-3` on the Windows clipboard and cleared the selection; a second right-click with no selection inserted unique text at the live command prompt without executing it. Focused routing tests cover both branches. |
 | FR-TERM-005 | Verified | Clipboard reads and writes run on worker threads and return through an event-loop channel, so platform retries cannot hold winit. A focused test blocks a simulated platform operation and proves the caller returns immediately. During real Windows acceptance, another process held the clipboard open for four seconds; while that lock was still `Running`, the native window processed a Settings hover and produced a fresh capture in 1.45 seconds, and the asynchronous paste completed without freezing the UI. The same worker boundary wraps the macOS path. |
-| FR-TERM-006 | Verified | The reachable 24-scenario/34-gate next-core benchmark report covers dual-agent echo, agent-startup input, paste under output flood, focus switching, PageUp/PageDown semantics, wheel-style viewport scrolling and screen reads under flood. The verifier passes on this branch; a fresh post-parity benchmark run remains part of final release acceptance. |
+| FR-TERM-006 | Verified | The reachable 25-scenario/35-gate next-core benchmark report covers dual-agent echo, agent-startup input, first-session readiness, paste under output flood, focus switching, PageUp/PageDown semantics, wheel-style viewport scrolling and screen reads under flood. The verifier passes on this branch; a fresh post-parity benchmark run remains part of final release acceptance. |
 | FR-TERM-007 | Verified | Native GUI observes PTY-bound keys and IME commits, paints a pane-clipped prediction at the focused cursor, and accepts with unmodified Right Arrow or End. In a real window, typing `cod` rendered dim `ex`; End converted it into committed `codex` text at the shell cursor without executing it. Six focused GUI tests cover application/keypad variants and clipping. |
 | FR-TERM-008 | Verified | Per-key path calls an in-memory registry with an empty external candidate slice, and the prefix-scan budget is now shared across the pane-local/global/external pools so total per-keystroke work stays bounded. Agent names/flags initialize from compile-time constants; the signed manifest catalog is merged once on a background thread, so the key-event path itself still never reads the disk while manifest-only agents complete like built-ins. |
 | FR-TERM-009 | Verified | Automatic naming resolves pane title to shell/foreground fallback; the left tab strip independently carries foreground command detail, project grouping with disambiguation, and known-agent identity. A focused regression test covers all four identities. |
@@ -152,7 +152,7 @@ does not constitute parity.
 | FR-MCP-007 | Verified | `server.capabilities` is derived from the same method inventory and includes `_engine_capabilities`; next-core diagnostic tests cover I/O and runtime-pump metrics. |
 | FR-MCP-008 | Verified | All 103 public methods are exhaustively and exclusively classified read-only or mutating. Leaf handlers retain rich redacted records, while the dispatch boundary appends a fallback success/failure record for every mutation that did not emit one. Classification and real dispatch-fallback tests pass. |
 | FR-MCP-009 | Verified | Parse, authentication and handler failures return JSON-RPC error objects with numeric codes and messages; handler validation names missing/invalid parameters and unsupported-platform paths. |
-| FR-MCP-010 | Verified | The 24-scenario/34-gate next-core benchmark covers reads, writes, scrolling, paste, output flood and concurrent agents while MCP remains responsive. |
+| FR-MCP-010 | Verified | The 25-scenario/35-gate next-core benchmark covers reads, writes, scrolling, paste, output flood, first-session readiness and concurrent agents while MCP remains responsive. |
 
 ## CLI
 
@@ -377,7 +377,7 @@ does not constitute parity.
 - Evidence:
   - the complete 515-test `unterm-app` suite passes.
   - the complete next-core engine suite passes.
-  - the reachable 24-scenario/34-gate benchmark summary verifies successfully.
+  - the reachable 25-scenario/35-gate benchmark summary verifies successfully.
 
 ### Core size budget
 
@@ -461,7 +461,7 @@ does not constitute parity.
   - `unterm-agents`: 34 unit + 2 baked-manifest tests
 - The size gate passes at 12,203/12,300 core lines, 2,473/2,500 probe lines,
   10/10 direct dependencies and 7,165,440/8,000,000 debug binary bytes.
-- The reachable benchmark verifier passes all 34 gates across 24 scenarios,
+- The reachable benchmark verifier passes all 35 gates across 25 scenarios,
   and the native App/CLI builds complete.
 - A real second new-kernel process registered `bravo` while `alpha` remained
   live, exercised fallback MCP/HTTP ports, instance-scoped CLI routing,
@@ -570,7 +570,7 @@ does not constitute parity.
   `unterm-services` 105, `unterm-mcp` 64, `unterm-cli` 23, `unterm-agents`
   36 — all passing, with no new compiler warnings. The size gate passes at
   12,445/12,550 core lines and the reachable benchmark verifier passes all
-  34 gates across 24 scenarios on an otherwise idle machine (a run sharing
+  35 gates across 25 scenarios on an otherwise idle machine (a run sharing
   the machine with the full test suite fails only the two session-latency
   gates, which is contention rather than regression).
 

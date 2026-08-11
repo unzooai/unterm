@@ -1,7 +1,7 @@
 param(
     [string]$SummaryJsonPath = "",
-    [int]$ExpectedGateCount = 34,
-    [int]$ExpectedBenchmarkCount = 24,
+    [int]$ExpectedGateCount = 35,
+    [int]$ExpectedBenchmarkCount = 25,
     [switch]$SkipCommitReachabilityCheck
 )
 
@@ -221,7 +221,8 @@ $requiredGates = @(
     "focus switch missing sessions",
     "focus switch duplicate sessions",
     "session create p95",
-    "session ready p95"
+    "session ready p95",
+    "first session ready elapsed"
 )
 foreach ($name in $requiredGates) {
     $gate = @($gates | Where-Object { $_.name -eq $name })
@@ -265,7 +266,8 @@ $requiredBenchmarks = @(
     "render application cursor move latency",
     "focus switch latency",
     "session create latency",
-    "session ready latency"
+    "session ready latency",
+    "first session ready"
 )
 foreach ($name in $requiredBenchmarks) {
     $benchmark = @($benchmarks | Where-Object { $_.name -eq $name })

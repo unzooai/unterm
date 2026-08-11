@@ -64,6 +64,7 @@ param(
     [int]$MaxFocusSwitchDuplicateSessions = 0,
     [int]$MaxSessionCreateP95Us = 100000,
     [int]$MaxSessionReadyP95Us = 100000,
+    [int]$MaxFirstSessionReadyMs = 1000,
     [switch]$SkipBuild
 )
 
@@ -440,6 +441,7 @@ try {
     $results += Invoke-Benchmark -Name "focus switch latency" -BenchArgs ([string[]](@("--bench-focus-switches", "$FocusSwitches") + $commonTail))
     $results += Invoke-Benchmark -Name "session create latency" -BenchArgs ([string[]](@("--bench-session-create", "$SessionCreates") + $commonTail))
     $results += Invoke-Benchmark -Name "session ready latency" -BenchArgs ([string[]](@("--bench-session-ready", "$SessionReadyRounds") + $commonTail))
+    $results += Invoke-Benchmark -Name "first session ready" -BenchArgs ([string[]](@("--bench-first-session-ready") + $commonTail))
 
     $inputWrite = Find-BenchmarkResult -Results $results -Name "input write latency"
     $keyToScreen = Find-BenchmarkResult -Results $results -Name "key-to-screen latency"
@@ -464,6 +466,7 @@ try {
     $focusSwitch = Find-BenchmarkResult -Results $results -Name "focus switch latency"
     $sessionCreate = Find-BenchmarkResult -Results $results -Name "session create latency"
     $sessionReady = Find-BenchmarkResult -Results $results -Name "session ready latency"
+    $firstSessionReady = Find-BenchmarkResult -Results $results -Name "first session ready"
     $gates = @()
     $gates += New-Gate -GateName "input write p95" -Actual (Get-BenchMetric -Result $inputWrite -LinePrefix "bench_input_write" -Metric "p95_us") -Max $MaxInputWriteP95Us -Unit "us"
     $gates += New-Gate -GateName "key-to-screen p95" -Actual (Get-BenchMetric -Result $keyToScreen -LinePrefix "bench_key_to_screen" -Metric "p95_us") -Max $MaxKeyToScreenP95Us -Unit "us"
@@ -499,6 +502,7 @@ try {
     $gates += New-Gate -GateName "focus switch duplicate sessions" -Actual (Get-BenchMetric -Result $focusSwitch -LinePrefix "bench_focus_switch" -Metric "duplicate_sessions") -Max $MaxFocusSwitchDuplicateSessions -Unit "misses"
     $gates += New-Gate -GateName "session create p95" -Actual (Get-BenchMetric -Result $sessionCreate -LinePrefix "bench_session_create" -Metric "p95_us") -Max $MaxSessionCreateP95Us -Unit "us"
     $gates += New-Gate -GateName "session ready p95" -Actual (Get-BenchMetric -Result $sessionReady -LinePrefix "bench_session_ready" -Metric "p95_us") -Max $MaxSessionReadyP95Us -Unit "us"
+    $gates += New-Gate -GateName "first session ready elapsed" -Actual (Get-BenchMetric -Result $firstSessionReady -LinePrefix "bench_first_session_ready" -Metric "elapsed_ms") -Max $MaxFirstSessionReadyMs -Unit "ms"
 
     $commit = (& git rev-parse --short HEAD).Trim()
     $date = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss zzz")
