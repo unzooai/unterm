@@ -132,6 +132,10 @@ fn main() -> std::process::ExitCode {
         println!("unterm {}", unterm_protocol::PRODUCT_VERSION);
         return std::process::ExitCode::SUCCESS;
     }
+    if help_requested(std::env::args_os().skip(1)) {
+        print!("{}", help_text());
+        return std::process::ExitCode::SUCCESS;
+    }
     env_logger::Builder::from_env(env_logger::Env::default().filter_or("UNTERM_LOG", "info"))
         .init();
     install_panic_reporter();
@@ -151,6 +155,28 @@ fn version_requested(arguments: impl IntoIterator<Item = std::ffi::OsString>) ->
         (arguments.next(), arguments.next()),
         (Some(argument), None) if argument == "--version" || argument == "-V"
     )
+}
+
+fn help_requested(arguments: impl IntoIterator<Item = std::ffi::OsString>) -> bool {
+    let mut arguments = arguments.into_iter();
+    matches!(
+        (arguments.next(), arguments.next()),
+        (Some(argument), None) if argument == "--help" || argument == "-h"
+    )
+}
+
+fn help_text() -> String {
+    format!("unterm {}", unterm_protocol::PRODUCT_VERSION) + "\n\n\
+USAGE:\n\
+    unterm [start] [--cwd <dir>] [--tab] [--profile <id>] [--config <file>] [-- <command>...]\n\n\
+OPTIONS:\n\
+    --cwd <dir>       Start the first shell in this directory\n\
+    --tab             Open the directory as a tab in a live window when possible\n\
+    --profile <id>    Bind the first pane to an Unterm profile\n\
+    -c, --config <file>\n\
+                      Read this config file instead of the default\n\
+    -V, --version     Print version and exit before initialization\n\
+    -h, --help        Print help and exit before initialization\n"
 }
 
 fn run() -> anyhow::Result<()> {

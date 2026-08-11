@@ -35,3 +35,34 @@ fn version_is_fast_and_does_not_register_an_instance() {
         "version probe must not create product state"
     );
 }
+
+#[test]
+fn help_is_fast_and_does_not_register_an_instance() {
+    let warm_home = tempfile::tempdir().unwrap();
+    Command::new(env!("CARGO_BIN_EXE_unterm"))
+        .arg("--help")
+        .env("USERPROFILE", warm_home.path())
+        .env("HOME", warm_home.path())
+        .output()
+        .expect("warm up unterm --help");
+
+    let home = tempfile::tempdir().unwrap();
+    let started = Instant::now();
+    let output = Command::new(env!("CARGO_BIN_EXE_unterm"))
+        .arg("--help")
+        .env("USERPROFILE", home.path())
+        .env("HOME", home.path())
+        .output()
+        .expect("run unterm --help");
+
+    assert!(output.status.success());
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("USAGE:"));
+    assert!(stdout.contains("--cwd <dir>"));
+    assert!(stdout.contains("--version"));
+    assert!(
+        !home.path().join(".unterm").exists(),
+        "help probe must not create product state"
+    );
+}
