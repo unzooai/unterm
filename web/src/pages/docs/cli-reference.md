@@ -1203,7 +1203,7 @@ $ unterm-cli --json lang current
 Emits a completion script for your shell. Sourceable.
 
 ```text
-unterm-cli shell-completion --shell <bash|zsh|fish|elvish|powershell|fig>
+unterm-cli shell-completion --shell <bash|zsh|fish|elvish|powershell>
 ```
 
 ```sh
