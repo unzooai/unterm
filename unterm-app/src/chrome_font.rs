@@ -38,7 +38,7 @@ const FAMILIES: &[&str] = &[
 /// Open the chrome face at the display's scale.
 pub fn open(fallbacks: &[String], scale: f32) -> anyhow::Result<TerminalFont> {
     let pixels = crate::terminal::pixels_for_points(crate::ui_tokens::UI_FONT_SIZE as f32, scale);
-    let index = unterm_engine::next_core::font_discovery::FontIndex::scan();
+    let index = unterm_engine::next_core::font_discovery::FontIndex::cached();
     let family = FAMILIES
         .iter()
         .find(|family| !index.family(family).is_empty())

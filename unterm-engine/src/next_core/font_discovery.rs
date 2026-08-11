@@ -15,6 +15,7 @@
 use crate::next_core::font_raster::FontFace;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// What a font file claims about itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -183,6 +184,17 @@ impl FontIndex {
         Self::from_entries(scan_installed_fonts())
     }
 
+    /// Process-wide installed-font index.
+    ///
+    /// A GUI startup opens the terminal face, the chrome face, and on scaled
+    /// displays reopens both once the window reports its DPI. Scanning the
+    /// platform font directories for each of those calls makes startup pay the
+    /// same filesystem walk several times.
+    pub fn cached() -> &'static Self {
+        static INDEX: OnceLock<FontIndex> = OnceLock::new();
+        INDEX.get_or_init(Self::scan)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.by_family.is_empty()
     }
@@ -295,6 +307,11 @@ mod tests {
         let mut face = FontFace::open(&mono.path, 24).expect("open the discovered font");
         let glyph = face.rasterize('W').expect("rasterize through it");
         assert!(glyph.width > 0 && glyph.height > 0);
+    }
+
+    #[test]
+    fn cached_index_is_reused_in_process() {
+        assert!(std::ptr::eq(FontIndex::cached(), FontIndex::cached()));
     }
 
     #[test]

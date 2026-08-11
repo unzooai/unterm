@@ -22,7 +22,11 @@ pub fn pixels_for_points(points: f32, scale: f32) -> u32 {
     // macOS speaks in its own points -- a 13pt font in Terminal, iTerm and
     // 0.57.4 alike is 13 logical pixels. Everything else keeps the 96dpi
     // convention the same number means on Windows.
-    const NOMINAL_DPI: f32 = if cfg!(target_os = "macos") { 72.0 } else { 96.0 };
+    const NOMINAL_DPI: f32 = if cfg!(target_os = "macos") {
+        72.0
+    } else {
+        96.0
+    };
     // Never zero: a face opened at no pixels rasterizes nothing, and the
     // window comes up blank with no error to explain it.
     (((points.max(1.0) * NOMINAL_DPI * scale.max(0.1)) / POINTS_PER_INCH).round() as u32).max(1)
@@ -372,7 +376,7 @@ impl TerminalFont {
     /// Open the machine's default monospace face at `pixel_size`.
     #[cfg(test)]
     pub fn open(pixel_size: u32) -> anyhow::Result<Self> {
-        let index = font_discovery::FontIndex::scan();
+        let index = font_discovery::FontIndex::cached();
         let entry = index
             .default_monospace()
             .ok_or_else(|| anyhow::anyhow!("no monospace font found on this machine"))?;
@@ -391,7 +395,7 @@ impl TerminalFont {
         fallbacks: &[String],
         shape: Shape,
     ) -> anyhow::Result<Self> {
-        let index = font_discovery::FontIndex::scan();
+        let index = font_discovery::FontIndex::cached();
         if let Some(name) = family {
             if index.family(name).is_empty() {
                 log::warn!("font {name:?} is not installed; using the default");
@@ -407,9 +411,9 @@ impl TerminalFont {
             None => match crate::fonts::bundled_face("JetBrainsMono-Regular.ttf", pixel_size) {
                 Some(face) => face,
                 None => {
-                    let fallback = index
-                        .default_monospace()
-                        .ok_or_else(|| anyhow::anyhow!("no monospace font found on this machine"))?;
+                    let fallback = index.default_monospace().ok_or_else(|| {
+                        anyhow::anyhow!("no monospace font found on this machine")
+                    })?;
                     FontFace::open_indexed(&fallback.path, fallback.face_index, pixel_size)?
                 }
             },
