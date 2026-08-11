@@ -385,9 +385,32 @@ fn quick_menu_owns_keyboard(pending_confirmation_visible: bool) -> bool {
     !pending_confirmation_visible
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QuickMenuMouseAction {
+    ActivateHovered,
+    Close,
+    Swallow,
+}
+
+fn quick_menu_mouse_action(
+    state: ElementState,
+    button: winit::event::MouseButton,
+    secondary: bool,
+) -> QuickMenuMouseAction {
+    if state != ElementState::Pressed {
+        return QuickMenuMouseAction::Swallow;
+    }
+    if button == winit::event::MouseButton::Left && !secondary {
+        QuickMenuMouseAction::ActivateHovered
+    } else {
+        QuickMenuMouseAction::Close
+    }
+}
+
 #[cfg(test)]
 mod quick_menu_tests {
     use super::*;
+    use winit::event::MouseButton;
 
     fn menu() -> QuickMenu {
         let entries = (0..15)
@@ -440,6 +463,22 @@ mod quick_menu_tests {
     fn quick_menu_keeps_keyboard_unless_a_confirmation_is_visible() {
         assert!(quick_menu_owns_keyboard(false));
         assert!(!quick_menu_owns_keyboard(true));
+    }
+
+    #[test]
+    fn quick_menu_mouse_is_modal_over_mouse_reporting_tuis() {
+        assert_eq!(
+            quick_menu_mouse_action(ElementState::Pressed, MouseButton::Left, false),
+            QuickMenuMouseAction::ActivateHovered
+        );
+        assert_eq!(
+            quick_menu_mouse_action(ElementState::Pressed, MouseButton::Right, true),
+            QuickMenuMouseAction::Close
+        );
+        assert_eq!(
+            quick_menu_mouse_action(ElementState::Released, MouseButton::Left, false),
+            QuickMenuMouseAction::Swallow
+        );
     }
 }
 
@@ -9958,16 +9997,18 @@ impl ApplicationHandler for App {
                 // press may choose a row; the matching release must not leak
                 // into the pane underneath as terminal mouse input.
                 if self.quick_menu.is_some() {
-                    if state == ElementState::Pressed {
-                        if button == MouseButton::Left && !secondary {
+                    match quick_menu_mouse_action(state, button, secondary) {
+                        QuickMenuMouseAction::ActivateHovered => {
                             self.click_quick_menu();
-                        } else {
+                        }
+                        QuickMenuMouseAction::Close => {
                             self.quick_menu = None;
                             self.drawn_revision = None;
                             if secondary && button == MouseButton::Left {
                                 self.swallow_left_after_secondary = true;
                             }
                         }
+                        QuickMenuMouseAction::Swallow => {}
                     }
                     return;
                 }
