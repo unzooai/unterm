@@ -357,15 +357,15 @@ fn main() -> Result<()> {
         SubCommand::Server(cmd) => run_server(cmd, opts.json),
         SubCommand::SetupAi(cmd) => run_setup_ai(cmd, opts.json),
         SubCommand::McpStdio => run_mcp_stdio(),
-        SubCommand::Cli(cmd) => legacy::run_cli(cmd),
+        SubCommand::Cli(cmd) => legacy::run_cli(cmd, opts.json),
         SubCommand::ShowKeys => legacy::run_show_keys(opts.json),
         SubCommand::LsFonts => legacy::run_ls_fonts(opts.json),
         SubCommand::Imgcat { path } => legacy::run_imgcat(path),
         SubCommand::SetWorkingDirectory { path } => legacy::run_set_working_directory(path),
         SubCommand::Record(cmd) => legacy::run_record(cmd, opts.json),
-        SubCommand::Replay(cmd) => legacy::run_replay(cmd),
+        SubCommand::Replay(cmd) => legacy::run_replay(cmd, opts.json),
         SubCommand::Ssh(cmd) => legacy::run_ssh(cmd),
-        SubCommand::Connect(cmd) => legacy::run_connect(cmd),
+        SubCommand::Connect(cmd) => legacy::run_connect(cmd, opts.json),
         SubCommand::Settings(cmd) => run_settings(cmd),
         SubCommand::Lang(cmd) => run_lang(cmd, opts.json),
         SubCommand::Policy(cmd) => run_policy(cmd, opts.json),
@@ -661,6 +661,22 @@ mod command_line_tests {
             "shell-completion",
         ] {
             assert!(names.contains(required), "missing CLI family {required}");
+        }
+        for retained in [
+            "cli",
+            "show-keys",
+            "ls-fonts",
+            "imgcat",
+            "set-working-directory",
+            "record",
+            "replay",
+            "ssh",
+            "connect",
+        ] {
+            assert!(
+                names.contains(retained),
+                "missing retained compatibility CLI family {retained}"
+            );
         }
         for global in ["json", "lang", "instance"] {
             assert!(

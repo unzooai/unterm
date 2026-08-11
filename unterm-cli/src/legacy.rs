@@ -25,11 +25,13 @@ pub struct LegacyCommand {
     pub args: Vec<String>,
 }
 
-pub fn run_cli(_cmd: LegacyCommand) -> Result<()> {
-    Err(anyhow!(
-        "`unterm-cli cli` belonged to the old mux CLI. Use `unterm-cli instance ...`, \
-         `unterm-cli session ...`, or `unterm-cli server ...` in this build."
-    ))
+pub fn run_cli(_cmd: LegacyCommand, json_out: bool) -> Result<()> {
+    legacy_removed(
+        "cli",
+        "`unterm-cli cli` belonged to the old mux CLI.",
+        "Use `unterm-cli instance ...`, `unterm-cli session ...`, or `unterm-cli server ...` in this build.",
+        json_out,
+    )
 }
 
 pub fn run_show_keys(json_out: bool) -> Result<()> {
@@ -90,19 +92,22 @@ pub fn run_set_working_directory(path: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-pub fn run_record(_cmd: LegacyCommand, _json_out: bool) -> Result<()> {
-    Err(anyhow!(
-        "`unterm-cli record` was an old asciicast command. Use \
-         `unterm-cli session record start|stop|status` or \
-         `unterm-cli session export` for Unterm's Markdown recording flow."
-    ))
+pub fn run_record(_cmd: LegacyCommand, json_out: bool) -> Result<()> {
+    legacy_removed(
+        "record",
+        "`unterm-cli record` was an old asciicast command.",
+        "Use `unterm-cli session record start|stop|status` or `unterm-cli session export` for Unterm's Markdown recording flow.",
+        json_out,
+    )
 }
 
-pub fn run_replay(_cmd: LegacyCommand) -> Result<()> {
-    Err(anyhow!(
-        "`unterm-cli replay` was an old asciicast command and is not implemented \
-         in the native Unterm CLI."
-    ))
+pub fn run_replay(_cmd: LegacyCommand, json_out: bool) -> Result<()> {
+    legacy_removed(
+        "replay",
+        "`unterm-cli replay` was an old asciicast command and is not implemented in the native Unterm CLI.",
+        "There is no native replay replacement yet; read completed recordings with `unterm-cli sessions read <session-id>`.",
+        json_out,
+    )
 }
 
 pub fn run_ssh(cmd: LegacyCommand) -> Result<()> {
@@ -114,12 +119,28 @@ pub fn run_ssh(cmd: LegacyCommand) -> Result<()> {
     crate::run_start(None, None, command)
 }
 
-pub fn run_connect(_cmd: LegacyCommand) -> Result<()> {
-    Err(anyhow!(
-        "`unterm-cli connect` belonged to the old mux client. Use \
-         `unterm-cli start`, `unterm-cli instance ...`, or MCP discovery through \
-         `unterm-cli server info`."
-    ))
+pub fn run_connect(_cmd: LegacyCommand, json_out: bool) -> Result<()> {
+    legacy_removed(
+        "connect",
+        "`unterm-cli connect` belonged to the old mux client.",
+        "Use `unterm-cli start`, `unterm-cli instance ...`, or MCP discovery through `unterm-cli server info`.",
+        json_out,
+    )
+}
+
+fn legacy_removed(command: &str, message: &str, replacement: &str, json_out: bool) -> Result<()> {
+    if json_out {
+        print_json(&json!({
+            "ok": false,
+            "error": {
+                "code": "legacy_removed",
+                "command": command,
+                "message": message,
+                "replacement": replacement,
+            }
+        }));
+    }
+    Err(anyhow!("{message} {replacement}"))
 }
 
 fn font_search_paths() -> Vec<PathBuf> {
