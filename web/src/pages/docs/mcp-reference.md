@@ -15,7 +15,7 @@ The current native `next-core` build exposes 103 authenticated methods plus
 the running binary, call [`meta.surface`](#meta) or run
 `unterm-cli reference` in any shell.
 
-For higher-level patterns (director/worker, multi-pane orchestration, recording for review) see the [agent integration guide](agent-integration). This page is the wire-level companion — the doc you check when your client got back `-32603` and you want to know which field you fat-fingered.
+For higher-level patterns (director/worker, multi-pane orchestration, recording for review) see the [agent integration guide](/docs/agent-integration/). This page is the wire-level companion — the doc you check when your client got back `-32603` and you want to know which field you fat-fingered.
 
 ## Connection and auth
 
