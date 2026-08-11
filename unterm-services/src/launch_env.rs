@@ -100,11 +100,11 @@ pub fn apply_unterm_proxy_to_process_env() {
 /// Strategy:
 ///   - args == ["powershell.exe"] / ["pwsh.exe"] / etc. (just the
 ///     binary, nothing else): replace with the binary plus
-    ///     `-NoLogo -NoProfile -NoExit -Command "<UTF-8 setup>"`.
-    ///     -NoProfile keeps PowerShell from printing startup warnings before
-    ///     the setup runs. We do not clear the screen or source `$PROFILE`
-    ///     from this wrapper: both are interactive-shell concerns, and doing
-    ///     them from startup glue can leave ConPTY showing a blank pane.
+///     `-NoLogo -NoProfile -NoExit -Command "<UTF-8 setup>"`.
+///     -NoProfile keeps PowerShell from printing startup warnings before
+///     the setup runs. We do not clear the screen or source `$PROFILE`
+///     from this wrapper: both are interactive-shell concerns, and doing
+///     them from startup glue can leave ConPTY showing a blank pane.
 ///   - args == ["cmd.exe"]: wrap with
 ///     `cmd.exe /D /K "<System32>\chcp.com 65001 > nul"` — sets the console
 ///     codepage before the prompt appears, no command echoed. By full path;
@@ -505,5 +505,134 @@ mod utf8_tests {
             .map(|arg| arg.to_string_lossy().to_string())
             .collect();
         assert_eq!(argv.last().map(String::as_str), Some("echo mine"));
+    }
+}
+
+#[cfg(test)]
+mod proxy_env_tests {
+    use super::*;
+    use std::ffi::OsStr;
+    use std::net::TcpListener;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct StateDirGuard {
+        old: Option<std::ffi::OsString>,
+        dir: PathBuf,
+    }
+
+    impl StateDirGuard {
+        fn new(name: &str) -> Self {
+            let old = std::env::var_os("UNTERM_STATE_DIR");
+            let dir = std::env::temp_dir()
+                .join(format!("unterm-launch-env-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("create isolated state dir");
+            std::env::set_var("UNTERM_STATE_DIR", &dir);
+            Self { old, dir }
+        }
+
+        fn write_proxy_json(&self, value: serde_json::Value) {
+            std::fs::write(
+                self.dir.join("proxy.json"),
+                serde_json::to_string_pretty(&value).expect("serialize proxy.json"),
+            )
+            .expect("write proxy.json");
+        }
+    }
+
+    impl Drop for StateDirGuard {
+        fn drop(&mut self) {
+            match &self.old {
+                Some(value) => std::env::set_var("UNTERM_STATE_DIR", value),
+                None => std::env::remove_var("UNTERM_STATE_DIR"),
+            }
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    fn loopback_listener() -> (TcpListener, String) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback listener");
+        let port = listener.local_addr().expect("listener address").port();
+        (listener, format!("http://127.0.0.1:{port}"))
+    }
+
+    #[test]
+    fn enabled_manual_proxy_injects_upper_and_lowercase_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let (_listener, http_url) = loopback_listener();
+        let state = StateDirGuard::new("manual");
+        state.write_proxy_json(serde_json::json!({
+            "enabled": true,
+            "mode": "manual",
+            "http_proxy": http_url,
+            "no_proxy": "localhost,127.0.0.1,::1"
+        }));
+
+        let env = read_unterm_proxy_env().expect("reachable manual proxy env");
+        assert!(env.contains(&("HTTP_PROXY".to_string(), http_url.clone())));
+        assert!(env.contains(&("HTTPS_PROXY".to_string(), http_url.clone())));
+        assert!(env.contains(&("http_proxy".to_string(), http_url.clone())));
+        assert!(env.contains(&("https_proxy".to_string(), http_url.clone())));
+        assert!(env.contains(&(
+            "NO_PROXY".to_string(),
+            "localhost,127.0.0.1,::1".to_string()
+        )));
+        assert!(env.contains(&(
+            "no_proxy".to_string(),
+            "localhost,127.0.0.1,::1".to_string()
+        )));
+
+        let mut command = None;
+        apply_unterm_proxy_env(&mut command);
+        let command = command.expect("proxy env creates a command builder");
+        assert_eq!(
+            command.get_env("HTTPS_PROXY"),
+            Some(OsStr::new(http_url.as_str()))
+        );
+        assert_eq!(
+            command.get_env("no_proxy"),
+            Some(OsStr::new("localhost,127.0.0.1,::1"))
+        );
+    }
+
+    #[test]
+    fn disabled_proxy_does_not_create_a_command_builder() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let state = StateDirGuard::new("disabled");
+        state.write_proxy_json(serde_json::json!({
+            "enabled": false,
+            "mode": "manual",
+            "http_proxy": "http://127.0.0.1:9"
+        }));
+
+        assert!(read_unterm_proxy_env().is_none());
+        let mut command = None;
+        apply_unterm_proxy_env(&mut command);
+        assert!(command.is_none());
+    }
+
+    #[test]
+    fn dead_proxy_endpoint_is_not_injected() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let (listener, http_url) = loopback_listener();
+        let port = listener.local_addr().expect("listener address").port();
+        drop(listener);
+        let state = StateDirGuard::new("dead");
+        state.write_proxy_json(serde_json::json!({
+            "enabled": true,
+            "mode": "manual",
+            "http_proxy": http_url
+        }));
+
+        if TcpListener::bind(("127.0.0.1", port)).is_err() {
+            return;
+        }
+        assert!(read_unterm_proxy_env().is_none());
+        let mut command = None;
+        apply_unterm_proxy_env(&mut command);
+        assert!(command.is_none());
     }
 }
