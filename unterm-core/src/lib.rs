@@ -313,9 +313,14 @@ struct HostReplyBody {
 /// can do, not park its worker threads until they time out.
 #[derive(Default)]
 pub struct HostChannel {
-    outgoing: std::sync::Mutex<Option<std::sync::mpsc::Sender<String>>>,
+    attachments: std::sync::Mutex<Vec<HostAttachment>>,
     pending: std::sync::Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<HostReplyBody>>>,
     next_id: std::sync::atomic::AtomicU64,
+}
+
+struct HostAttachment {
+    id: u64,
+    sender: std::sync::mpsc::Sender<String>,
 }
 
 pub fn host_channel() -> &'static Arc<HostChannel> {
@@ -330,25 +335,48 @@ impl HostChannel {
     /// one, and before parking a write on a confirmation nobody could
     /// answer.
     pub fn is_attached(&self) -> bool {
-        self.outgoing
+        self.attachments
             .lock()
-            .map(|slot| slot.is_some())
+            .map(|attachments| !attachments.is_empty())
             .unwrap_or(false)
     }
 
-    /// Attach a front end, replacing whichever one was there.
+    /// Attach a front end, making it the current window.
     ///
-    /// The previous channel's pending calls are failed rather than left
-    /// hanging: their answers were going to a window that is no longer
-    /// listening.
-    fn attach(&self, sender: std::sync::mpsc::Sender<String>) {
-        *self.outgoing.lock().expect("host channel lock poisoned") = Some(sender);
+    /// Older windows stay in the stack. If the current window closes,
+    /// Core can fall back to the previous live one instead of becoming
+    /// headless while another Unterm window is still open.
+    fn attach(&self, sender: std::sync::mpsc::Sender<String>) -> u64 {
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        self.attachments
+            .lock()
+            .expect("host channel lock poisoned")
+            .push(HostAttachment { id, sender });
         self.fail_pending();
+        id
     }
 
-    fn detach(&self) {
-        *self.outgoing.lock().expect("host channel lock poisoned") = None;
-        self.fail_pending();
+    fn detach(&self, id: u64) {
+        let mut attachments = self.attachments.lock().expect("host channel lock poisoned");
+        let was_current = attachments
+            .last()
+            .map(|attachment| attachment.id == id)
+            .unwrap_or(false);
+        attachments.retain(|attachment| attachment.id != id);
+        drop(attachments);
+        if was_current {
+            self.fail_pending();
+        }
+    }
+
+    fn current_sender(&self) -> Option<(u64, std::sync::mpsc::Sender<String>)> {
+        self.attachments.lock().ok().and_then(|attachments| {
+            attachments
+                .last()
+                .map(|attachment| (attachment.id, attachment.sender.clone()))
+        })
     }
 
     /// Drop every waiter. Their `recv` fails, which each caller turns
@@ -393,9 +421,9 @@ impl HostChannel {
         };
         // No waiter registered, so the reply is dropped on arrival --
         // `resolve` simply finds nothing to hand it to.
-        if let Ok(outgoing) = self.outgoing.lock() {
-            if let Some(sender) = outgoing.as_ref() {
-                let _ = sender.send(line);
+        if let Some((id, sender)) = self.current_sender() {
+            if sender.send(line).is_err() {
+                self.detach(id);
             }
         }
     }
@@ -426,24 +454,22 @@ impl HostChannel {
             },
         })?;
 
-        {
-            let outgoing = self.outgoing.lock().expect("host channel lock poisoned");
-            let Some(sender) = outgoing.as_ref() else {
-                anyhow::bail!("no Unterm window is attached to answer {method}");
-            };
-            // Registered before the send, so a reply that arrives
-            // between them still finds its waiter.
+        let Some((attachment_id, sender)) = self.current_sender() else {
+            anyhow::bail!("no Unterm window is attached to answer {method}");
+        };
+        // Registered before the send, so a reply that arrives
+        // between them still finds its waiter.
+        self.pending
+            .lock()
+            .expect("host channel lock poisoned")
+            .insert(id.clone(), tx);
+        if sender.send(line).is_err() {
             self.pending
                 .lock()
                 .expect("host channel lock poisoned")
-                .insert(id.clone(), tx);
-            if sender.send(line).is_err() {
-                self.pending
-                    .lock()
-                    .expect("host channel lock poisoned")
-                    .remove(&id);
-                anyhow::bail!("the attached Unterm window stopped listening");
-            }
+                .remove(&id);
+            self.detach(attachment_id);
+            anyhow::bail!("the attached Unterm window stopped listening");
         }
 
         match rx.recv_timeout(timeout) {
@@ -492,7 +518,7 @@ fn serve_host_channel(stream: TcpStream, running: &AtomicBool) -> Result<()> {
         })
         .context("spawn host channel writer")?;
 
-    channel.attach(tx);
+    let attachment_id = channel.attach(tx);
     // Ask the new window who it is -- on another thread, because the
     // answer comes back through the read loop below. Asking from here
     // would block the only thread that could deliver the reply.
@@ -534,7 +560,7 @@ fn serve_host_channel(stream: TcpStream, running: &AtomicBool) -> Result<()> {
             break;
         }
     }
-    channel.detach();
+    channel.detach(attachment_id);
     Ok(())
 }
 
@@ -2865,6 +2891,76 @@ mod tests {
         assert!(
             wait_for(Duration::from_secs(5), || !host_channel().is_attached()),
             "the core kept believing a detached window was there"
+        );
+        let _ = worker;
+    }
+
+    #[test]
+    fn closing_the_current_front_end_restores_the_previous_one() {
+        let (endpoint, worker) = start_server("host-stack-token");
+        let first = Arc::new(ProbeResponder {
+            seen: std::sync::Mutex::new(Vec::new()),
+        });
+        let second = Arc::new(ProbeResponder {
+            seen: std::sync::Mutex::new(Vec::new()),
+        });
+
+        let first_attached =
+            HostChannelClient::attach(endpoint, "host-stack-token", first.clone()).unwrap();
+        assert!(
+            wait_for(Duration::from_secs(5), || host_channel().is_attached()),
+            "the first front end never attached"
+        );
+        let answered = host_channel()
+            .call(
+                "echo",
+                serde_json::json!({"window": "first"}),
+                Duration::from_secs(5),
+            )
+            .expect("first front end should answer");
+        assert_eq!(answered["window"], "first");
+
+        let second_attached =
+            HostChannelClient::attach(endpoint, "host-stack-token", second.clone()).unwrap();
+        assert!(
+            wait_for(Duration::from_secs(5), || {
+                second
+                    .seen
+                    .lock()
+                    .unwrap()
+                    .contains(&"window_identity".to_string())
+            }),
+            "the second front end never became current"
+        );
+        let answered = host_channel()
+            .call(
+                "echo",
+                serde_json::json!({"window": "second"}),
+                Duration::from_secs(5),
+            )
+            .expect("second front end should answer");
+        assert_eq!(answered["window"], "second");
+
+        drop(second_attached);
+        assert!(
+            wait_for(Duration::from_secs(5), || {
+                host_channel()
+                    .call(
+                        "echo",
+                        serde_json::json!({"window": "first-again"}),
+                        Duration::from_millis(200),
+                    )
+                    .ok()
+                    .and_then(|value| value["window"].as_str().map(str::to_string))
+                    == Some("first-again".to_string())
+            }),
+            "closing the current front end did not restore the previous one"
+        );
+
+        drop(first_attached);
+        assert!(
+            wait_for(Duration::from_secs(5), || !host_channel().is_attached()),
+            "the core kept a detached front end"
         );
         let _ = worker;
     }
