@@ -2898,6 +2898,7 @@ mod tests {
 
     #[test]
     fn the_core_can_call_into_an_attached_front_end() {
+        let _guard = host_channel_test_guard();
         let (endpoint, worker) = start_server("host-token");
         let probe = Arc::new(ProbeResponder {
             seen: std::sync::Mutex::new(Vec::new()),
@@ -2961,6 +2962,7 @@ mod tests {
 
     #[test]
     fn closing_the_current_front_end_restores_the_previous_one() {
+        let _guard = host_channel_test_guard();
         let (endpoint, worker) = start_server("host-stack-token");
         let first = Arc::new(ProbeResponder {
             seen: std::sync::Mutex::new(Vec::new()),
@@ -3031,6 +3033,7 @@ mod tests {
 
     #[test]
     fn a_window_that_stops_answering_cannot_hold_a_core_thread() {
+        let _guard = host_channel_test_guard();
         let (endpoint, worker) = start_server("slow-token");
         let probe = Arc::new(ProbeResponder {
             seen: std::sync::Mutex::new(Vec::new()),
@@ -3053,6 +3056,14 @@ mod tests {
         );
         drop(attached);
         let _ = worker;
+    }
+
+    fn host_channel_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static GUARD: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+        GUARD
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("host channel test lock poisoned")
     }
 
     fn wait_for(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
