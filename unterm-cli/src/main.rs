@@ -186,7 +186,7 @@ enum SubCommand {
         #[arg(long = "scrollback")]
         scrollback: bool,
         /// Pane id for --scrollback (default: the active pane).
-        #[arg(long = "pane")]
+        #[arg(long = "pane", alias = "id")]
         pane: Option<u64>,
         /// Row cap for --scrollback; keeps the most recent rows (default 10000).
         #[arg(long = "max-rows")]
@@ -576,6 +576,22 @@ mod command_line_tests {
         assert_eq!(cwd, Some(std::path::PathBuf::from("D:\\work")));
         assert_eq!(profile.as_deref(), Some("work"));
         assert_eq!(command, ["python", "-V"]);
+    }
+
+    #[test]
+    fn pane_id_alias_is_accepted_for_scrollback_entrypoints() {
+        let screenshot =
+            Opt::try_parse_from(["unterm-cli", "screenshot", "--scrollback", "--id", "7"]).unwrap();
+        let SubCommand::Screenshot { pane, .. } = screenshot.cmd else {
+            panic!("expected screenshot command");
+        };
+        assert_eq!(pane, Some(7));
+
+        let scrollback = Opt::try_parse_from(["unterm-cli", "scrollback", "--id", "7"]).unwrap();
+        let SubCommand::Scrollback(cmd) = scrollback.cmd else {
+            panic!("expected scrollback command");
+        };
+        assert_eq!(cmd.pane_id.as_deref(), Some("7"));
     }
 
     #[test]

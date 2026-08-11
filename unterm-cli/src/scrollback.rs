@@ -15,7 +15,7 @@ pub struct ScrollbackCommand {
     /// Target pane (UUID or pane index). If omitted, uses the active pane
     /// of the connected Unterm instance — same default as the other CLI
     /// commands.
-    #[arg(long = "pane-id")]
+    #[arg(long = "pane-id", alias = "id")]
     pub pane_id: Option<String>,
 
     /// Preserve ANSI color/style escapes in the output. Off by default
