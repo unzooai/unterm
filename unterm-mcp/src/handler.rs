@@ -396,6 +396,30 @@ fn shell_command_builder(command: &str) -> CommandBuilder {
     }
 }
 
+fn argv_command_builder(params: &Value) -> Result<Option<(Vec<String>, CommandBuilder)>> {
+    let Some(argv) = params.get("argv") else {
+        return Ok(None);
+    };
+    let argv = argv
+        .as_array()
+        .ok_or_else(|| anyhow!("session.create argv must be an array of strings"))?
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_string)
+                .ok_or_else(|| anyhow!("session.create argv must contain only strings"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if argv.is_empty() || argv[0].trim().is_empty() {
+        return Err(anyhow!("session.create argv must include a program name"));
+    }
+    let mut builder = CommandBuilder::new(&argv[0]);
+    for arg in &argv[1..] {
+        builder.arg(arg);
+    }
+    Ok(Some((argv, builder)))
+}
+
 fn resolve_profile_env(profile: &str) -> Result<(String, Vec<(String, String)>)> {
     let registry = unterm_profile::ProfileRegistry::load().context("load profile registry")?;
     let (profile_id, _) = registry
@@ -1397,6 +1421,57 @@ mod engine_neutral_handler_tests {
             .as_str()
             .map(|shell| !shell.trim().is_empty())
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn session_create_accepts_explicit_argv_without_shell_wrapping() {
+        let _guard = env_lock().lock();
+        unterm_engine::install_next_core_provider();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(Value, usize)> = (|| {
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let argv = if cfg!(windows) {
+                json!(["cmd.exe", "/C", "echo next-core-explicit-argv"])
+            } else {
+                json!(["/bin/sh", "-lc", "echo next-core-explicit-argv"])
+            };
+            let session = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                    "argv": argv,
+                }),
+            )?;
+            let pane_id = session["id"].as_u64().expect("session id") as usize;
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            Ok((session, pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (session, pane_id) = result.expect("create next-core argv session");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert_eq!(session["command"], Value::Null);
+        assert_eq!(session["launch"]["decision"]["command_provided"], true);
+        assert_eq!(
+            session["launch"]["decision"]["command_source"],
+            "explicit_argv"
+        );
+        assert_eq!(session["launch"]["decision"]["default_shell"], Value::Null);
+        let argv = session["argv"].as_array().expect("argv array");
+        assert!(argv.len() >= 3);
+        assert_eq!(
+            session["title"].as_str().unwrap_or_default(),
+            argv[0].as_str().unwrap_or_default()
+        );
     }
 
     #[test]
@@ -5929,6 +6004,8 @@ impl McpHandler {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
+        let argv_command = argv_command_builder(params)?;
+        let argv = argv_command.as_ref().map(|(argv, _)| argv.clone());
         let profile = params
             .get("profile")
             .and_then(|v| v.as_str())
@@ -5939,11 +6016,14 @@ impl McpHandler {
         // A caller naming a command gets exactly that; one that names none
         // gets the shell this surface would start, encoding switches and all,
         // rather than a bare default that writes its console codepage.
-        let mut cmd_builder = match command.as_deref() {
-            Some(command) => Some(shell_command_builder(command)),
-            None => launch_shell_for_new_pane(),
+        let mut cmd_builder = match argv_command {
+            Some((_, builder)) => Some(builder),
+            None => match command.as_deref() {
+                Some(command) => Some(shell_command_builder(command)),
+                None => launch_shell_for_new_pane(),
+            },
         };
-        let command_provided = command.is_some();
+        let command_provided = command.is_some() || argv.is_some();
         let default_shell = default_shell_launch_decision(command_provided);
         if let Some(cwd) = command_dir.as_deref() {
             if let Some(builder) = cmd_builder.as_mut() {
@@ -6004,6 +6084,7 @@ impl McpHandler {
             "rows": session.rows,
             "profile": resolved_profile,
             "command": command,
+            "argv": argv,
             "launch": {
                 "context": launch_context,
                 "decision": {
@@ -6019,7 +6100,13 @@ impl McpHandler {
                     "overlay_env_keys": overlay_keys_sorted,
                     "proxy_env_keys": launch_proxy_env_keys,
                     "command_provided": command_provided,
-                    "command_source": if command_provided { "explicit_command" } else { "default_shell" },
+                    "command_source": if argv.is_some() {
+                        "explicit_argv"
+                    } else if command.is_some() {
+                        "explicit_command"
+                    } else {
+                        "default_shell"
+                    },
                     "default_shell": default_shell,
                     "policy": launch_policy,
                     "values_redacted": true,

@@ -283,9 +283,8 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
             if let Some(profile) = profile.as_ref() {
                 params["profile"] = json!(profile);
             }
-            let command = shell_command_line(&command);
-            if !command.trim().is_empty() {
-                params["command"] = json!(command);
+            if let Some((key, value)) = session_create_command_param(&command) {
+                params[key] = value;
             }
             let result = client.call("session.create", params)?;
             if json_out {
@@ -777,41 +776,13 @@ pub fn run(cmd: SessionCommand, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-fn shell_command_line(parts: &[String]) -> String {
-    if parts.len() <= 1 {
-        return parts.first().cloned().unwrap_or_default();
+fn session_create_command_param(parts: &[String]) -> Option<(&'static str, Value)> {
+    match parts {
+        [] => None,
+        [command] if !command.trim().is_empty() => Some(("command", json!(command))),
+        [command] => Some(("argv", json!([command]))),
+        argv => Some(("argv", json!(argv))),
     }
-    parts
-        .iter()
-        .map(|part| shell_quote_arg(part))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-#[cfg(not(windows))]
-fn shell_quote_arg(s: &str) -> String {
-    if s.is_empty() {
-        return "''".to_string();
-    }
-    if s.bytes()
-        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'/' | b':' | b'='))
-    {
-        return s.to_string();
-    }
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
-
-#[cfg(windows)]
-fn shell_quote_arg(s: &str) -> String {
-    if s.is_empty() {
-        return "\"\"".to_string();
-    }
-    if s.chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '=' | '\\'))
-    {
-        return s.to_string();
-    }
-    format!("\"{}\"", s.replace('"', "\\\""))
 }
 
 fn print_suggestion(value: &Value) {
@@ -863,42 +834,30 @@ fn resolve_pane_id(client: &mut McpClient, id: Option<u64>) -> Result<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::shell_command_line;
+    use super::session_create_command_param;
+    use serde_json::json;
 
     #[test]
-    fn shell_command_line_preserves_single_shell_string() {
+    fn session_create_command_param_preserves_single_shell_string() {
         let parts = vec!["printf \"hello from unterm\\n\"; exec zsh".to_string()];
-        assert_eq!(
-            shell_command_line(&parts),
-            "printf \"hello from unterm\\n\"; exec zsh"
-        );
+        let (key, value) = session_create_command_param(&parts).expect("command param");
+
+        assert_eq!(key, "command");
+        assert_eq!(value, json!("printf \"hello from unterm\\n\"; exec zsh"));
     }
 
-    #[cfg(not(windows))]
     #[test]
-    fn shell_command_line_quotes_multi_arg_shell_commands() {
+    fn session_create_command_param_preserves_multi_arg_argv() {
         let parts = vec![
-            "zsh".to_string(),
-            "-lc".to_string(),
-            "printf 'unterm tab 01 ready\\n'; exec zsh".to_string(),
+            "powershell.exe".to_string(),
+            "-NoLogo".to_string(),
+            "-NoProfile".to_string(),
+            "-Command".to_string(),
+            "Write-Output UNTERM_MARK".to_string(),
         ];
-        assert_eq!(
-            shell_command_line(&parts),
-            "zsh -lc 'printf '\\''unterm tab 01 ready\\n'\\''; exec zsh'"
-        );
-    }
+        let (key, value) = session_create_command_param(&parts).expect("argv param");
 
-    #[cfg(windows)]
-    #[test]
-    fn shell_command_line_quotes_multi_arg_shell_commands() {
-        let parts = vec![
-            "cmd.exe".to_string(),
-            "/C".to_string(),
-            "echo unterm tab 01".to_string(),
-        ];
-        assert_eq!(
-            shell_command_line(&parts),
-            "cmd.exe /C \"echo unterm tab 01\""
-        );
+        assert_eq!(key, "argv");
+        assert_eq!(value, json!(parts));
     }
 }
