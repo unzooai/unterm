@@ -64,9 +64,9 @@ use workspace::WorkspaceCommand;
     version
 )]
 struct Opt {
-    /// Emit raw JSON-RPC `result` payloads for MCP-backed subcommands such as
-    /// proxy, theme, session, sessions, workspace, instance, screenshot, and
-    /// lang.
+    /// Emit machine-readable JSON for commands that support structured output.
+    /// MCP-backed commands print the JSON-RPC `result`; local commands such as
+    /// setup-ai dry-runs print their own stable result object.
     #[arg(long = "json", global = true)]
     json: bool,
 

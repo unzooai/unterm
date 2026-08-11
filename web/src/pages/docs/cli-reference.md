@@ -39,7 +39,7 @@ These are accepted on every subcommand because they're declared `global = true` 
 
 | Flag | Purpose |
 |---|---|
-| `--json` | Print the raw JSON-RPC `result` payload instead of the human-formatted table. Recognised by `proxy`, `theme`, `session`, `sessions`, `workspace`, `instance`, `agent`, `fleet`, `review`, `screenshot`, `reference`, and `lang`. Ignored by `settings open` (that command never round-trips through MCP). |
+| `--json` | Print machine-readable JSON instead of the human-formatted table. MCP-backed commands return the JSON-RPC `result`; local commands with structured output, such as `setup-ai --dry-run`, return their own stable result object. Pure side-effect commands such as `settings open` ignore it. |
 | `--lang <code>` | Force the CLI's interface locale for this single invocation. Does not write to `~/.unterm/lang.json`. Useful in scripts that need stable English output regardless of how the user has configured the GUI. Codes: `en-US`, `zh-CN`, `zh-TW`, `ja-JP`, `ko-KR`, `de-DE`, `fr-FR`, `it-IT`, `hi-IN`. |
 | `--instance <id>` | Route MCP-backed commands to a specific live Unterm instance, for example `alpha` or `bravo`. Equivalent to setting `UNTERM_INSTANCE=<id>` for the invocation. |
 | `-h`, `--help` | Print help for the current subcommand level. |
@@ -66,6 +66,8 @@ unterm-cli setup-ai [--dry-run] [--remove] [--no-context] [--no-hooks] [--client
 ```
 
 Supported client ids are `claude-code`, `codex`, `gemini`, `cursor`, `windsurf`, and `opencode`. By default `setup-ai` detects all of them and updates only config directories that exist.
+
+Use `--json --dry-run` when an installer, smoke test, or release script needs to inspect the planned client updates without modifying the user's agent config files.
 
 ## mcp-stdio
 
