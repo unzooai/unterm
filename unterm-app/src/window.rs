@@ -1120,7 +1120,10 @@ impl App {
             attributes = attributes
                 .with_inner_size(winit::dpi::PhysicalSize::new(saved.width, saved.height));
         }
-        let window = Arc::new(event_loop.create_window(attributes)?);
+        // The OS shows a window as soon as it exists. Keep the frame hidden
+        // until there is a pane to render, otherwise cold starts show a blank
+        // terminal while Core/GPU/session setup finishes.
+        let window = Arc::new(event_loop.create_window(attributes.with_visible(false))?);
         if !self.system_decorations {
             round_window_corners(&window);
         }
@@ -1238,6 +1241,7 @@ impl App {
             height: size.height.max(1),
         };
         live.configure(format);
+        live.window.set_visible(true);
         Ok(live)
     }
 

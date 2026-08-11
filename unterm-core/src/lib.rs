@@ -1431,7 +1431,28 @@ impl CoreClient {
     }
 
     pub fn connect<A: ToSocketAddrs>(address: A, token: impl Into<String>) -> Result<Self> {
-        let stream = TcpStream::connect(address).context("connect unterm-core")?;
+        let mut last_error = None;
+        let mut stream = None;
+        for addr in address
+            .to_socket_addrs()
+            .context("resolve unterm-core endpoint")?
+        {
+            match TcpStream::connect_timeout(&addr, Duration::from_millis(250)) {
+                Ok(connected) => {
+                    stream = Some(connected);
+                    break;
+                }
+                Err(err) => last_error = Some(err),
+            }
+        }
+        let stream = stream.ok_or_else(|| {
+            anyhow::anyhow!(
+                "connect unterm-core: {}",
+                last_error
+                    .map(|err| err.to_string())
+                    .unwrap_or_else(|| "endpoint resolved to no addresses".to_string())
+            )
+        })?;
         stream.set_nodelay(true).context("set core nodelay")?;
         Ok(Self {
             stream,
@@ -2667,14 +2688,18 @@ fn scrollback_request_params(
 /// discovery record. GUI, CLI and MCP entry points share this path.
 pub fn ensure_running() -> Result<DiscoveryInfo> {
     if let Some(info) = read_discovery()? {
-        if let Ok(mut client) = CoreClient::connect(&info.endpoint, &info.token) {
-            // Version skew is a hard error: do not fall through and
-            // spawn a second core alongside a live-but-incompatible one.
-            client.handshake()?;
-            let health: Response<serde_json::Value> = client.request("core.health")?;
-            if health.ok {
-                return Ok(info);
+        if unterm_services::server_info::pid_alive(info.pid) {
+            if let Ok(mut client) = CoreClient::connect(&info.endpoint, &info.token) {
+                // Version skew is a hard error: do not fall through and
+                // spawn a second core alongside a live-but-incompatible one.
+                client.handshake()?;
+                let health: Response<serde_json::Value> = client.request("core.health")?;
+                if health.ok {
+                    return Ok(info);
+                }
             }
+        } else {
+            let _ = clear_discovery();
         }
     }
     let current = std::env::current_exe().context("resolve unterm executable path")?;
@@ -2700,6 +2725,11 @@ pub fn ensure_running() -> Result<DiscoveryInfo> {
         .with_context(|| format!("start unterm-core at {}", core_path.display()))?;
     for _ in 0..100 {
         if let Some(info) = read_discovery()? {
+            if !unterm_services::server_info::pid_alive(info.pid) {
+                let _ = clear_discovery();
+                std::thread::sleep(Duration::from_millis(20));
+                continue;
+            }
             if let Ok(mut client) = CoreClient::connect(&info.endpoint, &info.token) {
                 client.handshake()?;
                 let health: Response<serde_json::Value> = client.request("core.health")?;
