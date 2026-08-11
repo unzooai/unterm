@@ -1504,6 +1504,97 @@ mod engine_neutral_handler_tests {
     }
 
     #[test]
+    fn session_create_requires_write_scope_for_initial_cwd() {
+        let dir = std::env::temp_dir().join(format!(
+            "unterm-mcp-path-scope-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let read_only = dir.join("read-only");
+        std::fs::create_dir_all(&read_only).unwrap();
+        let handler = McpHandler::new();
+        let ctx = ConnectionContext::internal("handler-test");
+
+        let error = handler
+            .handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cwd": read_only,
+                    "path_scope": {
+                        "read_paths": [read_only],
+                        "write_paths": [],
+                        "deny_paths": [],
+                    },
+                }),
+            )
+            .expect_err("read-only path scope must not permit a new PTY cwd");
+
+        assert!(
+            error.to_string().contains("path_scope_write_outside_scope"),
+            "unexpected error: {error:#}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn session_split_requires_write_scope_for_requested_cwd() {
+        let _guard = env_lock().lock();
+        unterm_engine::install_next_core_provider();
+        let previous_engine = std::env::var("UNTERM_ENGINE").ok();
+        std::env::set_var("UNTERM_ENGINE", "next-core");
+
+        let result: Result<(String, usize)> = (|| {
+            let dir = std::env::temp_dir().join(format!(
+                "unterm-mcp-path-scope-{}",
+                uuid::Uuid::new_v4()
+            ));
+            let read_only = dir.join("read-only");
+            std::fs::create_dir_all(&read_only).unwrap();
+            let handler = McpHandler::new();
+            let ctx = ConnectionContext::internal("handler-test");
+            let session = handler.handle(
+                &ctx,
+                "session.create",
+                &json!({
+                    "cols": 80,
+                    "rows": 4,
+                }),
+            )?;
+            let pane_id = session["id"].as_u64().expect("session id") as usize;
+            let error = handler
+                .handle(
+                    &ctx,
+                    "session.split",
+                    &json!({
+                        "pane_id": pane_id,
+                        "cwd": read_only,
+                        "path_scope": {
+                            "read_paths": [read_only],
+                            "write_paths": [],
+                            "deny_paths": [],
+                        },
+                    }),
+                )
+                .expect_err("read-only path scope must not permit split cwd");
+            let _ = handler.handle(&ctx, "session.destroy", &json!({ "pane_id": pane_id }));
+            let _ = std::fs::remove_dir_all(&dir);
+            Ok((error.to_string(), pane_id))
+        })();
+
+        match previous_engine {
+            Some(value) => std::env::set_var("UNTERM_ENGINE", value),
+            None => std::env::remove_var("UNTERM_ENGINE"),
+        }
+
+        let (error, pane_id) = result.expect("split path scope rejection");
+        assert!(next_core().get_session(pane_id).is_err());
+        assert!(
+            error.contains("path_scope_write_outside_scope"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
     fn session_create_accepts_explicit_argv_without_shell_wrapping() {
         let _guard = env_lock().lock();
         unterm_engine::install_next_core_provider();
@@ -5999,6 +6090,22 @@ impl McpHandler {
             .and_then(|v| v.as_u64())
             .map(|n| n.min(100) as u8)
             .unwrap_or(50);
+        if let Some(cwd) = params.get("cwd").and_then(|v| v.as_str()) {
+            self.check_path_scope_param(
+                "session.split",
+                params,
+                Some(src_pane_id),
+                unterm_services::path_scope::PathAccess::Write,
+                cwd,
+            )?;
+        } else {
+            self.check_pane_cwd_path_scope(
+                "session.split",
+                params,
+                src_pane_id,
+                engine.as_ref(),
+            )?;
+        }
 
         // A split gets the same shell a fresh pane does, encoding switches
         // included. Without it a split pane on a non-UTF-8 Windows shows
@@ -6069,7 +6176,7 @@ impl McpHandler {
                 "session.create",
                 params,
                 None,
-                unterm_services::path_scope::PathAccess::Read,
+                unterm_services::path_scope::PathAccess::Write,
                 cwd,
             )?;
         } else if params.get("path_scope").is_some() {
@@ -6078,7 +6185,7 @@ impl McpHandler {
                 "session.create",
                 params,
                 None,
-                unterm_services::path_scope::PathAccess::Read,
+                unterm_services::path_scope::PathAccess::Write,
                 cwd,
             )?;
         }

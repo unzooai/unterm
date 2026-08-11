@@ -115,6 +115,13 @@ core.set_scrollback_lines 之后新建会话的 scrollback 容量（客户端连
 之后的变化。持久化、cursor 可寻址的事件存储是 M2（Durable Task Engine）
 的工作，不在此处提前造第二套协议。
 
+## Path Scope
+
+MCP 调用可携带 `path_scope`。`session.create` 和 `session.split` 的启动
+`cwd` 按 `write_paths` 校验；只在 `read_paths` 中的目录不能作为新 PTY 或
+分屏的工作目录。已有 pane 的 `session.input`、`session.paste`、`exec.*`、
+`signal.send` 等副作用入口会在执行前按当前 pane cwd 校验同一 scope。
+
 ## CoreEngineClient（M1-04 的 GUI/CLI 接入面）
 
 `unterm_core::CoreEngineClient` 在客户端进程内实现完整
