@@ -1,6 +1,6 @@
 //! `unterm-cli mcp-stdio` — a Model Context Protocol *stdio* server that
 //! bridges an MCP client (Claude Code, Codex CLI, Gemini CLI, …) to the
-//! running Unterm instance's TCP JSON-RPC control server.
+//! running Unterm control server (Core first, then GUI/legacy discovery).
 //!
 //! Why this exists: Unterm's own control server speaks a custom line-
 //! delimited JSON-RPC over a TCP socket with a bearer token — that's what
@@ -47,8 +47,8 @@ pub fn run() -> Result<()> {
     );
     let bridge_registration = unterm_services::bridge_registry::register(bridge_build.clone())
         .map_err(|error| anyhow!("registering MCP bridge lifecycle: {error}"))?;
-    // Connect to the running Unterm instance up front — but if the GUI isn't
-    // running, come up anyway and keep speaking MCP: serve `initialize` and
+    // Connect to the running Unterm control server up front — but if neither
+    // Core nor GUI is running, come up anyway and keep speaking MCP: serve `initialize` and
     // `tools/list` from the static surface tables baked into this binary,
     // return a clean per-call error on `tools/call`, and lazily reconnect
     // when the GUI appears. Exiting here used to break (a) registry health

@@ -1062,7 +1062,7 @@ $ unterm-cli --json upload /tmp/pane-long.png | jq '{url, provider, key, size}'
 
 ## reference
 
-Print the MCP methods, CLI subcommands, and live keybindings exposed by Unterm. When the GUI is running, this calls `meta.surface` for MCP methods and live keybindings, while CLI subcommands come from the current `unterm-cli` binary so local help never lags behind an older running GUI. When the GUI is not reachable, it falls back to the compiled-in MCP/CLI reference tables and returns an empty `keybindings` list.
+Print the MCP methods, CLI subcommands, and live keybindings exposed by Unterm. When a control server is running, this calls `meta.surface` for MCP methods and any live keybinding data it can provide, while CLI subcommands come from the current `unterm-cli` binary so local help never lags behind an older running server. When no Core or GUI control server is reachable, it falls back to the compiled-in MCP/CLI reference tables and returns an empty `keybindings` list.
 
 ```text
 unterm-cli reference [--section mcp|cli|keys] [--filter TEXT]
@@ -1079,7 +1079,7 @@ $ unterm-cli --json reference --section cli --filter agent | jq '.cli_commands[]
 "agent"
 ```
 
-If the JSON output contains `"source": "static_fallback"`, the GUI was not reachable. The MCP and CLI tables are still useful for onboarding or scripts, but live keybindings require a running GUI.
+If the JSON output contains `"source": "static_fallback"`, no control server was reachable. The MCP and CLI tables are still useful for onboarding or scripts, but live keybindings require a running GUI.
 
 ## server
 
@@ -1415,7 +1415,7 @@ Worth repeating from earlier as a one-liner — the shell-init pattern that keep
 eval "$(unterm-cli proxy env 2>/dev/null)"
 ```
 
-If `unterm-cli` isn't installed, the `eval` no-ops because there's no output. If the GUI isn't running, the CLI exits non-zero with no stdout, same effect. Cheap and safe to drop into init scripts.
+If `unterm-cli` isn't installed, the `eval` no-ops because there's no output. If no Core or GUI control server is running, the CLI exits non-zero with no stdout, same effect. Cheap and safe to drop into init scripts.
 
 ---
 

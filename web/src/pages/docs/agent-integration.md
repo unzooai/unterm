@@ -46,7 +46,7 @@ unterm-cli setup-ai
 }
 ```
 
-Use the actual `unterm-cli` path on your machine. The bridge self-discovers the active Unterm window at connection time, so you do not hard-code the port or token into Claude's config. Cursor, Gemini, Windsurf and OpenCode use the same bridge with their own config-file shapes; Codex uses `[mcp_servers.unterm]` in `~/.codex/config.toml`.
+Use the actual `unterm-cli` path on your machine. The bridge self-discovers the active Unterm control server at connection time, preferring the Core endpoint and falling back to GUI instance records, so you do not hard-code the port or token into Claude's config. Cursor, Gemini, Windsurf and OpenCode use the same bridge with their own config-file shapes; Codex uses `[mcp_servers.unterm]` in `~/.codex/config.toml`.
 
 If you want to drive multiple Unterm windows from one agent, see the [multi-instance guide](/docs/multi-instance) — each window gets its own port and token, and there's a small registry under `~/.unterm/instances/` to enumerate them.
 

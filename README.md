@@ -253,7 +253,7 @@ Unterm makes every AI coding agent on the machine aware of it, so they can drive
 - registers the `unterm` MCP server into the agent's *global* config (merging into existing config, never clobbering), so the agent can list/run/read/screenshot the real terminal the moment it starts;
 - drops a short, marker-delimited Unterm note into the agent's global context file (`CLAUDE.md` / `AGENTS.md` / `GEMINI.md`) so even an agent that never loads the MCP server knows Unterm is here.
 
-The registered bridge (`unterm-cli mcp-stdio`) self-discovers the live instance at connect time, so a static registration keeps working across restarts and multiple windows. Agents that connect also receive a usage brief via the MCP `initialize` `instructions` field.
+The registered bridge (`unterm-cli mcp-stdio`) self-discovers the live control server at connect time, preferring `unterm-core` and falling back to GUI instance records, so a static registration keeps working across restarts and multiple windows. Agents that connect also receive a usage brief via the MCP `initialize` `instructions` field.
 
 ```bash
 unterm-cli setup-ai              # detect agents + register (idempotent; safe to re-run)
