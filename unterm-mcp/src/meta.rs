@@ -25,6 +25,7 @@ pub use unterm_agents::mcp_meta::{CLI_COMMANDS, MCP_METHODS};
 
 const WEZTERM_UNSUPPORTED_METHODS: &[&str] = &["session.env", "session.set_env"];
 const NEXT_CORE_UNSUPPORTED_METHODS: &[&str] = &[];
+const MCP_TOOL_EXCLUSIONS: &[&str] = &["meta.surface"];
 
 fn engine_unsupported_methods(engine: &str) -> Vec<&'static str> {
     let mut methods = if engine == "next-core" {
@@ -164,10 +165,17 @@ pub fn surface(_params: &Value) -> Result<Value> {
     let engine = unterm_engine::engine_provider()
         .map(|provider| provider().name())
         .unwrap_or("next-core");
+    let tool_count = MCP_METHODS
+        .iter()
+        .filter(|method| !MCP_TOOL_EXCLUSIONS.contains(&method.name))
+        .count();
     Ok(json!({
         "version": unterm_protocol::PRODUCT_VERSION,
         "engine": engine,
         "engine_capabilities": engine_capabilities(engine),
+        "mcp_method_count": MCP_METHODS.len(),
+        "mcp_tool_count": tool_count,
+        "mcp_tool_exclusions": MCP_TOOL_EXCLUSIONS,
         "mcp_methods": MCP_METHODS,
         "cli_commands": CLI_COMMANDS,
         "keybindings": keybindings_inventory(),
@@ -351,5 +359,18 @@ mod tests {
         assert!(pump_metrics.contains(&"waited_for_response"));
         assert!(pump_metrics.contains(&"completed_without_wait"));
         assert!(pump_metrics.contains(&"max_dispatch_elapsed_micros"));
+    }
+
+    #[test]
+    fn surface_reports_mcp_tool_count_contract() {
+        let value = surface(&json!({})).expect("meta.surface");
+
+        assert_eq!(value["mcp_method_count"], 103);
+        assert_eq!(value["mcp_tool_count"], 102);
+        assert_eq!(value["mcp_tool_exclusions"], json!(["meta.surface"]));
+        assert_eq!(
+            value["mcp_methods"].as_array().expect("mcp methods").len(),
+            103
+        );
     }
 }

@@ -77,6 +77,7 @@ fn reference_payload() -> (Value, Option<String>) {
 }
 
 fn with_local_cli_commands(mut value: Value) -> Value {
+    value = with_mcp_tool_counts(value);
     if let Some(object) = value.as_object_mut() {
         object.insert(
             "cli_commands".to_string(),
@@ -89,7 +90,7 @@ fn with_local_cli_commands(mut value: Value) -> Value {
 }
 
 fn static_reference_payload() -> Value {
-    json!({
+    with_mcp_tool_counts(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "source": "static_fallback",
         "mcp_methods": serde_json::to_value(unterm_agents::mcp_meta::MCP_METHODS)
@@ -97,7 +98,34 @@ fn static_reference_payload() -> Value {
         "cli_commands": serde_json::to_value(unterm_agents::mcp_meta::CLI_COMMANDS)
             .unwrap_or_else(|_| json!([])),
         "keybindings": [],
-    })
+    }))
+}
+
+fn with_mcp_tool_counts(mut value: Value) -> Value {
+    const TOOL_EXCLUSIONS: &[&str] = &["meta.surface"];
+    let method_count = value
+        .get("mcp_methods")
+        .and_then(|methods| methods.as_array())
+        .map(Vec::len)
+        .unwrap_or(0);
+    let tool_count = value
+        .get("mcp_methods")
+        .and_then(|methods| methods.as_array())
+        .map(|methods| {
+            methods
+                .iter()
+                .filter_map(|method| method.get("name").and_then(|name| name.as_str()))
+                .filter(|name| !TOOL_EXCLUSIONS.contains(name))
+                .count()
+        })
+        .unwrap_or(0);
+
+    if let Some(object) = value.as_object_mut() {
+        object.insert("mcp_method_count".to_string(), json!(method_count));
+        object.insert("mcp_tool_count".to_string(), json!(tool_count));
+        object.insert("mcp_tool_exclusions".to_string(), json!(TOOL_EXCLUSIONS));
+    }
+    value
 }
 
 fn scope_payload(result: &Value, section: Option<Section>, filter: Option<&str>) -> Value {
@@ -111,6 +139,11 @@ fn scope_payload(result: &Value, section: Option<Section>, filter: Option<&str>)
     }
     if let Some(cli_source) = result.get("cli_source") {
         out.insert("cli_source".to_string(), cli_source.clone());
+    }
+    for key in ["mcp_method_count", "mcp_tool_count", "mcp_tool_exclusions"] {
+        if let Some(value) = result.get(key) {
+            out.insert(key.to_string(), value.clone());
+        }
     }
     let fl = filter.map(|s| s.to_ascii_lowercase());
     let fl = fl.as_deref();
@@ -198,6 +231,7 @@ fn print_mcp(result: &Value, filter: Option<&str>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{scope_payload, static_reference_payload, Section};
+    use serde_json::json;
 
     #[test]
     fn static_reference_payload_has_mcp_and_cli_without_live_keys() {
@@ -225,6 +259,9 @@ mod tests {
                 .map(Vec::len),
             Some(0)
         );
+        assert_eq!(payload["mcp_method_count"], 103);
+        assert_eq!(payload["mcp_tool_count"], 102);
+        assert_eq!(payload["mcp_tool_exclusions"], json!(["meta.surface"]));
     }
 
     #[test]
@@ -239,6 +276,9 @@ mod tests {
             .get("mcp_methods")
             .and_then(|v| v.as_array())
             .is_some_and(|items| items.len() == 1));
+        assert_eq!(scoped["mcp_method_count"], 103);
+        assert_eq!(scoped["mcp_tool_count"], 102);
+        assert_eq!(scoped["mcp_tool_exclusions"], json!(["meta.surface"]));
         assert!(scoped.get("cli_commands").is_none());
         assert!(scoped.get("keybindings").is_none());
     }
