@@ -5485,8 +5485,14 @@ impl McpHandler {
     /// Helpful for an agent to confirm which instance it's actually
     /// connected to vs. what `instance.list` says.
     fn instance_info(&self) -> Result<Value> {
-        let i = unterm_services::server_info::read_current();
-        let lifecycle = instance_lifecycle_snapshot(&i, true);
+        let current = unterm_services::server_info::read_current();
+        let has_current = !current.id.is_empty();
+        let i = if has_current {
+            current
+        } else {
+            unterm_services::server_info::read()
+        };
+        let lifecycle = instance_lifecycle_snapshot(&i, has_current);
         let window = unterm_engine::window_identity();
         Ok(json!({
             "id": i.id,
@@ -9201,7 +9207,7 @@ impl McpHandler {
             },
         }));
 
-        let capture = self.capture_window(&json!({"pid": std::process::id()}));
+        let capture = self.capture_window(&json!({}));
         let capture_ok = capture
             .as_ref()
             .ok()

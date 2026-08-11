@@ -3427,6 +3427,7 @@ mod tests {
         let (endpoint, worker) = start_server("lost-token");
         let cache = FrameCache::start(endpoint, "lost-token").unwrap();
         assert!(cache.is_live(), "a fresh cache must start live");
+        let initial_epoch = cache.epoch();
 
         // Idle long enough to cross several read timeouts: the
         // worker's own heartbeat must never read as a dead Core.
@@ -3438,7 +3439,7 @@ mod tests {
         worker.join().unwrap();
 
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while cache.is_live() {
+        while cache.is_live() && cache.epoch() == initial_epoch {
             assert!(
                 std::time::Instant::now() < deadline,
                 "the cache never noticed the core had gone"
