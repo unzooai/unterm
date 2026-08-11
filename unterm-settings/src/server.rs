@@ -1983,7 +1983,7 @@ struct ThemePreset {
 fn theme_presets() -> &'static [ThemePreset] {
     // Must stay in sync with the CLI's PRESETS (wezterm/src/unterm_cli/theme.rs)
     // and the SPA's themes array (assets/settings/app.js). All three list the
-    // same 6 presets; this is the one the /api/theme write path resolves
+    // same presets; this is the one the /api/theme write path resolves
     // against, so a missing entry here makes "apply" silently 400 even though
     // the SPA shows the swatch.
     &[
@@ -2201,6 +2201,19 @@ mod tests {
                 .is_some_and(|command| command.contains("PowerShell")),
             "pwsh entry should expose an install command: {pwsh:?}"
         );
+    }
+
+    #[test]
+    fn web_settings_theme_picker_lists_every_backend_preset() {
+        let app_js = crate::assets::APP_JS;
+        for preset in theme_presets() {
+            let needle = format!("id: '{}'", preset.id);
+            assert!(
+                app_js.contains(&needle),
+                "settings app.js should list theme preset {}",
+                preset.id
+            );
+        }
     }
 
     #[test]

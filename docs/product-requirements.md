@@ -529,6 +529,7 @@ FR-I18N-003: CLI must support per-invocation locale override.
 
 FR-THEME-001: Unterm must ship built-in theme presets:
 
+- agent-inbox
 - standard
 - midnight
 - daylight

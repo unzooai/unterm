@@ -236,14 +236,15 @@ The auto-overlay exists to prevent the "I changed Clash from 7890 to 7897 and no
 
 | Field | Type | Default | Valid values | Description |
 |---|---|---|---|---|
-| `theme` | string | `"standard"` | `"standard"` / `"midnight"` / `"daylight"` / `"classic"` / `"notion-dark"` / `"notion-light"` | Preset id. The other two fields are derived from this — they're written for human readability but `theme` is the authoritative key. |
+| `theme` | string | `"standard"` | `"agent-inbox"` / `"standard"` / `"midnight"` / `"daylight"` / `"classic"` / `"notion-dark"` / `"notion-light"` | Preset id. The other two fields are derived from this — they're written for human readability but `theme` is the authoritative key. |
 | `name` | string | `"Standard"` | Any | Human label of the active preset. Cosmetic. |
 | `color_scheme` | string | `"Unterm Dark"` | Any color scheme name known to Unterm | Underlying termwiz color scheme. Cosmetic when present alongside `theme`. |
 
-The six built-ins:
+The built-ins:
 
 | `theme` id | `color_scheme` | Description |
 |---|---|---|
+| `agent-inbox` | Agent Inbox | Deep neutral with amber status accents |
 | `standard` | Unterm Dark | Neutral high-contrast terminal style |
 | `midnight` | Unterm Midnight | Low-glare blue-black workspace |
 | `daylight` | Unterm Daylight | Readable light mode for bright rooms |

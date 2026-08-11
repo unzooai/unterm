@@ -262,7 +262,7 @@ does not constitute parity.
 | FR-I18N-001 | Verified | The service registers English, Simplified/Traditional Chinese, Japanese, Korean, German, French, Italian and Hindi. All nine embedded service dictionaries and nine website dictionaries parse; missing newer translated strings fall back to canonical English rather than exposing raw keys. |
 | FR-I18N-002 | Verified | Locale initialization reads persisted `lang.json`, then OS locale detection, with Web and CLI persistent setters over the same file. Canonicalization covers language/region variants. |
 | FR-I18N-003 | Verified | Global CLI `--lang` uses a transient process-only override and does not rewrite the persisted locale. |
-| FR-THEME-001 | Verified | Native and Web theme registries contain exactly standard, midnight, daylight, classic, notion-dark and notion-light, with palette tests and shared identifiers. |
+| FR-THEME-001 | Verified | Native and Web theme registries contain exactly agent-inbox, standard, midnight, daylight, classic, notion-dark and notion-light, with palette tests and shared identifiers. |
 | FR-THEME-002 | Verified | Theme writes persist for cold start and publish a generation-stamped process mailbox. In a real native window, Web switching standard → midnight returned generation 1 and produced a different window PNG (58,973 vs 91,166 bytes and distinct SHA-256); switching back to standard succeeded before cleanup. |
 
 ## Policy, trust, and safety

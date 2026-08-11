@@ -183,6 +183,13 @@ function untermSettings() {
 
     themes: [
       {
+        id: 'agent-inbox',
+        name: 'Agent Inbox',
+        scheme: 'Agent Inbox',
+        desc: "The inbox design's own deep ground with amber status accents",
+        swatches: ['#16181d', '#d6d3cc', '#e8b34b', '#7aa2d6', '#6fb3a8'],
+      },
+      {
         id: 'standard',
         name: 'Standard',
         scheme: 'Unterm Dark',
