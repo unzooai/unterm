@@ -369,6 +369,18 @@ impl QuickMenu {
     }
 }
 
+fn styled_snapshot_has_text(snapshot: &unterm_engine::StyledScreenSnapshot) -> bool {
+    styled_lines_have_text(&snapshot.lines)
+}
+
+fn styled_lines_have_text(lines: &[unterm_engine::StyledScreenLine]) -> bool {
+    lines.iter().any(|line| {
+        line.cells
+            .iter()
+            .any(|cell| cell.width > 0 && !cell.ch.is_whitespace())
+    })
+}
+
 #[cfg(test)]
 mod quick_menu_tests {
     use super::*;
@@ -636,6 +648,8 @@ pub struct App {
     drawn_suggestions: usize,
     /// Startup trace should record only the first presented frame.
     startup_first_frame_marked: bool,
+    /// Startup trace should record when terminal text first reaches a frame.
+    startup_terminal_content_marked: bool,
     /// Text an input method is still composing, not yet the shell's.
     preedit: crate::ime::Preedit,
     /// When the input method last spoke. A composition whose IME has gone
@@ -935,6 +949,7 @@ impl App {
             drawn_confirmation: None,
             drawn_suggestions: 0,
             startup_first_frame_marked: false,
+            startup_terminal_content_marked: false,
             preedit: crate::ime::Preedit::default(),
             last_ime_event: None,
             search: None,
@@ -1373,6 +1388,7 @@ impl App {
         let blink = self.blink_phase();
         let mut screen_blink = (false, false);
         let mut revision = 0u64;
+        let mut terminal_has_content = false;
         for placement in &placements {
             let Ok(snapshot) = self.engine.read_styled_screen(placement.session_id) else {
                 continue;
@@ -1387,6 +1403,7 @@ impl App {
             }
             let blinking = crate::terminal::blinking_cells(&snapshot);
             screen_blink = (screen_blink.0 || blinking.0, screen_blink.1 || blinking.1);
+            terminal_has_content |= styled_snapshot_has_text(&snapshot);
             crate::terminal::append_pane(
                 &snapshot,
                 &mut self.font,
@@ -1423,6 +1440,7 @@ impl App {
                 // with a bar in it looked like.
                 let origin = (self.terminal_left(), self.terminal_top());
                 screen_blink = crate::terminal::blinking_cells(&snapshot);
+                terminal_has_content = styled_snapshot_has_text(&snapshot);
                 crate::terminal::append_pane(
                     &snapshot,
                     &mut self.font,
@@ -1533,6 +1551,10 @@ impl App {
         if !self.startup_first_frame_marked {
             self.startup_first_frame_marked = true;
             crate::startup_trace::mark("first_frame.presented");
+        }
+        if terminal_has_content && !self.startup_terminal_content_marked {
+            self.startup_terminal_content_marked = true;
+            crate::startup_trace::mark("terminal_content.presented");
         }
         self.drawn_revision = Some(revision);
         self.drawn_cursor_solid = Some(solid_cursor);
@@ -10600,6 +10622,31 @@ fn encode(logical: &winit::keyboard::Key, held: crate::mouse::Held) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_content_trace_ignores_blank_cells_and_spacers() {
+        let cell = |ch: char, width: usize| unterm_engine::StyledCell {
+            ch,
+            style: Default::default(),
+            width,
+        };
+        let line = |cells| unterm_engine::StyledScreenLine {
+            row: 0,
+            cells,
+            wrapped: false,
+        };
+
+        assert!(!styled_lines_have_text(&[line(vec![
+            cell(' ', 1),
+            cell('\t', 1),
+            cell(' ', 0),
+        ])]));
+        assert!(styled_lines_have_text(&[line(vec![
+            cell(' ', 0),
+            cell('P', 1),
+            cell('S', 1),
+        ])]));
+    }
 
     #[test]
     fn a_wide_glyph_copies_without_its_spacer_cell() {
