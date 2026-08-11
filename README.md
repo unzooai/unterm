@@ -191,7 +191,7 @@ Full docs: [unterm.app/docs/profiles](https://unterm.app/docs/profiles).
 
 Every running Unterm process is one **instance** with a NATO-phonetic name: `alpha`, `bravo`, `charlie`, … `zulu`. The first window claims `alpha`, the second `bravo`, etc. When all 26 are taken at once, the next one wraps to `alpha2`. Names are easy to pronounce and AI agents handle them right — no UUIDs, no ports in your head.
 
-Each instance writes its metadata (mcp_port, http_port, auth_token, pid, started_at, version, platform) to `~/.unterm/instances/<name>.json`. Agents that need to drive a specific window enumerate that directory and pick by id, cwd, or title. For single-target agents, `~/.unterm/active.json` points at the most recently launched live instance, and `~/.unterm/server.json` mirrors that same record for backward compat.
+Each GUI instance writes its metadata (mcp_port, http_port, auth_token, pid, started_at, version, platform) to `~/.unterm/instances/<name>.json`. Agents that need to drive a specific window enumerate that directory and pick by id, cwd, or title. The headless Core writes `~/.unterm/core.json`; `unterm-cli mcp-stdio` and MCP-backed CLI commands prefer that Core record so terminal sessions keep working across GUI restarts. For old single-target agents, `~/.unterm/active.json` points at the current live GUI instance, and `~/.unterm/server.json` mirrors that same record for backward compat.
 
 The MCP `instance.*` namespace exposes this directly: `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`. See [the multi-instance docs](https://unterm.app/docs/multi-instance) for examples and the discovery protocol.
 
@@ -199,7 +199,7 @@ The MCP `instance.*` namespace exposes this directly: `instance.list`, `instance
 
 ## CLI
 
-The `unterm-cli` binary exposes the full Unterm product surface, transparently routing to the local MCP server. Read `~/.unterm/server.json` (or any file under `~/.unterm/instances/`) for current ports + auth.
+The `unterm-cli` binary exposes the full Unterm product surface, transparently routing to the local MCP server. New integrations should use `unterm-cli mcp-stdio` or `unterm-cli` directly; they resolve `core.json`, live GUI instance records, and legacy files in the right order. Scripts that bypass the CLI can read `~/.unterm/core.json` for the Core MCP endpoint, `~/.unterm/instances/<name>.json` for a specific GUI window, or `~/.unterm/server.json` for the legacy active-GUI pointer.
 
 ```bash
 # Settings + Web UI
@@ -278,8 +278,9 @@ Files:
 
 | File                         | Purpose                                          |
 | ---------------------------- | ------------------------------------------------ |
-| `server.json`                | Active instance's MCP/HTTP ports + auth token + pid (auto, mirrors the active instance for back-compat) |
-| `active.json`                | Pointer at the current foreground instance id (auto, updated only when previous active dies) |
+| `core.json`                  | Headless Core endpoint + auth token + pid (preferred for MCP-backed automation) |
+| `server.json`                | Active GUI instance's MCP/HTTP ports + auth token + pid (auto, mirrors the active GUI for back-compat) |
+| `active.json`                | Pointer at the current active GUI instance id (auto, updated only when previous active dies) |
 | `instances/<name>.json`      | Per-instance metadata (NATO id, ports, token, pid, started_at, version, platform) |
 | `auth_token`                 | Legacy mirror of the active auth token (for back-compat) |
 | `proxy.json`                 | Auto/manual proxy URLs, exclusions, nodes, rotation, and Clash controller state |

@@ -62,6 +62,8 @@ The first half of this doc covers files Unterm rewrites on every launch — runt
 
 These describe what's currently running, not what you want to be true. They're documented here so an external agent reading them knows how to interpret the bytes.
 
+Current builds add one more runtime pointer to the older GUI registry: `core.json`. `unterm-core` writes it with the Core MCP port, auth token, pid, product version, protocol version, data schema version, process role, and start time. MCP-backed CLI commands and `unterm-cli mcp-stdio` prefer `core.json` so automation survives GUI restarts. `server.json`, `active.json`, and `instances/<id>.json` remain the GUI-instance registry and compatibility surface for older scripts or tools that specifically need a window's HTTP settings port.
+
 ### `server.json` — legacy single-instance pointer
 
 The original handshake file. Every external agent that wants to talk to Unterm reads this to find the local TCP port and auth token. Mirrored from the most recently launched instance whose ancestor is still alive. Format is identical to `instances/<name>.json` because `ServerInfo` is a Rust type alias for `InstanceInfo`.
@@ -110,7 +112,7 @@ Enumerate from outside via `ls ~/.unterm/instances/*.json` and parse, or call `i
 
 ### `auth_token` — legacy plaintext token
 
-A bare UUID, no JSON wrapper. Same value as `server.json:auth_token`. Older agents and the early `unterm-cli` read this file directly; newer code reads `server.json`. Kept in sync so legacy readers never see a stale value.
+A bare UUID, no JSON wrapper. Same value as `server.json:auth_token`. Older agents and the early `unterm-cli` read this file directly; current MCP-backed code reads `core.json` first and keeps this only as the final legacy fallback. Kept in sync so legacy readers never see a stale value.
 
 If you commit it to a public repo, the worst case is local-machine attack — the MCP server binds 127.0.0.1 only, so off-host the token has no power. Regenerate by relaunching Unterm.
 

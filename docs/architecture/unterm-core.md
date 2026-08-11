@@ -220,7 +220,7 @@ create/split` 经 GUI 的 MCP server 创建的 pane 全部落在 Core 进程
 启动即在临时端口起 headless MCP server（同一 token，103 方法驱动
 本进程引擎），端口写入 core.json 的 `mcp_port` 字段——不碰
 server.json，GUI 的实例注册互不冲突。unterm-cli 的端点解析新增
-回退级：活 GUI 实例 > **活 Core 的 MCP** > 旧版 server.json/token。
+回退级：**活 Core 的 MCP** > 活 GUI 实例 > 旧版 server.json/token。
 真机验证：无任何 GUI 时 `unterm-cli session create/list` 直接工作；
 E2E `headless_mcp_serves_sessions_without_any_gui` 把 M1 门禁
 「不启动 GUI 可经 MCP 执行命令」固化为自动化测试。

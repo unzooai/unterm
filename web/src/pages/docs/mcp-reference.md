@@ -21,6 +21,8 @@ For higher-level patterns (director/worker, multi-pane orchestration, recording 
 
 ### Where the port and token live
 
+Current builds write `~/.unterm/core.json` from `unterm-core`; it is the preferred MCP discovery record because it owns sessions across GUI restarts. `unterm-cli mcp-stdio` resolves `core.json` first, then falls back through live GUI instance records and legacy files. The GUI registry files below remain valid for tools that need a specific window or an older active-GUI compatibility pointer.
+
 On launch, every Unterm process writes its identity to three files under `~/.unterm/`:
 
 - `~/.unterm/instances/<nato-name>.json` — the canonical record for *this* instance. NATO-phonetic ids: `alpha`, `bravo`, `charlie`, … cycling to `alpha2` when all 26 are taken simultaneously. Contains `mcp_port`, `http_port`, `auth_token`, `pid`, `started_at`, `title`, `cwd`, `version`, `platform`.

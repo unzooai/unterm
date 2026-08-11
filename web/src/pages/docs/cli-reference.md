@@ -8,9 +8,9 @@ date: 2026-07-20
 
 ## Connection model
 
-`unterm-cli` is mostly a thin JSON-RPC client. MCP-backed subcommands open a TCP connection to the running Unterm GUI's MCP server, complete an `auth.login` handshake, and forward the call. A few user-owned settings/discovery commands (`theme`, `lang`, `reference`, and `settings open`) use local config files, compiled-in reference tables, or the HTTP settings server instead.
+`unterm-cli` is mostly a thin JSON-RPC client. MCP-backed subcommands open a TCP connection to the local Unterm MCP server, complete an `auth.login` handshake, and forward the call. Current builds prefer the headless Core MCP endpoint from `~/.unterm/core.json`; that endpoint owns terminal sessions and survives GUI restarts. A few user-owned settings/discovery commands (`theme`, `lang`, `reference`, and `settings open`) use local config files, compiled-in reference tables, or the GUI HTTP settings server instead.
 
-When the GUI starts it writes `~/.unterm/instances/<name>.json`, updates `~/.unterm/active.json`, and mirrors the active endpoint to `~/.unterm/server.json` for older scripts. The compatibility file has three core fields:
+When `unterm-core` starts it writes `~/.unterm/core.json` with its MCP port, token, pid, version, protocol, and schema. When a GUI starts it writes `~/.unterm/instances/<name>.json`, updates `~/.unterm/active.json`, and mirrors the active GUI endpoint to `~/.unterm/server.json` for older scripts. The compatibility file has three core fields:
 
 ```json
 {
@@ -20,13 +20,13 @@ When the GUI starts it writes `~/.unterm/instances/<name>.json`, updates `~/.unt
 }
 ```
 
-By default the CLI resolves the live active instance first, then the newest live instance under `~/.unterm/instances/`, then falls back to `server.json`, and finally to the legacy `~/.unterm/auth_token` + port `19876` for old builds. You can pin a command to one window with `--instance <id>` or `UNTERM_INSTANCE=<id>`.
+By default MCP-backed CLI commands resolve `core.json` first, then the live active GUI instance, then the newest live GUI instance under `~/.unterm/instances/`, then fall back to `server.json`, and finally to the legacy `~/.unterm/auth_token` + port `19876` for old builds. HTTP-backed commands such as `settings open` resolve a live GUI HTTP server first. You can pin a command to one window with `--instance <id>` or `UNTERM_INSTANCE=<id>`.
 
 The token is per-launch — it rotates whenever the GUI restarts, and the files are written `0600` so other users on the host cannot read them.
 
 A few consequences worth knowing before you wire scripts:
 
-- **MCP-backed commands need the GUI.** No GUI means no live MCP server, so commands like `session`, `workspace`, `instance`, and `screenshot` will report `unterm GUI is not running — open Unterm.app to start the MCP server, or run 'unterm start' first`. Settings-style commands can still read or write their local fallback files.
+- **MCP-backed commands do not require the GUI when Core is running.** No Core or GUI means commands like `session`, `workspace`, `instance`, and `screenshot` will report that Unterm is not running. Settings UI commands still need a GUI HTTP settings server, although settings-style commands can read or write their local fallback files.
 - **Everything is local.** Both servers bind `127.0.0.1` only. Nothing on the LAN can reach them. There is no telemetry; the CLI never phones home.
 - **The MCP action surface is mirrored in the CLI.** If a method exists on MCP, it's either reachable from the CLI today or trivially exposable. User settings intentionally stay on the settings/config path, not the agent action path.
 - **Multi-instance is first-class.** Use `unterm-cli --instance alpha session list` to target a specific window, or omit `--instance` to follow active/latest. This keeps agent scripts deterministic when several Unterm windows are open.
@@ -925,7 +925,7 @@ Opens the GUI Review page (`http://127.0.0.1:<http_port>#review`) in your defaul
 
 ## settings
 
-Open the Web Settings UI in your default browser. This subcommand does *not* hit MCP — it reads `server.json` directly to find the `http_port` and shells out to `open` / `xdg-open` / `cmd /C start`.
+Open the Web Settings UI in your default browser. This subcommand does *not* hit MCP. It resolves the live GUI HTTP endpoint from `active.json` / `instances/` / `server.json`, then shells out to `open` / `xdg-open` / `cmd /C start`.
 
 ```text
 unterm-cli settings open [--section <name>] [--print-only]

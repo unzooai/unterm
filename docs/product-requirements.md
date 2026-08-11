@@ -324,7 +324,7 @@ FR-MCP-010: MCP must stay responsive during high-volume terminal output, scrolli
 
 ### 8.8 CLI
 
-FR-CLI-001: `unterm-cli` must route MCP-backed commands to the active/latest instance by default.
+FR-CLI-001: `unterm-cli` must route MCP-backed commands to the live Core endpoint by default, falling back to active/latest GUI instance discovery and legacy compatibility files when Core is absent.
 
 FR-CLI-002: `unterm-cli --instance <id>` and `UNTERM_INSTANCE=<id>` must route to a specific live instance.
 

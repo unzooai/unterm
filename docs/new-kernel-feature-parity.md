@@ -158,7 +158,7 @@ does not constitute parity.
 
 | Requirement | Status | Evidence / remaining work |
 | --- | --- | --- |
-| FR-CLI-001 | Verified | Endpoint resolution prefers a live `active.json`, then the most recently started live instance, then compatibility files. |
+| FR-CLI-001 | Verified | MCP-backed endpoint resolution prefers live `core.json`, then a live `active.json`, then the most recently started live GUI instance, then compatibility files. HTTP-backed settings commands resolve a live GUI HTTP endpoint first. |
 | FR-CLI-002 | Verified | Global `--instance` takes precedence over `UNTERM_INSTANCE`; both resolve and validate the named live instance record. |
 | FR-CLI-003 | Verified | `--json` is a global Clap option and is forwarded to every script-consumable product command family. |
 | FR-CLI-004 | Verified | Global `--lang` applies a process-local locale override before dispatch and does not persist it. |
