@@ -69,6 +69,22 @@ impl SessionRegistry {
         self.sessions.last().map(|session| session.snapshot.id)
     }
 
+    fn last_live_id(&self) -> Option<usize> {
+        self.sessions
+            .iter()
+            .rev()
+            .find(|session| !session.snapshot.is_dead)
+            .map(|session| session.snapshot.id)
+    }
+
+    #[cfg(test)]
+    fn active_id(&self) -> Option<usize> {
+        self.sessions
+            .iter()
+            .find(|session| session.snapshot.is_active)
+            .map(|session| session.snapshot.id)
+    }
+
     fn record_destroyed(&mut self) {
         self.total_destroyed = self.total_destroyed.saturating_add(1);
     }
@@ -113,6 +129,19 @@ pub(super) fn set_active(state: &mut NextCoreRuntime, pane_id: usize) {
     for session in state.registry.iter_mut() {
         session.snapshot.is_active = session.snapshot.id == pane_id;
     }
+}
+
+pub(super) fn promote_active_to_live(state: &mut NextCoreRuntime) -> Option<usize> {
+    let next_active_id = state.registry.last_live_id();
+    match next_active_id {
+        Some(pane_id) => set_active(state, pane_id),
+        None => {
+            for session in state.registry.iter_mut() {
+                session.snapshot.is_active = false;
+            }
+        }
+    }
+    next_active_id
 }
 
 pub(super) fn session_mut(
@@ -275,5 +304,38 @@ mod tests {
         };
 
         assert!(err.to_string().contains("next-core session 10 not found"));
+    }
+
+    #[test]
+    fn promote_active_to_live_moves_focus_off_a_dead_session() {
+        let mut state = NextCoreRuntime::default();
+        let mut first = sample_session(1);
+        first.snapshot.is_active = false;
+        state.registry.push(first);
+        let mut second = sample_session(2);
+        second.snapshot.is_active = true;
+        second.snapshot.is_dead = true;
+        state.registry.push(second);
+
+        assert_eq!(promote_active_to_live(&mut state), Some(1));
+
+        assert_eq!(state.registry.active_id(), Some(1));
+        assert!(state.registry.session(1).unwrap().snapshot.is_active);
+        assert!(!state.registry.session(2).unwrap().snapshot.is_active);
+    }
+
+    fn sample_session(id: usize) -> NextCoreSession {
+        let command = portable_pty::CommandBuilder::new_default_prog();
+        crate::next_core::session_runtime::spawn(
+            id,
+            format!("sample-{id}"),
+            80,
+            24,
+            command,
+            None,
+            Vec::new(),
+            None,
+        )
+        .expect("spawn session")
     }
 }
