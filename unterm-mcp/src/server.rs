@@ -192,10 +192,9 @@ fn apply_startup_profile_binding() {
 
     let Some(id) = resolved else {
         // No explicit, no default. Still re-sync SSH config so any
-        // edits made since last launch propagate, then bail.
-        if let Err(e) = registry.sync_ssh_config() {
-            log::warn!("startup SSH config sync failed: {e:#}");
-        }
+        // Edits made since last launch should propagate, but SSH config
+        // regeneration does not need to hold the window's first paint.
+        sync_ssh_config_after_startup(registry);
         return;
     };
 
@@ -205,11 +204,22 @@ fn apply_startup_profile_binding() {
     }
     // Regenerate the SSH config fragment at startup so users who edit
     // profiles between Unterm sessions don't end up with a stale
-    // config.unterm referencing deleted entries.
-    if let Err(e) = registry.sync_ssh_config() {
-        log::warn!("startup SSH config sync failed: {e:#}");
-    }
+    // config.unterm referencing deleted entries. Do it off the display
+    // startup path; the profile binding above is the only synchronous part
+    // required before the first pane.
+    sync_ssh_config_after_startup(registry);
     log::info!("Instance bound to profile {id}");
+}
+
+fn sync_ssh_config_after_startup(registry: unterm_profile::ProfileRegistry) {
+    thread::Builder::new()
+        .name("startup-ssh-config-sync".into())
+        .spawn(move || {
+            if let Err(e) = registry.sync_ssh_config() {
+                log::warn!("startup SSH config sync failed: {e:#}");
+            }
+        })
+        .ok();
 }
 
 /// Serve MCP without a front end and without registry side effects:

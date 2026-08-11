@@ -314,6 +314,47 @@ mod audit_entry_tests {
     }
 
     #[test]
+    fn public_method_metadata_matches_dispatcher() {
+        let source = include_str!("handler.rs");
+        let start = source
+            .find("let result = match method {")
+            .expect("handler dispatch match start");
+        let end = source[start..]
+            .find("_ => Err(anyhow!(\"Unknown method:")
+            .map(|offset| start + offset)
+            .expect("handler dispatch match fallback");
+        let dispatch = &source[start..end];
+
+        let mut accepted = std::collections::BTreeSet::new();
+        for line in dispatch.lines() {
+            let Some((left, _right)) = line.split_once("=>") else {
+                continue;
+            };
+            for piece in left.split('|') {
+                let piece = piece.trim().trim_matches(',');
+                let Some(method) = piece.strip_prefix('"').and_then(|s| s.split('"').next()) else {
+                    continue;
+                };
+                if method.contains('.') {
+                    accepted.insert(method);
+                }
+            }
+        }
+
+        let advertised: std::collections::BTreeSet<_> = unterm_agents::mcp_meta::MCP_METHODS
+            .iter()
+            .map(|method| method.name)
+            .collect();
+        let missing_from_metadata: Vec<_> = accepted.difference(&advertised).copied().collect();
+        let missing_from_dispatch: Vec<_> = advertised.difference(&accepted).copied().collect();
+
+        assert!(
+            missing_from_metadata.is_empty() && missing_from_dispatch.is_empty(),
+            "MCP metadata/dispatcher drift: missing_from_metadata={missing_from_metadata:?}, missing_from_dispatch={missing_from_dispatch:?}"
+        );
+    }
+
+    #[test]
     fn destructive_and_policy_operations_are_mutating() {
         for method in [
             "session.destroy",

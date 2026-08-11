@@ -409,4 +409,23 @@ mod tests {
             "array"
         );
     }
+
+    #[test]
+    fn tool_list_matches_public_mcp_metadata_except_meta_surface() {
+        let surface = json!({
+            "mcp_methods": unterm_agents::mcp_meta::MCP_METHODS,
+        });
+        let tools = build_tool_list(&surface);
+        let tool_names: std::collections::BTreeSet<_> = tools
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(|value| value.as_str()))
+            .collect();
+        let expected: std::collections::BTreeSet<_> = unterm_agents::mcp_meta::MCP_METHODS
+            .iter()
+            .map(|method| method.name)
+            .filter(|name| *name != "meta.surface")
+            .collect();
+
+        assert_eq!(tool_names, expected);
+    }
 }
