@@ -578,7 +578,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
 // in the self-test.
 pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "start", summary: "Start the GUI, optionally running an alternative program.", subcommands: &[] },
-    CliCommand { name: "cli", summary: "Interact with the mux server (panes, tabs, windows).", subcommands: &["list", "list-clients", "proxy", "tlscreds", "move-pane-to-new-tab", "split-pane", "spawn", "send-text", "get-text", "activate-pane-direction", "get-pane-direction", "kill-pane", "activate-pane", "adjust-pane-size", "activate-tab", "set-tab-title", "set-window-title", "rename-workspace", "zoom-pane"] },
+    CliCommand { name: "cli", summary: "Legacy mux compatibility stub; use session, instance, or server commands instead.", subcommands: &[] },
     CliCommand { name: "session", summary: "Operate on a single live pane.", subcommands: &["list", "create", "split", "focus", "resize", "destroy", "record", "export", "input", "text", "cwd", "status", "errors", "history", "audit-log", "search", "suggest"] },
     CliCommand { name: "exec", summary: "Run commands in a live pane via MCP.", subcommands: &["run", "wait", "status", "cancel", "signal"] },
     CliCommand { name: "sessions", summary: "Browse the recorded session archive.", subcommands: &["list", "read"] },
@@ -604,10 +604,10 @@ pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "ls-fonts", summary: "Display information about fonts.", subcommands: &[] },
     CliCommand { name: "imgcat", summary: "Output an image to the terminal.", subcommands: &[] },
     CliCommand { name: "set-working-directory", summary: "Emit an OSC 7 escape so the terminal learns the cwd.", subcommands: &[] },
-    CliCommand { name: "record", summary: "Record a terminal session as an asciicast.", subcommands: &[] },
-    CliCommand { name: "replay", summary: "Replay an asciicast terminal session.", subcommands: &[] },
+    CliCommand { name: "record", summary: "Legacy asciicast compatibility stub; use session record/export instead.", subcommands: &[] },
+    CliCommand { name: "replay", summary: "Legacy asciicast compatibility stub; native replay is not implemented.", subcommands: &[] },
     CliCommand { name: "ssh", summary: "Establish an SSH session.", subcommands: &[] },
-    CliCommand { name: "connect", summary: "Connect to a Unterm mux server.", subcommands: &[] },
+    CliCommand { name: "connect", summary: "Legacy mux compatibility stub; use start, instance, or server commands instead.", subcommands: &[] },
     CliCommand { name: "shell-completion", summary: "Generate shell completion information.", subcommands: &[] },
 ];
 
@@ -668,6 +668,24 @@ mod tests {
             assert!(
                 names.contains(required),
                 "CLI_COMMANDS is missing {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_cli_stubs_do_not_advertise_removed_mux_or_asciicast_surfaces() {
+        for name in ["cli", "record", "replay", "connect"] {
+            let command = CLI_COMMANDS
+                .iter()
+                .find(|command| command.name == name)
+                .unwrap_or_else(|| panic!("CLI_COMMANDS is missing {name}"));
+            assert!(
+                command.summary.contains("Legacy"),
+                "{name} should describe its compatibility status"
+            );
+            assert!(
+                command.subcommands.is_empty(),
+                "{name} should not list removed subcommands"
             );
         }
     }
