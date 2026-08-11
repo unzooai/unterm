@@ -500,6 +500,40 @@ mod tests {
             "reference advertises CLI commands missing from clap parser: {missing:?}"
         );
     }
+
+    #[test]
+    fn reference_cli_subcommands_match_real_clap_subcommands() {
+        let command = Opt::command();
+        let actual: std::collections::HashMap<_, _> = command
+            .get_subcommands()
+            .map(|sub| {
+                let subcommands: HashSet<_> =
+                    sub.get_subcommands().map(|cmd| cmd.get_name()).collect();
+                (sub.get_name().to_string(), subcommands)
+            })
+            .collect();
+
+        let mut drift = Vec::new();
+        for advertised in unterm_agents::mcp_meta::CLI_COMMANDS {
+            let Some(real) = actual.get(advertised.name) else {
+                continue;
+            };
+            let expected: HashSet<_> = advertised.subcommands.iter().copied().collect();
+            let missing: Vec<_> = real.difference(&expected).copied().collect();
+            let extra: Vec<_> = expected.difference(real).copied().collect();
+            if !missing.is_empty() || !extra.is_empty() {
+                drift.push(format!(
+                    "{} missing_from_reference={missing:?} extra_in_reference={extra:?}",
+                    advertised.name
+                ));
+            }
+        }
+
+        assert!(
+            drift.is_empty(),
+            "reference CLI subcommands drifted from clap parser: {drift:?}"
+        );
+    }
 }
 
 pub fn run_exec(cmd: ExecCommand, json_out: bool) -> Result<()> {
