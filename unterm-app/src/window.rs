@@ -9110,6 +9110,11 @@ impl App {
     /// spins is most of what an idle window used to cost.
     fn tick(&mut self) {
         self.finish_startup_session();
+        if !self.startup_terminal_content_marked {
+            if let Some(live) = self.state.as_ref().filter(|live| live.session_id != 0) {
+                self.engine.refresh_cached_frame(live.session_id);
+            }
+        }
         if self.restore_extra_tabs_pending
             && self.startup_first_frame_marked
             && self.startup_session.is_none()

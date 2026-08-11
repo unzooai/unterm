@@ -282,6 +282,12 @@ impl AppEngine {
         }
     }
 
+    pub fn refresh_cached_frame(&self, pane_id: usize) {
+        if let Self::Core { cache, .. } = self {
+            cache.refresh_pane(pane_id);
+        }
+    }
+
     pub fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<()> {
         route!(self, engine => engine.scroll_viewport_to(pane_id, target))
     }

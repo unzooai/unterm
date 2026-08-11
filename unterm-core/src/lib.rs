@@ -2703,6 +2703,15 @@ impl FrameCache {
             .cloned()
     }
 
+    /// Refresh one pane immediately, bypassing the event-feed cadence.
+    ///
+    /// Startup is the only caller today: the Core event watcher can be in its
+    /// no-subscriber sleep when the first window appears, and waiting for that
+    /// sleep makes the first prompt look slower than the shell actually is.
+    pub fn refresh_pane(&self, pane_id: usize) {
+        self.inner.refresh(pane_id);
+    }
+
     pub fn panes(&self) -> Vec<usize> {
         self.inner
             .frames
