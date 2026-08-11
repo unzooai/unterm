@@ -18,5 +18,8 @@ unterm-mcp.workspace = true
 unterm-services.workspace = true
 log.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

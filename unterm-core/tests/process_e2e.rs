@@ -23,10 +23,8 @@ struct Discovery {
 }
 
 fn scratch_state_dir(label: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "unterm-core-e2e-{label}-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("unterm-core-e2e-{label}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -122,6 +120,61 @@ fn wait_for_exit(child: &mut Child, timeout: Duration) -> bool {
 }
 
 #[test]
+fn version_probe_bypasses_lock_and_state() {
+    let warm_home = tempfile::tempdir().unwrap();
+    Command::new(env!("CARGO_BIN_EXE_unterm-core"))
+        .arg("--version")
+        .env("UNTERM_STATE_DIR", warm_home.path())
+        .env("USERPROFILE", warm_home.path())
+        .env("HOME", warm_home.path())
+        .output()
+        .expect("warm up unterm-core --version");
+
+    let state_dir = scratch_state_dir("version");
+    let mut child = spawn_core(&state_dir);
+    let discovery = wait_for_discovery(&state_dir, Duration::from_secs(10));
+
+    let probe_state = scratch_state_dir("version-probe");
+    let started = Instant::now();
+    let output = Command::new(env!("CARGO_BIN_EXE_unterm-core"))
+        .arg("--version")
+        .env("UNTERM_STATE_DIR", &probe_state)
+        .env("USERPROFILE", &probe_state)
+        .env("HOME", &probe_state)
+        .output()
+        .expect("run unterm-core --version");
+
+    assert!(output.status.success());
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        format!("unterm-core {}", unterm_protocol::PRODUCT_VERSION)
+    );
+    assert!(
+        read_discovery(&probe_state).is_none(),
+        "version probe must not publish discovery"
+    );
+    assert_eq!(
+        read_discovery(&state_dir)
+            .expect("running core discovery vanished")
+            .pid,
+        discovery.pid,
+        "version probe must not disturb the running core"
+    );
+
+    let mut stream = TcpStream::connect(&discovery.endpoint).unwrap();
+    let _ = request(
+        &mut stream,
+        &discovery.token,
+        "core.shutdown",
+        serde_json::Value::Null,
+    );
+    assert!(wait_for_exit(&mut child, Duration::from_secs(10)));
+    let _ = std::fs::remove_dir_all(&state_dir);
+    let _ = std::fs::remove_dir_all(&probe_state);
+}
+
+#[test]
 fn real_process_serves_sessions_and_cleans_up() {
     let state_dir = scratch_state_dir("single");
     let mut child = spawn_core(&state_dir);
@@ -133,7 +186,12 @@ fn real_process_serves_sessions_and_cleans_up() {
     let mut stream = TcpStream::connect(&discovery.endpoint).unwrap();
     stream.set_nodelay(true).unwrap();
 
-    let info = request(&mut stream, &discovery.token, "core.info", serde_json::Value::Null);
+    let info = request(
+        &mut stream,
+        &discovery.token,
+        "core.info",
+        serde_json::Value::Null,
+    );
     assert_eq!(info["ok"], true, "core.info failed: {info}");
     assert_eq!(info["result"]["process_role"], "core");
 
@@ -188,7 +246,8 @@ fn headless_mcp_serves_sessions_without_any_gui() {
     stream.set_nodelay(true).unwrap();
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut mcp = |method: &str, params: serde_json::Value| -> serde_json::Value {
-        let frame = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+        let frame =
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
         writeln!(stream, "{frame}").unwrap();
         stream.flush().unwrap();
         let mut line = String::new();
@@ -199,14 +258,19 @@ fn headless_mcp_serves_sessions_without_any_gui() {
     let auth = mcp("auth.login", serde_json::json!({"token": discovery.token}));
     assert_eq!(auth["result"]["status"], "ok", "auth failed: {auth}");
 
-    let created = mcp("session.create", serde_json::json!({"cols": 80, "rows": 24}));
+    let created = mcp(
+        "session.create",
+        serde_json::json!({"cols": 80, "rows": 24}),
+    );
     let pane_id = created["result"]["id"]
         .as_u64()
         .unwrap_or_else(|| panic!("session.create failed headless: {created}"));
 
     let listed = mcp("session.list", serde_json::json!({}));
     assert!(
-        serde_json::to_string(&listed["result"]).unwrap().contains(&pane_id.to_string()),
+        serde_json::to_string(&listed["result"])
+            .unwrap()
+            .contains(&pane_id.to_string()),
         "created pane missing from list: {listed}"
     );
 
@@ -229,7 +293,10 @@ fn headless_mcp_serves_sessions_without_any_gui() {
     );
 
     let closed = mcp("session.destroy", serde_json::json!({"id": pane_id}));
-    assert!(closed.get("error").is_none(), "session.destroy failed: {closed}");
+    assert!(
+        closed.get("error").is_none(),
+        "session.destroy failed: {closed}"
+    );
 
     // Shut the core down over its own IPC.
     let mut core = TcpStream::connect(&discovery.endpoint).unwrap();
@@ -266,7 +333,8 @@ fn headless_write_is_allowed_when_the_config_says_never() {
     stream.set_nodelay(true).unwrap();
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut mcp = |method: &str, params: serde_json::Value| -> serde_json::Value {
-        let frame = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+        let frame =
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
         writeln!(stream, "{frame}").unwrap();
         stream.flush().unwrap();
         let mut line = String::new();
@@ -276,7 +344,10 @@ fn headless_write_is_allowed_when_the_config_says_never() {
 
     let auth = mcp("auth.login", serde_json::json!({"token": discovery.token}));
     assert_eq!(auth["result"]["status"], "ok");
-    let created = mcp("session.create", serde_json::json!({"cols": 80, "rows": 24}));
+    let created = mcp(
+        "session.create",
+        serde_json::json!({"cols": 80, "rows": 24}),
+    );
     let pane_id = created["result"]["id"].as_u64().unwrap();
 
     let sent = mcp(
@@ -434,9 +505,8 @@ fn a_killed_core_is_replaced_without_restarting_the_client() {
     let discovery = wait_for_discovery(&state_dir, Duration::from_secs(10));
     let first_pid = discovery.pid;
 
-    let cache =
-        unterm_core::FrameCache::start(discovery.endpoint.clone(), discovery.token.clone())
-            .expect("frame cache should attach to the first core");
+    let cache = unterm_core::FrameCache::start(discovery.endpoint.clone(), discovery.token.clone())
+        .expect("frame cache should attach to the first core");
 
     // A pane on the first Core, so there is something to lose.
     let mut stream = TcpStream::connect(&discovery.endpoint).unwrap();

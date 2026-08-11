@@ -2,6 +2,16 @@ use anyhow::Result;
 use unterm_core::{clear_discovery, try_acquire_instance_lock, write_discovery, CoreServer};
 
 fn main() -> Result<()> {
+    let args = CoreArgs::parse(std::env::args_os().skip(1))?;
+    if args.version {
+        println!("unterm-core {}", unterm_protocol::PRODUCT_VERSION);
+        return Ok(());
+    }
+    if args.help {
+        print_help();
+        return Ok(());
+    }
+
     // Single-instance gate: concurrent GUI/CLI launches may race to
     // spawn a core; only the lock holder may bind and publish
     // discovery. Losers exit quietly and their parent keeps polling
@@ -21,10 +31,7 @@ fn main() -> Result<()> {
     // the user chose in it.
     let (config, config_errors) = unterm_services::settings::load(None);
     for error in &config_errors {
-        eprintln!(
-            "unterm-core: config line {}: {}",
-            error.line, error.message
-        );
+        eprintln!("unterm-core: config line {}: {}", error.line, error.message);
     }
     unterm_services::settings::set_current(&config);
     unterm_engine::next_core::NextCoreEngine::set_new_session_scrollback_lines(
@@ -64,4 +71,34 @@ fn main() -> Result<()> {
     let result = server.run();
     let _ = clear_discovery();
     result
+}
+
+struct CoreArgs {
+    help: bool,
+    version: bool,
+}
+
+impl CoreArgs {
+    fn parse(arguments: impl IntoIterator<Item = std::ffi::OsString>) -> Result<Self> {
+        let mut parsed = Self {
+            help: false,
+            version: false,
+        };
+        for argument in arguments {
+            match argument.to_string_lossy().as_ref() {
+                "--help" | "-h" => parsed.help = true,
+                "--version" | "-V" => parsed.version = true,
+                "--headless" => {}
+                other => anyhow::bail!("unknown unterm-core argument {other:?}"),
+            }
+        }
+        Ok(parsed)
+    }
+}
+
+fn print_help() {
+    println!(
+        "unterm-core {}\n\nUSAGE:\n    unterm-core [--headless]\n\nOPTIONS:\n    --headless    Run without creating any GUI window (the default for unterm-core)\n    -V, --version Print version and exit before initialization\n    -h, --help    Print help and exit before initialization",
+        unterm_protocol::PRODUCT_VERSION
+    );
 }

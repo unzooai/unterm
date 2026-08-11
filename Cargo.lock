@@ -5704,6 +5704,7 @@ dependencies = [
  "portable-pty",
  "serde",
  "serde_json",
+ "tempfile",
  "unterm-engine",
  "unterm-mcp",
  "unterm-protocol",
