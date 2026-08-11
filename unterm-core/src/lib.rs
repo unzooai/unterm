@@ -875,13 +875,32 @@ fn dispatch_inner(
             id,
             BuildHandshake::current(ProcessRole::Core, std::process::id(), started_at),
         ))?,
-        "core.health" | "core.readiness" => {
-            let status = if draining.load(Ordering::Acquire) {
-                "draining"
-            } else {
-                "ready"
-            };
-            serde_json::to_string(&response_ok(id, serde_json::json!({"status": status})))?
+        "core.health" => {
+            let is_draining = draining.load(Ordering::Acquire);
+            let status = if is_draining { "draining" } else { "ready" };
+            serde_json::to_string(&response_ok(
+                id,
+                serde_json::json!({
+                    "status": status,
+                    "alive": true,
+                    "ready": !is_draining,
+                    "accepting_sessions": !is_draining,
+                    "draining": is_draining,
+                }),
+            ))?
+        }
+        "core.readiness" => {
+            let is_draining = draining.load(Ordering::Acquire);
+            let status = if is_draining { "not_ready" } else { "ready" };
+            serde_json::to_string(&response_ok(
+                id,
+                serde_json::json!({
+                    "status": status,
+                    "ready": !is_draining,
+                    "accepting_sessions": !is_draining,
+                    "reason": if is_draining { "draining" } else { "ready" },
+                }),
+            ))?
         }
         "core.drain" => {
             draining.store(true, Ordering::Release);

@@ -40,8 +40,9 @@ unterm-engine next-core（PTY、Screen、Scrollback、revision）
   （`ProcessRole::Core`）。客户端 `handshake()` 按 `Compatibility` 判定
   （产品版本精确匹配、协议 semver major、schema 单调），不兼容立即报错，
   不与版本偏差的 Core 通信，也不会在其旁边误拉第二个 Core。
-- **drain**：`core.drain` 后 `core.health`/`core.readiness` 报告
-  `draining`，`session.create` 返回 `draining` 错误码，存量会话继续可用。
+- **drain**：`core.drain` 后 `core.health` 继续报告进程存活但状态为
+  `draining`，`core.readiness` 报告 `not_ready`，`session.create` 返回
+  `draining` 错误码，存量会话继续可用。
   这是 GUI「排空后退出」语义的 Core 侧基础。`core.shutdown` 报告
   `stopping` 并停止服务。
 
@@ -49,8 +50,8 @@ unterm-engine next-core（PTY、Screen、Scrollback、revision）
 
 ```text
 core.info                BuildHandshake 身份与版本
-core.health              ready | draining
-core.readiness           同上
+core.health              进程存活/排空状态（ready | draining，alive=true）
+core.readiness           是否接受新工作（ready | not_ready）
 core.drain               拒新会话（create/split），保存量
 core.shutdown            停止服务
 core.events              连接转为单向事件推送流（见下）

@@ -231,6 +231,90 @@ fn real_process_serves_sessions_and_cleans_up() {
     let _ = std::fs::remove_dir_all(&state_dir);
 }
 
+#[test]
+fn health_and_readiness_split_liveness_from_accepting_work() {
+    let state_dir = scratch_state_dir("readiness");
+    let mut child = spawn_core(&state_dir);
+    let discovery = wait_for_discovery(&state_dir, Duration::from_secs(10));
+
+    let mut stream = TcpStream::connect(&discovery.endpoint).unwrap();
+    stream.set_nodelay(true).unwrap();
+
+    let health = request(
+        &mut stream,
+        &discovery.token,
+        "core.health",
+        serde_json::Value::Null,
+    );
+    assert_eq!(health["ok"], true, "core.health failed: {health}");
+    assert_eq!(health["result"]["alive"], true);
+    assert_eq!(health["result"]["ready"], true);
+    assert_eq!(health["result"]["accepting_sessions"], true);
+
+    let readiness = request(
+        &mut stream,
+        &discovery.token,
+        "core.readiness",
+        serde_json::Value::Null,
+    );
+    assert_eq!(
+        readiness["result"]["status"], "ready",
+        "core.readiness before drain: {readiness}"
+    );
+    assert_eq!(readiness["result"]["ready"], true);
+    assert_eq!(readiness["result"]["accepting_sessions"], true);
+
+    let drain = request(
+        &mut stream,
+        &discovery.token,
+        "core.drain",
+        serde_json::json!({"exit_when_idle": false}),
+    );
+    assert_eq!(drain["ok"], true, "core.drain failed: {drain}");
+
+    let health = request(
+        &mut stream,
+        &discovery.token,
+        "core.health",
+        serde_json::Value::Null,
+    );
+    assert_eq!(health["result"]["alive"], true);
+    assert_eq!(health["result"]["status"], "draining");
+    assert_eq!(health["result"]["ready"], false);
+    assert_eq!(health["result"]["accepting_sessions"], false);
+
+    let readiness = request(
+        &mut stream,
+        &discovery.token,
+        "core.readiness",
+        serde_json::Value::Null,
+    );
+    assert_eq!(readiness["result"]["status"], "not_ready");
+    assert_eq!(readiness["result"]["ready"], false);
+    assert_eq!(readiness["result"]["accepting_sessions"], false);
+    assert_eq!(readiness["result"]["reason"], "draining");
+
+    let created = request(
+        &mut stream,
+        &discovery.token,
+        "session.create",
+        serde_json::json!({"cols": 80, "rows": 24}),
+    );
+    assert_eq!(
+        created["error"]["code"], "draining",
+        "readiness false must match session.create refusal: {created}"
+    );
+
+    let _ = request(
+        &mut stream,
+        &discovery.token,
+        "core.shutdown",
+        serde_json::Value::Null,
+    );
+    assert!(wait_for_exit(&mut child, Duration::from_secs(10)));
+    let _ = std::fs::remove_dir_all(&state_dir);
+}
+
 /// The M1 gate, as an automated test: no GUI anywhere, and the MCP
 /// surface still creates a PTY, reads its screen, and refuses an
 /// unauthorized write immediately instead of hanging on a banner no
