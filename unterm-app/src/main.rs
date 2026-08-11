@@ -44,6 +44,7 @@ mod shape;
 mod sidebar;
 mod statsbar;
 mod stallwatch;
+mod startup_trace;
 mod statusbar;
 mod system_capture;
 mod terminal;
@@ -134,6 +135,7 @@ fn main() -> std::process::ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().filter_or("UNTERM_LOG", "info"))
         .init();
     install_panic_reporter();
+    startup_trace::init();
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(err) => {
@@ -153,6 +155,7 @@ fn version_requested(arguments: impl IntoIterator<Item = std::ffi::OsString>) ->
 
 fn run() -> anyhow::Result<()> {
     let args = args::parse(std::env::args().skip(1));
+    startup_trace::mark("args.parsed");
     for argument in &args.unrecognised {
         log::warn!("ignoring unrecognised argument {argument:?}");
     }
@@ -176,6 +179,7 @@ fn run() -> anyhow::Result<()> {
     if let Err(err) = migrate_old_config() {
         log::warn!("could not convert the previous config: {err:#}");
     }
+    startup_trace::mark("config.migration_checked");
 
     // The same declarative config the rest of the product reads. Unreadable or
     // absent, we start on defaults rather than refusing to open: a terminal you
@@ -184,8 +188,10 @@ fn run() -> anyhow::Result<()> {
     for error in &errors {
         log::warn!("config line {}: {}", error.line, error.message);
     }
+    startup_trace::mark("config.loaded");
     apply_path_append(&config);
     apply_session_env(&config);
+    startup_trace::mark("env.applied");
     // The `[keys]` section, folded into the key table before the window and
     // the MCP surface start reading it. A broken entry is a warning with its
     // line, never a refusal to start.
@@ -194,6 +200,7 @@ fn run() -> anyhow::Result<()> {
         log::warn!("config line {}: {}", error.line, error.message);
     }
     keys::install_user_bindings(user_bindings);
+    startup_trace::mark("keys.installed");
     if let Ok(Some(milliseconds)) = config.int_of("stats.refresh_ms") {
         if let Ok(milliseconds) = u64::try_from(milliseconds) {
             statsbar::set_refresh_ms(milliseconds);
@@ -207,6 +214,7 @@ fn run() -> anyhow::Result<()> {
     // surface and background threads alike -- before the MCP server
     // starts, so every consumer sees the same session world.
     let backend = engine_backend::init_from_environment();
+    startup_trace::mark("backend.ready");
     if let Some(profile) = args.profile.as_deref() {
         std::env::set_var("UNTERM_STARTUP_PROFILE", profile);
     }
@@ -218,6 +226,7 @@ fn run() -> anyhow::Result<()> {
     // connecting early finds a working surface rather than a
     // half-built one.
     mcp_host::install();
+    startup_trace::mark("mcp_host.installed");
     // One surface per session world. In Core mode the Core is already
     // serving the agent API over the sessions it owns; a second server
     // here would answer the same questions from an empty world, and an
@@ -258,11 +267,13 @@ fn run() -> anyhow::Result<()> {
             }
         }
     };
+    startup_trace::mark("instance.registered");
     match unterm_services::bridge_registry::request_incompatible_drains() {
         Ok(0) => {}
         Ok(count) => log::info!("requested drain for {count} incompatible MCP bridge(s)"),
         Err(error) => log::warn!("could not inspect MCP bridge lifecycle records: {error:#}"),
     }
+    startup_trace::mark("bridge_registry.checked");
     // The enforcement half of the cooperative replacement: bridges
     // that predate the registry get terminated right away (they will
     // never hear a drain request), and drained ones get a grace
@@ -290,25 +301,30 @@ fn run() -> anyhow::Result<()> {
     // The settings UI, on the same token. `unterm-cli settings` opens it.
     let settings_port = unterm_settings::start_web_settings_server(token);
     log::info!("settings UI listening on 127.0.0.1:{settings_port}");
+    startup_trace::mark("settings_server.started");
 
     // The update check, which existed but was never started: without this
     // call the Updates page always said "never checked" and nobody was told
     // a release had shipped.
     unterm_settings::update_check::start_background_poller();
+    startup_trace::mark("update_poller.started");
 
     // The stall watchdog, armed before the loop it watches exists: a frozen
     // window must leave a trace, not an argument about whether it happened.
     stallwatch::start();
+    startup_trace::mark("stallwatch.started");
     // And the input-source watcher, so a composition stranded by a source
     // switch is cleared before it can swallow anyone's Backspace.
     #[cfg(target_os = "macos")]
     ime_watch::start();
     let event_loop = winit::event_loop::EventLoop::new()?;
+    startup_trace::mark("event_loop.created");
     // The loop's delegate exists now; teach it to answer Finder and friends
     // when they say "open this folder".
     #[cfg(target_os = "macos")]
     macos_open::install();
     let mut app = window::App::new(&config)?;
+    startup_trace::mark("app.created");
     // A plain launch reopens where the last one closed; naming a directory
     // or a command on the line asks for something specific instead.
     if args.cwd.is_none() && args.command.is_empty() {
@@ -318,6 +334,7 @@ fn run() -> anyhow::Result<()> {
     }
     app.set_start_directory(args.cwd);
     app.set_start_command(args.command);
+    startup_trace::mark("event_loop.running");
     let run_result = event_loop.run_app(&mut app);
     let shutdown = unterm_services::server_info::unregister_current_instance();
     if !shutdown.errors.is_empty() {

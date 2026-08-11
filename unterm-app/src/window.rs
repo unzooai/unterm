@@ -622,6 +622,8 @@ pub struct App {
     drawn_confirmation: Option<u64>,
     /// Pending suggestions drawn in the last frame.
     drawn_suggestions: usize,
+    /// Startup trace should record only the first presented frame.
+    startup_first_frame_marked: bool,
     /// Text an input method is still composing, not yet the shell's.
     preedit: crate::ime::Preedit,
     /// When the input method last spoke. A composition whose IME has gone
@@ -903,6 +905,7 @@ impl App {
             engine: crate::engine_backend::AppEngine::from_environment(),
             drawn_confirmation: None,
             drawn_suggestions: 0,
+            startup_first_frame_marked: false,
             preedit: crate::ime::Preedit::default(),
             last_ime_event: None,
             search: None,
@@ -1071,6 +1074,7 @@ impl App {
     }
 
     fn start(&mut self, event_loop: &ActiveEventLoop) -> anyhow::Result<Live> {
+        crate::startup_trace::mark("window.start");
         let metrics = self.font.metrics();
         let initial_width = metrics.width * self.initial_cols as f32
             + crate::sidebar::adaptive_default_width(1) * self.chrome_pt()
@@ -1124,6 +1128,7 @@ impl App {
         // until there is a pane to render, otherwise cold starts show a blank
         // terminal while Core/GPU/session setup finishes.
         let window = Arc::new(event_loop.create_window(attributes.with_visible(false))?);
+        crate::startup_trace::mark("window.created");
         if !self.system_decorations {
             round_window_corners(&window);
         }
@@ -1145,6 +1150,7 @@ impl App {
         // `remember_window` because the first thing the Core asks for is
         // this window's identity.
         crate::engine_backend::attach_host_channel();
+        crate::startup_trace::mark("host_channel.attached");
         // Without this the system never starts an input method, and a Chinese
         // or Japanese keyboard can only produce Latin letters.
         window.set_ime_allowed(true);
@@ -1176,6 +1182,11 @@ impl App {
                     focused.or_else(|| live.into_iter().next())
                 })
         };
+        crate::startup_trace::mark(if adopted.is_some() {
+            "session.adopted"
+        } else {
+            "session.create_planned"
+        });
         let mut startup_request = adopted.is_none().then(|| {
             let env = launch_env_for_new_pane();
             CreateSessionRequest {
@@ -1208,6 +1219,7 @@ impl App {
                 Some(request),
             ) => {
                 let client = client.clone();
+                crate::startup_trace::mark("session.create_thread_spawned");
                 Some(std::thread::spawn(move || {
                     unterm_engine::SessionEngine::create_session(client.as_ref(), request)
                 }))
@@ -1224,9 +1236,11 @@ impl App {
             queue,
             format,
         } = request_graphics(window.clone(), size.width, size.height)?;
+        crate::startup_trace::mark("graphics.ready");
 
         let renderer = Renderer::new(device, queue, format);
         let atlas_texture = renderer.upload_atlas(&self.atlas);
+        crate::startup_trace::mark("renderer.ready");
         let atlas_uploaded_glyphs = self.atlas.len();
 
         let session = match adopted {
@@ -1244,6 +1258,7 @@ impl App {
                 startup_request.expect("new startup session request is present"),
             )?,
         };
+        crate::startup_trace::mark("session.ready");
 
         // The first pane is a tab of one. Recording it here means a later split
         // has an arrangement to grow rather than one to infer.
@@ -1254,6 +1269,7 @@ impl App {
         let picture = self.picture.as_ref();
         let background =
             picture.map(|image| renderer.upload_image(image.width, image.height, &image.rgba));
+        crate::startup_trace::mark("background.ready");
         let live = Live {
             window,
             surface,
@@ -1268,7 +1284,9 @@ impl App {
             height: size.height.max(1),
         };
         live.configure(format);
+        crate::startup_trace::mark("live.configured");
         live.window.set_visible(true);
+        crate::startup_trace::mark("window.visible");
         Ok(live)
     }
 
@@ -1477,6 +1495,10 @@ impl App {
             self.colors.background,
         );
         frame.present();
+        if !self.startup_first_frame_marked {
+            self.startup_first_frame_marked = true;
+            crate::startup_trace::mark("first_frame.presented");
+        }
         self.drawn_revision = Some(revision);
         self.drawn_cursor_solid = Some(solid_cursor);
         self.drawn_blink = Some(blink);
@@ -9168,6 +9190,7 @@ impl Live {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        crate::startup_trace::mark("winit.resumed");
         if self.state.is_some() {
             return;
         }
@@ -9176,6 +9199,7 @@ impl ApplicationHandler for App {
                 live.window.request_redraw();
                 self.state = Some(live);
                 self.restore_extra_tabs();
+                crate::startup_trace::mark("window.state.ready");
             }
             Err(err) => {
                 crate::report_fatal(&format!("Unterm could not start: {err:#}"));
