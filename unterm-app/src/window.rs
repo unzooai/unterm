@@ -157,18 +157,22 @@ fn try_backend(
     width: u32,
     height: u32,
 ) -> anyhow::Result<Graphics> {
+    crate::startup_trace::mark("graphics.instance.start");
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: backend,
         ..Default::default()
     });
+    crate::startup_trace::mark("graphics.instance.ready");
     let surface = instance
         .create_surface(window)
         .map_err(|error| anyhow::anyhow!("surface: {error}"))?;
+    crate::startup_trace::mark("graphics.surface.ready");
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         compatible_surface: Some(&surface),
         ..Default::default()
     }))
     .map_err(|error| anyhow::anyhow!("adapter: {error}"))?;
+    crate::startup_trace::mark("graphics.adapter.ready");
 
     let mut required_limits = wgpu::Limits::default();
     required_limits.max_non_sampler_bindings = MAX_GPU_VIEW_DESCRIPTORS;
@@ -180,7 +184,10 @@ fn try_backend(
     };
     let device_result = pollster::block_on(adapter.request_device(&descriptor));
     let (device, queue) = match device_result {
-        Ok(pair) => pair,
+        Ok(pair) => {
+            crate::startup_trace::mark("graphics.device.ready");
+            pair
+        }
         // A downlevel adapter (ANGLE over an old driver) can refuse the
         // default limits while still being perfectly able to draw a terminal.
         Err(_) => {
@@ -192,8 +199,10 @@ fn try_backend(
                 memory_hints: wgpu::MemoryHints::MemoryUsage,
                 ..Default::default()
             };
-            pollster::block_on(adapter.request_device(&descriptor))
-                .map_err(|error| anyhow::anyhow!("device: {error}"))?
+            let pair = pollster::block_on(adapter.request_device(&descriptor))
+                .map_err(|error| anyhow::anyhow!("device: {error}"))?;
+            crate::startup_trace::mark("graphics.device.ready");
+            pair
         }
     };
     // From here on a wgpu error is a log line, not a process death.
@@ -231,10 +240,12 @@ fn try_backend(
     if let Some(error) = pollster::block_on(device.pop_error_scope()) {
         anyhow::bail!("configure: {error}");
     }
+    crate::startup_trace::mark("graphics.surface.configured");
     match surface.get_current_texture() {
         Ok(frame) => drop(frame),
         Err(error) => anyhow::bail!("first frame: {error}"),
     }
+    crate::startup_trace::mark("graphics.surface.probed");
 
     Ok(Graphics {
         surface,
