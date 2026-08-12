@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.65.0 — 2026-08-13
+
+### Fixed
+
+- **The redraw storm is over.** `needs_redraw` compared the frame
+  cache's generation; `draw` recorded a sum of per-pane snapshot
+  revisions — a different counter, never equal in Core mode, so every
+  idle tick redrew and reshaped the whole window forever. That double
+  bookkeeping was the chronic 90%-CPU window, and under heavy agent
+  output it grew into multi-second freezes: the content area sat black
+  while the GUI thread ground through full-screen HarfBuzz passes and
+  queued behind the compositor for drawables. Draw now records the very
+  number `needs_redraw` compares, and a flood of output draws at most
+  one frame per refresh interval. Idle CPU dropped from ~94% to under
+  10%; a 20,000-line CJK flood renders in under a second with zero
+  black frames and zero watchdog stalls.
+
+### Added
+
+- **Settings can choose the default shell**, with a per-platform
+  install plan for shells that are not there yet (winget on Windows,
+  Homebrew on macOS; Linux states plainly that there is no one-line
+  official install).
+- **`session.create` takes `argv`** — a program argv array launched
+  directly, no shell wrapping — alongside the existing `command`
+  string that still runs through the platform shell.
+- **Split layouts survive a GUI restart.** The arrangement, not just
+  the panes, comes back.
+- **`fleet retry` and `review verify`** join the Agent Cockpit
+  lifecycle, on the CLI and over MCP.
+- The startup session draws as soon as it is ready instead of waiting
+  out the first housekeeping tick.
+
+### Changed
+
+- **`cli`, `connect`, `record` and `replay` are legacy stubs now**:
+  each answers with a machine-readable error naming its replacement
+  (`session` / `instance` / `server` commands, `session record` and
+  `session export`) instead of dragging half-working mux-era code
+  along. MCP stdio startup is hardened for clients that race the
+  handshake, and Core-first discovery is documented and covered by
+  compatibility tests.
+
 ## v0.64.0 — 2026-08-10
 
 Three days of live debugging with CJK as the crash-test dummy. Four
