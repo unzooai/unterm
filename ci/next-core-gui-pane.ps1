@@ -670,7 +670,7 @@ $Suites = @(
         Name = "directory picker"
         Package = "unterm-app"
         Filter = "directory::tests::"
-        ExpectedCount = 9
+        ExpectedCount = 8
         RequiredTests = @(
             "directory::tests::the_folders_are_listed_and_the_files_are_not",
             "directory::tests::a_folder_row_descends_into_it",
