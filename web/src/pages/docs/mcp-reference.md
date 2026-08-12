@@ -131,7 +131,8 @@ Spawn a new tab/pane.
 | `cols` | number | no | Terminal width, default `120` |
 | `rows` | number | no | Terminal height, default `30` |
 | `cwd` | string | no | Initial working directory; defaults to user home |
-| `command` | string | no | Explicit command to launch instead of the default shell |
+| `command` | string | no | Shell command string; runs through the platform shell |
+| `argv` | array | no | Program argv array; starts `argv[0]` directly, no shell wrapping |
 | `profile` | string | no | Identity profile whose resolved launch environment is applied |
 
 **Returns:** pane identity/dimensions plus a redacted `launch` decision showing

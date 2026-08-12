@@ -90,16 +90,17 @@ unterm-cli profile ...
 These top-level families are retained for terminal compatibility and low-level workflows:
 
 ```text
-unterm-cli cli
-unterm-cli connect
 unterm-cli ssh
 unterm-cli imgcat
 unterm-cli ls-fonts
 unterm-cli show-keys
 unterm-cli set-working-directory
-unterm-cli record
-unterm-cli replay
 ```
+
+`unterm-cli cli`, `connect`, `record`, and `replay` are legacy stubs: they
+answer with a machine-readable JSON error pointing at their replacements
+(`session`, `instance`, `server`, and `session record`/`session export`)
+instead of silently doing nothing.
 
 Use `unterm-cli reference --section cli --filter <name>` or `unterm-cli <name> --help` for the exact flags in the installed build.
 
