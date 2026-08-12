@@ -55,6 +55,20 @@ pub(in crate::next_core) fn resize_session(pane_id: usize, cols: usize, rows: us
     }
 }
 
+pub(in crate::next_core) fn set_split_ratio(pane_id: usize, first_ratio: f64) -> Result<()> {
+    let command = RuntimeCommand::SetSplitRatio {
+        pane_id,
+        first_ratio,
+    };
+    match consumer::submit_and_dispatch_response(command)? {
+        RuntimeDispatchResult::Unit => Ok(()),
+        other => bail!(
+            "runtime scheduler expected split-ratio dispatch result, got {:?}",
+            other
+        ),
+    }
+}
+
 pub(in crate::next_core) fn destroy_session(pane_id: usize) -> Result<()> {
     let command = RuntimeCommand::DestroySession { pane_id };
     match consumer::submit_and_dispatch_response(command)? {

@@ -1270,7 +1270,14 @@ impl App {
                         .filter(|session| !session.is_dead)
                         .collect();
                     let focused = live.iter().find(|session| session.is_active).cloned();
-                    focused.or_else(|| live.into_iter().next())
+                    let chosen = focused.or_else(|| live.first().cloned())?;
+                    // Adopt the pane the arrangement hangs from, not the one
+                    // that happens to be focused. `sync_tabs` rebuilds a split
+                    // onto a pane already in a tab, and the focused pane after
+                    // a split is the *new* one -- adopt that and its source has
+                    // nothing to attach to, so a two-pane split comes back as
+                    // two tabs. Focus is restored separately.
+                    Some(split_lineage_root(&live, chosen))
                 })
         };
         crate::startup_trace::mark(if adopted.is_some() {
@@ -4405,8 +4412,21 @@ impl App {
             Direction::Up => (SplitAxis::Vertical, -0.05),
             Direction::Down => (SplitAxis::Vertical, 0.05),
         };
-        if !self.tabs.adjust_split_ratio(pane, axis, delta) {
+        let Some(change) = self.tabs.adjust_split_ratio(pane, axis, delta) else {
             return;
+        };
+        // Tell the engine where the divider went. The split tree lives in
+        // this window, but the arrangement has to outlive it: without this
+        // the pane comes back from a restart at the size it was created at,
+        // however long the user spent settling on another one.
+        if let Err(err) = self
+            .engine
+            .set_split_ratio(change.owner_pane_id, change.first_ratio)
+        {
+            log::debug!(
+                "could not record the split ratio for pane {}: {err:#}",
+                change.owner_pane_id
+            );
         }
         self.resize_panes();
         self.drawn_revision = None;
@@ -4648,7 +4668,15 @@ impl App {
             }
         };
 
-        if let Err(err) = self.tabs.split(focused, session.id, axis, 0.5) {
+        // Right and down, as this window's own split command asks for
+        // above, put the new pane after the source.
+        if let Err(err) = self.tabs.split(
+            focused,
+            session.id,
+            axis,
+            0.5,
+            unterm_engine::next_core::layout::SplitSide::Second,
+        ) {
             log::warn!("could not split: {err:#}");
             crate::statsbar::forget(session.id);
             unterm_services::ghost_text::forget(session.id as u64);
@@ -7695,12 +7723,12 @@ impl App {
             let split = session
                 .split_from
                 .filter(|source| self.tabs.tab_of_pane(*source).is_some());
-            // Which way and at what size -- from the engine, which
-            // resolved it when the split was made. That is what lets an
-            // arrangement survive a restart: this window may never have
-            // seen the split it is rebuilding. Falling back to
-            // horizontal-and-half is for panes made before the engine
-            // recorded any of this.
+            // Which way, at what size, and on which side -- from the
+            // engine, which resolved all three when the split was made.
+            // That is what lets an arrangement survive a restart: this
+            // window may never have seen the split it is rebuilding.
+            // Falling back to horizontal-half-second is for panes made
+            // before the engine recorded any of this.
             let outcome = match split {
                 Some(source) => self
                     .tabs
@@ -7711,6 +7739,9 @@ impl App {
                             .split_axis
                             .unwrap_or(unterm_engine::next_core::layout::SplitAxis::Horizontal),
                         session.split_ratio.unwrap_or(0.5),
+                        session
+                            .split_side
+                            .unwrap_or(unterm_engine::next_core::layout::SplitSide::Second),
                     )
                     .map(|_| ()),
                 None => self.tabs.create_tab(session.id).map(|_| ()),
@@ -10599,6 +10630,32 @@ fn command_from_argv(argv: Vec<String>) -> Option<portable_pty::CommandBuilder> 
     Some(command)
 }
 
+/// Walk `split_from` up to the pane an arrangement was grown from.
+///
+/// A split is recorded on the pane that was split off, pointing at its
+/// source, so a tab's panes form a chain back to one root. Rebuilding has to
+/// start there: every other pane needs its source to already be in a tab.
+///
+/// A dead or missing source ends the walk -- that subtree cannot be rebuilt
+/// anyway -- and the step count is bounded by the session list, so a
+/// malformed chain cannot spin here while a window waits to open.
+fn split_lineage_root(
+    live: &[unterm_engine::SessionSnapshot],
+    session: unterm_engine::SessionSnapshot,
+) -> unterm_engine::SessionSnapshot {
+    let mut current = session;
+    for _ in 0..live.len() {
+        let Some(parent) = current
+            .split_from
+            .and_then(|source| live.iter().find(|session| session.id == source))
+        else {
+            break;
+        };
+        current = parent.clone();
+    }
+    current
+}
+
 fn missing_mirrored_panes(
     tabs: &unterm_engine::next_core::tabs::TabRegistry,
     live_ids: &std::collections::HashSet<usize>,
@@ -10757,6 +10814,7 @@ mod tests {
             2,
             unterm_engine::next_core::layout::SplitAxis::Horizontal,
             0.5,
+            unterm_engine::next_core::layout::SplitSide::Second,
         )
         .expect("second pane should split the tab");
         let live = std::collections::HashSet::from([1]);

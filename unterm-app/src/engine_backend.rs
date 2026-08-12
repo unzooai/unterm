@@ -341,6 +341,10 @@ impl SessionEngine for AppEngine {
     fn destroy_session(&self, pane_id: usize) -> Result<()> {
         route!(self, engine => engine.destroy_session(pane_id))
     }
+
+    fn set_split_ratio(&self, pane_id: usize, first_ratio: f64) -> Result<()> {
+        route!(self, engine => engine.set_split_ratio(pane_id, first_ratio))
+    }
 }
 
 impl ScreenEngine for AppEngine {
@@ -493,6 +497,10 @@ impl SessionEngine for CoreHostEngine {
 
     fn destroy_session(&self, pane_id: usize) -> Result<()> {
         core_client().destroy_session(pane_id)
+    }
+
+    fn set_split_ratio(&self, pane_id: usize, first_ratio: f64) -> Result<()> {
+        core_client().set_split_ratio(pane_id, first_ratio)
     }
 }
 

@@ -53,6 +53,12 @@ pub(in crate::next_core) enum RuntimeCommand {
     DestroySession {
         pane_id: usize,
     },
+    /// Where the divider of this pane's split now sits, so an arrangement
+    /// outlives the front end that was dragging it.
+    SetSplitRatio {
+        pane_id: usize,
+        first_ratio: f64,
+    },
     WriteInput {
         pane_id: usize,
         text: String,
@@ -170,6 +176,7 @@ impl RuntimeCommand {
             | Self::SplitSession(_)
             | Self::FocusSession { .. }
             | Self::ResizeSession { .. }
+            | Self::SetSplitRatio { .. }
             | Self::DestroySession { .. } => RuntimeCommandClass::SessionLifecycle,
             Self::ListSessions | Self::GetSession { .. } => RuntimeCommandClass::SessionQuery,
             Self::WriteInput { .. } | Self::PasteInput { .. } | Self::ReportMouse { .. } => {
@@ -210,6 +217,7 @@ impl RuntimeCommand {
             Self::GetSession { pane_id }
             | Self::FocusSession { pane_id }
             | Self::ResizeSession { pane_id, .. }
+            | Self::SetSplitRatio { pane_id, .. }
             | Self::DestroySession { pane_id }
             | Self::WriteInput { pane_id, .. }
             | Self::PasteInput { pane_id, .. }
@@ -247,6 +255,7 @@ impl RuntimeCommand {
             | Self::SplitSession(_)
             | Self::FocusSession { .. }
             | Self::ResizeSession { .. }
+            | Self::SetSplitRatio { .. }
             | Self::DestroySession { .. } => RuntimeCommandLane::Lifecycle,
             Self::ListSessions | Self::GetSession { .. } => RuntimeCommandLane::Background,
             Self::WriteInput { .. } | Self::PasteInput { .. } | Self::ReportMouse { .. } => {
@@ -287,6 +296,7 @@ impl RuntimeCommand {
                 | Self::SplitSession(_)
                 | Self::FocusSession { .. }
                 | Self::ResizeSession { .. }
+                | Self::SetSplitRatio { .. }
                 | Self::DestroySession { .. }
                 | Self::WriteInput { .. }
                 | Self::PasteInput { .. }

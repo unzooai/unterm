@@ -32,8 +32,7 @@ pub(super) fn split(request: SplitSessionRequest) -> Result<SessionSnapshot> {
     // of, here rather than in whoever draws it: a front end rebuilding
     // this pane after a restart never saw the request, and two front
     // ends resolving it separately is two chances to disagree.
-    let (split_axis, split_ratio) =
-        crate::next_core::layout::resolve_split(request.direction, request.size_percent);
+    let plan = crate::next_core::layout::resolve_split(request.direction, request.size_percent);
 
     let launch_env_keys = request.env.iter().map(|(key, _)| key.clone()).collect();
     let launch_context = launch::launch_context(&request.env, &request.launch_policy);
@@ -55,8 +54,9 @@ pub(super) fn split(request: SplitSessionRequest) -> Result<SessionSnapshot> {
     )?;
 
     session.snapshot.shell.launch_context = launch_context;
-    session.snapshot.split_axis = Some(split_axis);
-    session.snapshot.split_ratio = Some(split_ratio);
+    session.snapshot.split_axis = Some(plan.axis);
+    session.snapshot.split_ratio = Some(plan.first_ratio);
+    session.snapshot.split_side = Some(plan.side);
     let snapshot = session.snapshot.clone();
     runtime::insert_created(session);
     Ok(snapshot)

@@ -23,6 +23,10 @@ pub(in crate::next_core) fn resize(pane_id: usize, cols: usize, rows: usize) -> 
     scheduler::resize_session(pane_id, cols, rows)
 }
 
+pub(in crate::next_core) fn set_split_ratio(pane_id: usize, first_ratio: f64) -> Result<()> {
+    scheduler::set_split_ratio(pane_id, first_ratio)
+}
+
 pub(in crate::next_core) fn with_session<T>(
     pane_id: usize,
     visit: impl FnOnce(&NextCoreSession) -> Result<T>,

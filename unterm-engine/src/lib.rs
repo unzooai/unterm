@@ -140,6 +140,11 @@ pub struct SessionSnapshot {
     /// first depends on the direction the split was asked for; the
     /// engine resolves that here so every consumer agrees.
     pub split_ratio: Option<f64>,
+    /// Which half of the split this pane took. Splitting left or up puts
+    /// it first, right or down second — and without this a front end has
+    /// to guess, which is how `split left` used to rebuild on the right.
+    #[serde(default)]
+    pub split_side: Option<next_core::layout::SplitSide>,
     pub title: String,
     pub cols: usize,
     pub rows: usize,
@@ -1064,6 +1069,21 @@ pub trait SessionEngine {
     fn activity(&self, pane_id: usize) -> Result<SessionActivitySnapshot>;
     fn resize_session(&self, pane_id: usize, cols: usize, rows: usize) -> Result<()>;
     fn destroy_session(&self, pane_id: usize) -> Result<()>;
+
+    /// Record where the divider of `pane_id`'s split now sits.
+    ///
+    /// The split is written down when it is made, and never again: a front
+    /// end that lets the divider be dragged and keeps the new size to itself
+    /// has an arrangement that comes back from a restart at the size it was
+    /// created at, not the one the user left it at. `pane_id` is the pane the
+    /// split belongs to, which `SplitRatioChange` names.
+    ///
+    /// Defaults to refusing, in the same spirit as `erase_scrollback`: an
+    /// engine that keeps no arrangement should say so rather than accept the
+    /// number and drop it.
+    fn set_split_ratio(&self, _pane_id: usize, _first_ratio: f64) -> Result<()> {
+        anyhow::bail!("this engine does not record split ratios")
+    }
 }
 
 pub trait ScreenEngine {

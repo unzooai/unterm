@@ -35,7 +35,7 @@ pub(super) use recording_facade::{
 };
 pub(super) use session_facade::{
     clone_session_base, create_session, destroy, focus, get_session, insert_created, list_sessions,
-    next_session_id, resize, split_session, with_session, with_session_optional,
+    next_session_id, resize, set_split_ratio, split_session, with_session, with_session_optional,
 };
 pub(super) use status_facade::{health_snapshot, output, session_activity, shell_snapshot};
 

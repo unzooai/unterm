@@ -94,6 +94,7 @@ pub(super) fn spawn(
             // from anything has no arrangement of its own to describe.
             split_axis: None,
             split_ratio: None,
+            split_side: None,
             split_from,
             id,
             title,

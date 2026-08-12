@@ -13,7 +13,9 @@
 //! - A pane belongs to exactly one tab, so a pane id can be resolved to its
 //!   tab without searching.
 
-use crate::next_core::layout::{Layout, PaneRect, PositionedPane, SplitAxis};
+use crate::next_core::layout::{
+    Layout, PaneRect, PositionedPane, SplitAxis, SplitRatioChange, SplitSide,
+};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
@@ -241,6 +243,7 @@ impl TabRegistry {
         new_pane_id: PaneId,
         axis: SplitAxis,
         first_ratio: f64,
+        side: SplitSide,
     ) -> Result<TabId> {
         if self.tab_of_pane.contains_key(&new_pane_id) {
             return Err(anyhow!("pane {new_pane_id} is already in a tab"));
@@ -253,7 +256,8 @@ impl TabRegistry {
             .get_mut(&tab_id)
             .ok_or_else(|| anyhow!("tab {tab_id} vanished while splitting"))?;
 
-        tab.layout.split(pane_id, new_pane_id, axis, first_ratio)?;
+        tab.layout
+            .split(pane_id, new_pane_id, axis, first_ratio, side)?;
         tab.active_pane = new_pane_id;
         self.tab_of_pane.insert(new_pane_id, tab_id);
         self.active_tab = Some(tab_id);
@@ -326,23 +330,28 @@ impl TabRegistry {
     }
 
     /// Move the divider of the split holding `pane_id`.
-    pub fn set_split_ratio(&mut self, pane_id: PaneId, first_ratio: f64) -> bool {
-        let Some(tab_id) = self.tab_of_pane(pane_id) else {
-            return false;
-        };
+    pub fn set_split_ratio(
+        &mut self,
+        pane_id: PaneId,
+        first_ratio: f64,
+    ) -> Option<SplitRatioChange> {
+        let tab_id = self.tab_of_pane(pane_id)?;
         self.tabs
             .get_mut(&tab_id)
-            .is_some_and(|tab| tab.layout.set_split_ratio(pane_id, first_ratio))
+            .and_then(|tab| tab.layout.set_split_ratio(pane_id, first_ratio))
     }
 
     /// Move the nearest matching divider around `pane_id`.
-    pub fn adjust_split_ratio(&mut self, pane_id: PaneId, axis: SplitAxis, delta: f64) -> bool {
-        let Some(tab_id) = self.tab_of_pane(pane_id) else {
-            return false;
-        };
+    pub fn adjust_split_ratio(
+        &mut self,
+        pane_id: PaneId,
+        axis: SplitAxis,
+        delta: f64,
+    ) -> Option<SplitRatioChange> {
+        let tab_id = self.tab_of_pane(pane_id)?;
         self.tabs
             .get_mut(&tab_id)
-            .is_some_and(|tab| tab.layout.adjust_split_ratio(pane_id, axis, delta))
+            .and_then(|tab| tab.layout.adjust_split_ratio(pane_id, axis, delta))
     }
 
     /// Reorder a tab relative to its current position, clamping at the ends.
@@ -401,7 +410,9 @@ mod tests {
         // Reusing a pane id would make the reverse index lie about which tab
         // owns it, and the loser would render into the wrong rectangle.
         assert!(tabs.create_tab(10).is_err());
-        assert!(tabs.split(10, 10, SplitAxis::Horizontal, 0.5).is_err());
+        assert!(tabs
+            .split(10, 10, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .is_err());
     }
 
     #[test]
@@ -409,7 +420,8 @@ mod tests {
         let mut tabs = TabRegistry::new();
         let tab = tabs.create_tab(10).unwrap();
 
-        tabs.split(10, 11, SplitAxis::Horizontal, 0.5).unwrap();
+        tabs.split(10, 11, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
 
         // You split in order to type in the new half.
         assert_eq!(tabs.active_pane(tab), Some(11));
@@ -422,7 +434,8 @@ mod tests {
     fn closing_the_active_pane_moves_focus_to_a_survivor() {
         let mut tabs = TabRegistry::new();
         let tab = tabs.create_tab(10).unwrap();
-        tabs.split(10, 11, SplitAxis::Horizontal, 0.5).unwrap();
+        tabs.split(10, 11, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
         assert_eq!(tabs.active_pane(tab), Some(11));
 
         let result = tabs.close_pane(11).expect("close the active pane");
@@ -437,7 +450,8 @@ mod tests {
     fn closing_an_inactive_pane_leaves_focus_alone() {
         let mut tabs = TabRegistry::new();
         let tab = tabs.create_tab(10).unwrap();
-        tabs.split(10, 11, SplitAxis::Horizontal, 0.5).unwrap();
+        tabs.split(10, 11, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
 
         let result = tabs.close_pane(10).expect("close the inactive pane");
 
@@ -487,7 +501,8 @@ mod tests {
     fn positions_come_from_the_tabs_own_layout() {
         let mut tabs = TabRegistry::new();
         let tab = tabs.create_tab(10).unwrap();
-        tabs.split(10, 11, SplitAxis::Horizontal, 0.5).unwrap();
+        tabs.split(10, 11, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
 
         let positions = tabs.positions(tab, 80, 24);
         assert_eq!(positions.len(), 2);
@@ -509,7 +524,8 @@ mod tests {
         let mut tabs = TabRegistry::new();
         let first = tabs.create_tab(10).unwrap();
         let second = tabs.create_tab(20).unwrap();
-        tabs.split(20, 21, SplitAxis::Vertical, 0.5).unwrap();
+        tabs.split(20, 21, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
 
         // Splitting one tab must not touch the other.
         assert_eq!(tabs.pane_ids(first), vec![10]);
@@ -651,7 +667,7 @@ mod tests {
         let mut registry = TabRegistry::new();
         let tab = registry.create_tab(1).expect("create");
         registry
-            .split(1, 2, SplitAxis::Vertical, 0.5)
+            .split(1, 2, SplitAxis::Vertical, 0.5, SplitSide::Second)
             .expect("split");
 
         assert_eq!(registry.positions(tab, 80, 24).len(), 2);
@@ -669,7 +685,7 @@ mod tests {
         let mut registry = TabRegistry::new();
         let tab = registry.create_tab(1).expect("create");
         registry
-            .split(1, 2, SplitAxis::Vertical, 0.5)
+            .split(1, 2, SplitAxis::Vertical, 0.5, SplitSide::Second)
             .expect("split");
         let before = registry.positions(tab, 80, 24);
 
@@ -686,7 +702,7 @@ mod tests {
         let mut registry = TabRegistry::new();
         let tab = registry.create_tab(1).expect("create");
         registry
-            .split(1, 2, SplitAxis::Vertical, 0.5)
+            .split(1, 2, SplitAxis::Vertical, 0.5, SplitSide::Second)
             .expect("split");
         registry.set_active_pane(1);
 
@@ -702,7 +718,7 @@ mod tests {
         let mut registry = TabRegistry::new();
         let tab = registry.create_tab(1).expect("create");
         registry
-            .split(1, 2, SplitAxis::Vertical, 0.5)
+            .split(1, 2, SplitAxis::Vertical, 0.5, SplitSide::Second)
             .expect("split");
         registry.set_zoomed(2, true);
 

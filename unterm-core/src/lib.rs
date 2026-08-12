@@ -1342,6 +1342,21 @@ fn dispatch_inner(
                 serde_json::json!({"resized": true}),
             ))?
         }
+        // A divider the user dragged in a window, told to the process that
+        // will still be here when that window is gone.
+        "session.set_split_ratio" => {
+            let pane_id = required_pane_id(request)?;
+            let first_ratio = request
+                .params
+                .get("first_ratio")
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| anyhow::anyhow!("session.set_split_ratio needs first_ratio"))?;
+            engine.set_split_ratio(pane_id, first_ratio)?;
+            serde_json::to_string(&response_ok(
+                id,
+                serde_json::json!({"first_ratio": first_ratio}),
+            ))?
+        }
         "session.close" => {
             let pane_id = required_pane_id(request)?;
             engine.destroy_session(pane_id)?;
@@ -2348,6 +2363,13 @@ impl SessionEngine for CoreEngineClient {
     fn destroy_session(&self, pane_id: usize) -> Result<()> {
         self.call_unit("session.close", serde_json::json!({"pane_id": pane_id}))
     }
+
+    fn set_split_ratio(&self, pane_id: usize, first_ratio: f64) -> Result<()> {
+        self.call_unit(
+            "session.set_split_ratio",
+            serde_json::json!({"pane_id": pane_id, "first_ratio": first_ratio}),
+        )
+    }
 }
 
 impl ScreenEngine for CoreEngineClient {
@@ -3192,6 +3214,80 @@ mod tests {
             )
             .unwrap();
         assert!(closed.ok);
+
+        let _: Response<serde_json::Value> = client.request("core.shutdown").unwrap();
+        worker.join().unwrap();
+    }
+
+    /// The window holds the split tree; the Core outlives the window. A
+    /// divider dragged in one has to be readable from the other, or the
+    /// arrangement a restart rebuilds is the one the split was created
+    /// with rather than the one the user settled on.
+    #[test]
+    fn a_dragged_divider_reaches_the_core_and_stays_in_the_snapshot() {
+        let (endpoint, worker) = start_server("ratio-token");
+        let mut client = CoreClient::connect(endpoint, "ratio-token").unwrap();
+        let argv: Vec<&str> = if cfg!(windows) {
+            vec!["cmd.exe"]
+        } else {
+            vec!["sh"]
+        };
+        let created: Response<serde_json::Value> = client
+            .request_with_params(
+                "session.create",
+                serde_json::json!({"cols": 80, "rows": 24, "argv": argv}),
+            )
+            .unwrap();
+        let source = created.result.unwrap()["id"].as_u64().unwrap();
+
+        let split: Response<serde_json::Value> = client
+            .request_with_params(
+                "session.split",
+                serde_json::json!({"pane_id": source, "direction": "right", "size_percent": 50, "argv": argv}),
+            )
+            .unwrap();
+        assert!(split.ok, "session.split failed: {:?}", split.error);
+        let split = split.result.unwrap();
+        let pane_id = split["id"].as_u64().unwrap();
+        assert_eq!(split["split_ratio"].as_f64(), Some(0.5));
+
+        let moved: Response<serde_json::Value> = client
+            .request_with_params(
+                "session.set_split_ratio",
+                serde_json::json!({"pane_id": pane_id, "first_ratio": 0.72}),
+            )
+            .unwrap();
+        assert!(moved.ok, "set_split_ratio failed: {:?}", moved.error);
+
+        // Read it back the way a reopened window would: from the list, not
+        // from the reply to our own write.
+        let listed: Response<serde_json::Value> = client.request("session.list").unwrap();
+        let sessions = listed.result.unwrap();
+        let rebuilt = sessions
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|session| session["id"].as_u64() == Some(pane_id))
+            .expect("the split pane should still be listed");
+        assert_eq!(rebuilt["split_ratio"].as_f64(), Some(0.72));
+        assert_eq!(rebuilt["split_from"].as_u64(), Some(source));
+
+        let refused: Response<serde_json::Value> = client
+            .request_with_params(
+                "session.set_split_ratio",
+                serde_json::json!({"pane_id": pane_id}),
+            )
+            .unwrap();
+        assert!(!refused.ok, "a ratio-less request must not be accepted");
+
+        // Sessions outlive their client by design, so a test that leaves
+        // them behind hands the next one a Core that is not idle.
+        for pane in [pane_id, source] {
+            let closed: Response<serde_json::Value> = client
+                .request_with_params("session.close", serde_json::json!({"pane_id": pane}))
+                .unwrap();
+            assert!(closed.ok, "session.close failed: {:?}", closed.error);
+        }
 
         let _: Response<serde_json::Value> = client.request("core.shutdown").unwrap();
         worker.join().unwrap();

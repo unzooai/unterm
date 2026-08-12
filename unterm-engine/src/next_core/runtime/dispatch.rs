@@ -69,6 +69,7 @@ fn execute_session_lifecycle(command: RuntimeCommand) -> Result<RuntimeDispatchR
         )),
         RuntimeCommand::FocusSession { .. }
         | RuntimeCommand::ResizeSession { .. }
+        | RuntimeCommand::SetSplitRatio { .. }
         | RuntimeCommand::DestroySession { .. } => {
             session_executor::execute_mutation(command)?;
             Ok(RuntimeDispatchResult::Unit)

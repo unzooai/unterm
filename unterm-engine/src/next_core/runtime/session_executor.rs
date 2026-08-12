@@ -30,10 +30,20 @@ pub(in crate::next_core) fn execute_mutation(command: RuntimeCommand) -> Result<
             let session = session_registry::session_mut(state, pane_id)?;
             session_runtime::resize_session(session, cols, rows)
         }),
+        RuntimeCommand::SetSplitRatio {
+            pane_id,
+            first_ratio,
+        } => with_current_mut(|state| {
+            let session = session_registry::session_mut(state, pane_id)?;
+            // Clamped here as well as in the layout: this arrives from a
+            // front end, and a ratio of 0 restores a pane with no cells.
+            session.snapshot.split_ratio = Some(first_ratio.clamp(0.05, 0.95));
+            Ok(())
+        }),
         RuntimeCommand::DestroySession { pane_id } => {
             with_current_mut(|state| session_registry::destroy(state, pane_id))
         }
-        _ => bail!("runtime session executor expected focus/resize/destroy command"),
+        _ => bail!("runtime session executor expected focus/resize/ratio/destroy command"),
     }
 }
 
@@ -46,7 +56,9 @@ mod tests {
         let err = execute_mutation(RuntimeCommand::HealthSnapshot)
             .expect_err("wrong command shape should fail");
 
-        assert!(err.to_string().contains("expected focus/resize/destroy"));
+        assert!(err
+            .to_string()
+            .contains("expected focus/resize/ratio/destroy"));
     }
 
     #[test]

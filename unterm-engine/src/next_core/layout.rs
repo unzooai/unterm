@@ -23,8 +23,49 @@ pub enum SplitAxis {
     Vertical,
 }
 
-/// Turn a split direction and the new pane's share into the axis and
-/// the ratio an arrangement is made of.
+/// Which half of a new split the new pane takes.
+///
+/// Splitting right or down leaves the source where it was and puts the new
+/// pane after it; splitting left or up puts the new pane before it. The tree
+/// has to be told, because a ratio alone cannot say it: a split with the new
+/// pane first at 30% and one with it second at 70% divide the space
+/// identically and put the two panes on opposite sides.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SplitSide {
+    /// The new pane takes the first half -- splitting left or up.
+    First,
+    /// The new pane takes the second half -- splitting right or down.
+    Second,
+}
+
+/// What an arrangement is made of, once a direction and a share have been
+/// resolved into it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SplitPlan {
+    pub axis: SplitAxis,
+    /// The share kept by whichever pane ends up first.
+    pub first_ratio: f64,
+    pub side: SplitSide,
+}
+
+/// A divider that has just moved: where it now sits, and which pane's
+/// split it is.
+///
+/// Resizing is the one layout change nothing else records. A split's ratio
+/// is written down when the split is made, and a front end that then drags
+/// the divider and says nothing has an arrangement that survives a restart
+/// at the wrong size. Naming the owning pane is what lets the ratio be
+/// written back to the session that carries it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SplitRatioChange {
+    /// The pane the split belongs to -- the one that was split off into it.
+    pub owner_pane_id: usize,
+    /// The first half's share, after the move.
+    pub first_ratio: f64,
+}
+
+/// Turn a split direction and the new pane's share into the arrangement
+/// it means.
 ///
 /// Which pane ends up first depends on the direction: splitting right
 /// or down leaves the source first, splitting left or up puts the new
@@ -32,23 +73,29 @@ pub enum SplitAxis {
 /// share, so one of those two cases has to be turned around — and
 /// getting it backwards is a split that lands the right way round at
 /// the wrong size. Resolved once, here, so no consumer has to know.
-pub fn resolve_split(direction: crate::SplitDirection, size_percent: u8) -> (SplitAxis, f64) {
+///
+/// The side travels with the ratio for the same reason. Until 0.64 it did
+/// not: this function turned the ratio around for a left or up split and
+/// the tree put the new pane second regardless, so `left` at 30% produced a
+/// pane on the *right* holding 70%. At 50% the two mistakes cancel, which is
+/// why it went unnoticed.
+pub fn resolve_split(direction: crate::SplitDirection, size_percent: u8) -> SplitPlan {
     use crate::SplitDirection;
     let share = (size_percent.min(100) as f64 / 100.0).clamp(0.05, 0.95);
-    let (axis, new_pane_is_first) = match direction {
-        SplitDirection::Right => (SplitAxis::Horizontal, false),
-        SplitDirection::Left => (SplitAxis::Horizontal, true),
-        SplitDirection::Down => (SplitAxis::Vertical, false),
-        SplitDirection::Up => (SplitAxis::Vertical, true),
+    let (axis, side) = match direction {
+        SplitDirection::Right => (SplitAxis::Horizontal, SplitSide::Second),
+        SplitDirection::Left => (SplitAxis::Horizontal, SplitSide::First),
+        SplitDirection::Down => (SplitAxis::Vertical, SplitSide::Second),
+        SplitDirection::Up => (SplitAxis::Vertical, SplitSide::First),
     };
-    (
+    SplitPlan {
         axis,
-        if new_pane_is_first {
-            share
-        } else {
-            1.0 - share
+        first_ratio: match side {
+            SplitSide::First => share,
+            SplitSide::Second => 1.0 - share,
         },
-    )
+        side,
+    }
 }
 
 #[cfg(test)]
@@ -62,10 +109,22 @@ mod resolve_split_tests {
     /// right.
     #[test]
     fn every_direction_becomes_the_cut_it_names() {
-        assert_eq!(resolve_split(SplitDirection::Right, 50).0, SplitAxis::Horizontal);
-        assert_eq!(resolve_split(SplitDirection::Left, 50).0, SplitAxis::Horizontal);
-        assert_eq!(resolve_split(SplitDirection::Down, 50).0, SplitAxis::Vertical);
-        assert_eq!(resolve_split(SplitDirection::Up, 50).0, SplitAxis::Vertical);
+        assert_eq!(
+            resolve_split(SplitDirection::Right, 50).axis,
+            SplitAxis::Horizontal
+        );
+        assert_eq!(
+            resolve_split(SplitDirection::Left, 50).axis,
+            SplitAxis::Horizontal
+        );
+        assert_eq!(
+            resolve_split(SplitDirection::Down, 50).axis,
+            SplitAxis::Vertical
+        );
+        assert_eq!(
+            resolve_split(SplitDirection::Up, 50).axis,
+            SplitAxis::Vertical
+        );
     }
 
     /// The share asked for is always the *new* pane's. Splitting right
@@ -74,10 +133,10 @@ mod resolve_split_tests {
     /// is a split that lands the right way round at the wrong size.
     #[test]
     fn the_share_is_always_the_new_panes() {
-        assert!((resolve_split(SplitDirection::Right, 30).1 - 0.7).abs() < 1e-9);
-        assert!((resolve_split(SplitDirection::Down, 30).1 - 0.7).abs() < 1e-9);
-        assert!((resolve_split(SplitDirection::Left, 30).1 - 0.3).abs() < 1e-9);
-        assert!((resolve_split(SplitDirection::Up, 30).1 - 0.3).abs() < 1e-9);
+        assert!((resolve_split(SplitDirection::Right, 30).first_ratio - 0.7).abs() < 1e-9);
+        assert!((resolve_split(SplitDirection::Down, 30).first_ratio - 0.7).abs() < 1e-9);
+        assert!((resolve_split(SplitDirection::Left, 30).first_ratio - 0.3).abs() < 1e-9);
+        assert!((resolve_split(SplitDirection::Up, 30).first_ratio - 0.3).abs() < 1e-9);
     }
 
     /// A pane with no room is a pane that cannot be seen or typed
@@ -91,7 +150,7 @@ mod resolve_split_tests {
                 SplitDirection::Down,
                 SplitDirection::Up,
             ] {
-                let ratio = resolve_split(direction, percent).1;
+                let ratio = resolve_split(direction, percent).first_ratio;
                 assert!(
                     (0.05..=0.95).contains(&ratio),
                     "{:?} at {}% gave {}",
@@ -129,6 +188,13 @@ enum Node {
         axis: SplitAxis,
         /// Fraction of the usable space (after the divider) given to `first`.
         first_ratio: f64,
+        /// The pane this split was made for, when it is known.
+        ///
+        /// Held rather than inferred from the shape: the new pane can land in
+        /// either half, and once splits nest, no position in the tree
+        /// identifies the pane a node was created for. `None` for a tree
+        /// rebuilt from rectangles, which carry no such history.
+        owner: Option<usize>,
         first: Box<Node>,
         second: Box<Node>,
     },
@@ -196,9 +262,10 @@ impl Layout {
         self.pane_ids().len()
     }
 
-    /// Split `pane_id`, putting `new_pane_id` in the second half.
+    /// Split `pane_id`, putting `new_pane_id` in the half `side` names.
     ///
-    /// `first_ratio` is clamped away from 0 and 1: a split where one side has
+    /// `first_ratio` is always the *first* half's share, whichever pane ends
+    /// up there. It is clamped away from 0 and 1: a split where one side has
     /// no cells is not a split, and would render as an invisible pane the user
     /// cannot reach.
     pub fn split(
@@ -207,6 +274,7 @@ impl Layout {
         new_pane_id: usize,
         axis: SplitAxis,
         first_ratio: f64,
+        side: SplitSide,
     ) -> Result<()> {
         if self.contains(new_pane_id) {
             return Err(anyhow!("pane {new_pane_id} is already in this layout"));
@@ -215,7 +283,7 @@ impl Layout {
         let split = self
             .root
             .as_mut()
-            .is_some_and(|root| Self::split_node(root, pane_id, new_pane_id, axis, ratio));
+            .is_some_and(|root| Self::split_node(root, pane_id, new_pane_id, axis, ratio, side));
         if !split {
             return Err(anyhow!("pane {pane_id} is not in this layout"));
         }
@@ -228,21 +296,27 @@ impl Layout {
         new_pane_id: usize,
         axis: SplitAxis,
         first_ratio: f64,
+        side: SplitSide,
     ) -> bool {
         match node {
             Node::Leaf(id) if *id == pane_id => {
+                let (first, second) = match side {
+                    SplitSide::First => (new_pane_id, pane_id),
+                    SplitSide::Second => (pane_id, new_pane_id),
+                };
                 *node = Node::Split {
                     axis,
                     first_ratio,
-                    first: Box::new(Node::Leaf(pane_id)),
-                    second: Box::new(Node::Leaf(new_pane_id)),
+                    owner: Some(new_pane_id),
+                    first: Box::new(Node::Leaf(first)),
+                    second: Box::new(Node::Leaf(second)),
                 };
                 true
             }
             Node::Leaf(_) => false,
             Node::Split { first, second, .. } => {
-                Self::split_node(first, pane_id, new_pane_id, axis, first_ratio)
-                    || Self::split_node(second, pane_id, new_pane_id, axis, first_ratio)
+                Self::split_node(first, pane_id, new_pane_id, axis, first_ratio, side)
+                    || Self::split_node(second, pane_id, new_pane_id, axis, first_ratio, side)
             }
         }
     }
@@ -299,31 +373,57 @@ impl Layout {
 
     /// Change the ratio of the split that directly contains `pane_id`.
     ///
-    /// Returns `false` when the pane is not in a split, i.e. it is the only
+    /// Returns `None` when the pane is not in a split, i.e. it is the only
     /// pane in the tab and has nothing to resize against.
-    pub fn set_split_ratio(&mut self, pane_id: usize, first_ratio: f64) -> bool {
+    pub fn set_split_ratio(
+        &mut self,
+        pane_id: usize,
+        first_ratio: f64,
+    ) -> Option<SplitRatioChange> {
         self.root
             .as_mut()
-            .is_some_and(|root| Self::set_ratio_node(root, pane_id, clamp_ratio(first_ratio)))
+            .and_then(|root| Self::set_ratio_node(root, pane_id, clamp_ratio(first_ratio)))
     }
 
-    fn set_ratio_node(node: &mut Node, pane_id: usize, ratio: f64) -> bool {
+    fn set_ratio_node(node: &mut Node, pane_id: usize, ratio: f64) -> Option<SplitRatioChange> {
         let Node::Split {
             first_ratio,
+            owner,
             first,
             second,
             ..
         } = node
         else {
-            return false;
+            return None;
         };
         if matches!(**first, Node::Leaf(id) if id == pane_id)
             || matches!(**second, Node::Leaf(id) if id == pane_id)
         {
             *first_ratio = ratio;
-            return true;
+            return Some(SplitRatioChange {
+                owner_pane_id: Self::owner_of(*owner, second),
+                first_ratio: ratio,
+            });
         }
-        Self::set_ratio_node(first, pane_id, ratio) || Self::set_ratio_node(second, pane_id, ratio)
+        Self::set_ratio_node(first, pane_id, ratio)
+            .or_else(|| Self::set_ratio_node(second, pane_id, ratio))
+    }
+
+    /// The pane a split belongs to: the one that was split off into it.
+    ///
+    /// Recorded on the node when the split is made. A tree rebuilt from
+    /// rectangles has no such record, and there the second half's first leaf
+    /// is the best available guess -- it is the pane a split made the usual
+    /// way (right or down) would have been created for.
+    fn owner_of(owner: Option<usize>, second: &Node) -> usize {
+        owner.unwrap_or_else(|| Self::leftmost_leaf(second))
+    }
+
+    fn leftmost_leaf(node: &Node) -> usize {
+        match node {
+            Node::Leaf(pane_id) => *pane_id,
+            Node::Split { first, .. } => Self::leftmost_leaf(first),
+        }
     }
 
     /// Move the nearest divider of `axis` that contains `pane_id`.
@@ -332,10 +432,15 @@ impl Layout {
     /// horizontal divider right or a vertical divider down. Searching the
     /// pane's child first makes nested panes resize their nearest matching
     /// split rather than unexpectedly moving the outermost boundary.
-    pub fn adjust_split_ratio(&mut self, pane_id: usize, axis: SplitAxis, delta: f64) -> bool {
+    pub fn adjust_split_ratio(
+        &mut self,
+        pane_id: usize,
+        axis: SplitAxis,
+        delta: f64,
+    ) -> Option<SplitRatioChange> {
         self.root
             .as_mut()
-            .is_some_and(|root| Self::adjust_ratio_node(root, pane_id, axis, delta))
+            .and_then(|root| Self::adjust_ratio_node(root, pane_id, axis, delta))
     }
 
     fn adjust_ratio_node(
@@ -343,31 +448,41 @@ impl Layout {
         pane_id: usize,
         wanted_axis: SplitAxis,
         delta: f64,
-    ) -> bool {
+    ) -> Option<SplitRatioChange> {
         let Node::Split {
             axis,
             first_ratio,
+            owner,
             first,
             second,
         } = node
         else {
-            return false;
+            return None;
         };
         let in_first = first.contains(pane_id);
         let in_second = second.contains(pane_id);
         if !in_first && !in_second {
-            return false;
+            return None;
         }
 
-        let child = if in_first { first } else { second };
-        if Self::adjust_ratio_node(child, pane_id, wanted_axis, delta) {
-            return true;
+        // Reborrowed rather than moved: the second half is still needed to
+        // name the pane this split belongs to once the ratio has moved.
+        let child = if in_first {
+            &mut **first
+        } else {
+            &mut **second
+        };
+        if let Some(change) = Self::adjust_ratio_node(child, pane_id, wanted_axis, delta) {
+            return Some(change);
         }
         if *axis != wanted_axis {
-            return false;
+            return None;
         }
         *first_ratio = clamp_ratio(*first_ratio + delta);
-        true
+        Some(SplitRatioChange {
+            owner_pane_id: Self::owner_of(*owner, second),
+            first_ratio: *first_ratio,
+        })
     }
 
     /// Lay the tree out in a `cols` x `rows` grid.
@@ -405,6 +520,7 @@ impl Layout {
                 first_ratio,
                 first,
                 second,
+                ..
             } => {
                 let (first_rect, second_rect) = split_rect(rect, *axis, *first_ratio);
                 Self::position_node(first, first_rect, out);
@@ -567,6 +683,9 @@ fn try_cut(
     Some(Node::Split {
         axis,
         first_ratio: clamp_ratio(first_ratio),
+        // Rectangles carry no history of which pane was split off into this
+        // node, so nothing here can be claimed to own it.
+        owner: None,
         first: Box::new(rebuild_node(&first, first_bounds)?),
         second: Box::new(rebuild_node(&second, second_bounds)?),
     })
@@ -684,7 +803,9 @@ mod tests {
     #[test]
     fn a_horizontal_split_leaves_a_cell_for_the_divider() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
 
         let panes = rects(&layout, 80, 24);
         assert_eq!(panes.len(), 2);
@@ -708,7 +829,9 @@ mod tests {
     #[test]
     fn a_vertical_split_divides_height_instead() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Vertical, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
 
         let panes = rects(&layout, 80, 24);
         let (top, bottom) = (panes[0].1, panes[1].1);
@@ -725,8 +848,12 @@ mod tests {
     #[test]
     fn nested_splits_stay_inside_their_parent() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
-        layout.split(2, 3, SplitAxis::Vertical, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
+        layout
+            .split(2, 3, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
 
         let panes = rects(&layout, 80, 24);
         assert_eq!(panes.len(), 3);
@@ -756,7 +883,9 @@ mod tests {
     #[test]
     fn closing_a_pane_gives_its_space_to_its_sibling() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
 
         assert!(layout.close(2));
 
@@ -777,8 +906,12 @@ mod tests {
     #[test]
     fn closing_an_inner_pane_promotes_the_right_subtree() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
-        layout.split(2, 3, SplitAxis::Vertical, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
+        layout
+            .split(2, 3, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
 
         // Close the upper right; the lower right should take the whole right
         // column, not collapse into a stale split.
@@ -809,15 +942,21 @@ mod tests {
 
         // Nothing works on an empty layout, and nothing panics either.
         assert!(!layout.close(1));
-        assert!(!layout.set_split_ratio(1, 0.5));
-        assert!(layout.split(1, 2, SplitAxis::Horizontal, 0.5).is_err());
+        assert!(layout.set_split_ratio(1, 0.5).is_none());
+        assert!(layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .is_err());
     }
 
     #[test]
     fn closing_panes_one_by_one_ends_empty() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
-        layout.split(2, 3, SplitAxis::Vertical, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
+        layout
+            .split(2, 3, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
 
         assert!(layout.close(3));
         assert!(layout.close(1));
@@ -831,7 +970,9 @@ mod tests {
     #[test]
     fn closing_an_absent_pane_changes_nothing() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
         let before = layout.clone();
 
         assert!(!layout.close(99));
@@ -843,17 +984,23 @@ mod tests {
         let mut layout = Layout::new(1);
         let before = layout.clone();
 
-        assert!(layout.split(99, 2, SplitAxis::Horizontal, 0.5).is_err());
+        assert!(layout
+            .split(99, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .is_err());
         assert_eq!(layout, before);
         // Reusing an id would make two leaves indistinguishable.
-        assert!(layout.split(1, 1, SplitAxis::Horizontal, 0.5).is_err());
+        assert!(layout
+            .split(1, 1, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .is_err());
     }
 
     #[test]
     fn ratios_are_clamped_so_neither_side_disappears() {
         for ratio in [0.0, -5.0, 1.0, 2.0, f64::NAN, f64::INFINITY] {
             let mut layout = Layout::new(1);
-            layout.split(1, 2, SplitAxis::Horizontal, ratio).unwrap();
+            layout
+                .split(1, 2, SplitAxis::Horizontal, ratio, SplitSide::Second)
+                .unwrap();
             let panes = rects(&layout, 80, 24);
             assert!(
                 panes.iter().all(|(_, rect)| rect.width >= 1),
@@ -869,7 +1016,9 @@ mod tests {
         // instead of truncating would give 15/17, a visible one-row shift that
         // an even-sized test cannot catch.
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Vertical, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
 
         let panes = rects(&layout, 59, 33);
         assert_eq!(panes[0].1.height, 16);
@@ -878,7 +1027,8 @@ mod tests {
 
         // Same for an odd width.
         let mut wide = Layout::new(1);
-        wide.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
+        wide.split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
         let panes = rects(&wide, 81, 24);
         assert_eq!(panes[0].1.width, 40);
         assert_eq!(panes[1].1.width, 40);
@@ -887,7 +1037,9 @@ mod tests {
     #[test]
     fn a_tab_too_small_to_split_still_gives_every_pane_a_cell() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
 
         // Two columns cannot hold two panes and a divider. A pane with zero
         // width would be unreachable; a cramped one is merely unpleasant.
@@ -905,9 +1057,11 @@ mod tests {
     #[test]
     fn resizing_a_split_moves_the_divider_and_survives_a_tab_resize() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
 
-        assert!(layout.set_split_ratio(1, 0.25));
+        assert!(layout.set_split_ratio(1, 0.25).is_some());
         let narrow = layout.position_of(1, 80, 24).unwrap();
         assert!(narrow.width < 40, "the ratio should have moved the divider");
 
@@ -922,17 +1076,23 @@ mod tests {
 
         // A lone pane has nothing to resize against.
         let mut single = Layout::new(7);
-        assert!(!single.set_split_ratio(7, 0.25));
+        assert!(single.set_split_ratio(7, 0.25).is_none());
     }
 
     #[test]
     fn directional_resize_uses_the_nearest_split_on_that_axis() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
-        layout.split(1, 3, SplitAxis::Vertical, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
+        layout
+            .split(1, 3, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
 
         let before = layout.position_of(1, 100, 40).unwrap();
-        assert!(layout.adjust_split_ratio(1, SplitAxis::Vertical, 0.1));
+        assert!(layout
+            .adjust_split_ratio(1, SplitAxis::Vertical, 0.1)
+            .is_some());
         let after_vertical = layout.position_of(1, 100, 40).unwrap();
         assert!(
             after_vertical.height > before.height,
@@ -943,9 +1103,154 @@ mod tests {
             "a vertical resize must not move the horizontal divider"
         );
 
-        assert!(layout.adjust_split_ratio(1, SplitAxis::Horizontal, -0.1));
+        assert!(layout
+            .adjust_split_ratio(1, SplitAxis::Horizontal, -0.1)
+            .is_some());
         let after_horizontal = layout.position_of(1, 100, 40).unwrap();
         assert!(after_horizontal.width < after_vertical.width);
+    }
+
+    /// Splitting left puts the new pane on the left, at the size asked for.
+    ///
+    /// It did neither before 0.65: the ratio was turned around for a left
+    /// split and the tree seated the new pane second regardless, so `left`
+    /// at 30% produced a pane on the right holding 70%. Both halves of that
+    /// are checked here, in cells, because at 50% the two errors cancel and
+    /// any test written at the default would have passed throughout.
+    #[test]
+    fn splitting_left_puts_the_new_pane_first_at_the_size_asked_for() {
+        use crate::SplitDirection;
+
+        let plan = resolve_split(SplitDirection::Left, 30);
+        assert_eq!(plan.side, SplitSide::First);
+
+        let mut layout = Layout::new(1);
+        layout
+            .split(1, 2, plan.axis, plan.first_ratio, plan.side)
+            .unwrap();
+
+        assert_eq!(
+            layout.pane_ids(),
+            vec![2, 1],
+            "the new pane should come first in a left split"
+        );
+        let new_pane = layout.position_of(2, 100, 24).unwrap();
+        let source = layout.position_of(1, 100, 24).unwrap();
+        assert_eq!(new_pane.left, 0, "the new pane should start at the edge");
+        assert!(
+            new_pane.width < source.width,
+            "30% asked for should be the smaller half, got {} vs {}",
+            new_pane.width,
+            source.width
+        );
+        assert!(
+            (28..=30).contains(&new_pane.width),
+            "the new pane should hold about 30 of 100 columns, got {}",
+            new_pane.width
+        );
+
+        // Splitting up is the same mistake on the other axis.
+        let plan = resolve_split(SplitDirection::Up, 25);
+        assert_eq!(plan.side, SplitSide::First);
+        let mut layout = Layout::new(1);
+        layout
+            .split(1, 2, plan.axis, plan.first_ratio, plan.side)
+            .unwrap();
+        let new_pane = layout.position_of(2, 80, 40).unwrap();
+        assert_eq!(new_pane.top, 0, "the new pane should sit at the top");
+        assert!(
+            (9..=11).contains(&new_pane.height),
+            "the new pane should hold about a quarter of 40 rows, got {}",
+            new_pane.height
+        );
+    }
+
+    /// A moved divider has to name the pane whose split it is. Write the
+    /// ratio back onto any other session and the arrangement returns from a
+    /// restart at a size nobody chose.
+    #[test]
+    fn a_moved_divider_names_the_pane_its_split_belongs_to() {
+        let mut layout = Layout::new(1);
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
+
+        // The split exists because pane 2 was made, so it is pane 2's --
+        // even when the pane being resized is the other half.
+        let change = layout.set_split_ratio(1, 0.25).expect("a split to move");
+        assert_eq!(change.owner_pane_id, 2);
+        assert!((change.first_ratio - 0.25).abs() < 1e-9);
+
+        // Splitting pane 2 nests a tree under it. Ownership of the outer
+        // split does not move with it.
+        layout
+            .split(2, 3, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
+        let outer = layout
+            .adjust_split_ratio(1, SplitAxis::Horizontal, 0.1)
+            .expect("the outer divider to move");
+        assert_eq!(outer.owner_pane_id, 2);
+        assert!((outer.first_ratio - 0.35).abs() < 1e-9);
+
+        // And the inner divider belongs to the pane it was made for.
+        let inner = layout
+            .adjust_split_ratio(3, SplitAxis::Vertical, 0.1)
+            .expect("the inner divider to move");
+        assert_eq!(inner.owner_pane_id, 3);
+    }
+
+    /// Ownership is recorded, not inferred from where a pane sits.
+    ///
+    /// A new pane can land in either half, so "the second half's first leaf"
+    /// -- which is what a position rule has to say -- names the *source* pane
+    /// for a left or up split. Writing a dragged ratio back onto that session
+    /// puts it on the wrong record, and the arrangement returns mirrored.
+    #[test]
+    fn a_split_made_leftwards_still_belongs_to_the_new_pane() {
+        let mut layout = Layout::new(1);
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.3, SplitSide::First)
+            .unwrap();
+        assert_eq!(layout.pane_ids(), vec![2, 1]);
+
+        for pane in [1, 2] {
+            let change = layout
+                .set_split_ratio(pane, 0.4)
+                .expect("the split to move");
+            assert_eq!(
+                change.owner_pane_id, 2,
+                "the split belongs to the pane it was made for, not to the half it sits in"
+            );
+        }
+
+        // Nesting under either half leaves the outer split's owner alone.
+        layout
+            .split(2, 3, SplitAxis::Vertical, 0.5, SplitSide::First)
+            .unwrap();
+        let outer = layout
+            .adjust_split_ratio(1, SplitAxis::Horizontal, 0.1)
+            .expect("the outer divider to move");
+        assert_eq!(outer.owner_pane_id, 2);
+        let inner = layout
+            .adjust_split_ratio(3, SplitAxis::Vertical, 0.1)
+            .expect("the inner divider to move");
+        assert_eq!(inner.owner_pane_id, 3);
+    }
+
+    /// A tree rebuilt from rectangles carries no record of who owns what, and
+    /// still has to answer: the second half's first leaf is what a split made
+    /// the usual way would have been created for.
+    #[test]
+    fn a_tree_rebuilt_from_rectangles_falls_back_to_the_second_half() {
+        let mut original = Layout::new(1);
+        original
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
+        let mut rebuilt = Layout::from_positions(&original.positions(80, 24))
+            .expect("an arrangement a tree can express");
+
+        let change = rebuilt.set_split_ratio(1, 0.4).expect("the split to move");
+        assert_eq!(change.owner_pane_id, 2);
     }
 
     /// Rebuilding from rectangles must reproduce them exactly, or adopting
@@ -966,24 +1271,36 @@ mod tests {
         let mut layout = Layout::new(1);
         assert_round_trips(&layout, 80, 24);
 
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
         assert_round_trips(&layout, 80, 24);
 
-        layout.split(2, 3, SplitAxis::Vertical, 0.5).unwrap();
+        layout
+            .split(2, 3, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
         assert_round_trips(&layout, 80, 24);
 
-        layout.split(1, 4, SplitAxis::Vertical, 0.3).unwrap();
+        layout
+            .split(1, 4, SplitAxis::Vertical, 0.3, SplitSide::Second)
+            .unwrap();
         assert_round_trips(&layout, 120, 40);
 
-        layout.split(3, 5, SplitAxis::Horizontal, 0.7).unwrap();
+        layout
+            .split(3, 5, SplitAxis::Horizontal, 0.7, SplitSide::Second)
+            .unwrap();
         assert_round_trips(&layout, 200, 60);
     }
 
     #[test]
     fn rebuilding_recovers_the_pane_set() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
-        layout.split(2, 3, SplitAxis::Vertical, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
+        layout
+            .split(2, 3, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
 
         let rebuilt = Layout::from_positions(&layout.positions(80, 24)).unwrap();
 
@@ -1036,9 +1353,15 @@ mod tests {
     #[test]
     fn every_pane_is_positioned_exactly_once() {
         let mut layout = Layout::new(1);
-        layout.split(1, 2, SplitAxis::Horizontal, 0.5).unwrap();
-        layout.split(2, 3, SplitAxis::Vertical, 0.5).unwrap();
-        layout.split(1, 4, SplitAxis::Vertical, 0.5).unwrap();
+        layout
+            .split(1, 2, SplitAxis::Horizontal, 0.5, SplitSide::Second)
+            .unwrap();
+        layout
+            .split(2, 3, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
+        layout
+            .split(1, 4, SplitAxis::Vertical, 0.5, SplitSide::Second)
+            .unwrap();
 
         let mut ids: Vec<usize> = layout
             .positions(120, 40)

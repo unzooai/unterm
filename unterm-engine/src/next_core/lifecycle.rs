@@ -108,6 +108,7 @@ mod tests {
                 split_from: None,
                 split_axis: None,
                 split_ratio: None,
+                split_side: None,
                 id: 999,
                 title: "sample".to_string(),
                 cols: 80,

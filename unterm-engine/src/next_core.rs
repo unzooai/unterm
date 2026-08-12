@@ -1857,6 +1857,10 @@ impl SessionEngine for NextCoreEngine {
     fn destroy_session(&self, pane_id: usize) -> Result<()> {
         runtime::destroy(pane_id)
     }
+
+    fn set_split_ratio(&self, pane_id: usize, first_ratio: f64) -> Result<()> {
+        runtime::set_split_ratio(pane_id, first_ratio)
+    }
 }
 
 impl ScreenEngine for NextCoreEngine {
@@ -3096,6 +3100,119 @@ mod tests {
         assert_eq!(engine.list_sessions()?.len(), 1);
         engine.destroy_session(second.id)?;
 
+        Ok(())
+    }
+
+    /// The snapshot has to say which side the new pane took, or a front end
+    /// rebuilding the arrangement can only guess -- and guessing "second" is
+    /// what put a `split left` pane on the right.
+    #[test]
+    fn a_leftward_split_records_the_side_it_took() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+
+        let first = engine.create_session(CreateSessionRequest {
+            cols: 120,
+            rows: 30,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        let left = engine.split_session(SplitSessionRequest {
+            source_pane_id: first.id,
+            direction: crate::SplitDirection::Left,
+            size_percent: 30,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        assert_eq!(
+            left.split_side,
+            Some(crate::next_core::layout::SplitSide::First)
+        );
+        // The ratio is the *first* half's share, and the new pane is that
+        // half: 30% asked for is 30% recorded.
+        assert_eq!(left.split_ratio, Some(0.3));
+
+        let right = engine.split_session(SplitSessionRequest {
+            source_pane_id: first.id,
+            direction: crate::SplitDirection::Right,
+            size_percent: 30,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        assert_eq!(
+            right.split_side,
+            Some(crate::next_core::layout::SplitSide::Second)
+        );
+        // Same 30% for the new pane, counted from the other end.
+        assert_eq!(right.split_ratio, Some(0.7));
+
+        for pane in [right.id, left.id, first.id] {
+            engine.destroy_session(pane)?;
+        }
+        Ok(())
+    }
+
+    /// A split is written down once, when it is made. A divider the user
+    /// then drags has to reach the engine too, or the pane comes back from
+    /// a restart at the size it was born at rather than the one it was left
+    /// at -- and the front end that knew better is exactly the process that
+    /// is no longer there to be asked.
+    #[test]
+    fn a_moved_divider_replaces_the_ratio_the_split_was_made_with() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+
+        let first = engine.create_session(CreateSessionRequest {
+            cols: 120,
+            rows: 30,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        let second = engine.split_session(SplitSessionRequest {
+            source_pane_id: first.id,
+            direction: crate::SplitDirection::Right,
+            size_percent: 50,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        assert_eq!(second.split_ratio, Some(0.5));
+
+        engine.set_split_ratio(second.id, 0.72)?;
+        assert_eq!(engine.get_session(second.id)?.split_ratio, Some(0.72));
+        // The axis is a property of the split, not of the divider's
+        // position, so moving one must not disturb the other.
+        assert_eq!(
+            engine.get_session(second.id)?.split_axis,
+            Some(crate::next_core::layout::SplitAxis::Horizontal)
+        );
+
+        // A pane with no cells is not a pane: whatever a front end sends,
+        // the recorded ratio stays inside the range a split can be drawn at.
+        engine.set_split_ratio(second.id, 0.0)?;
+        assert_eq!(engine.get_session(second.id)?.split_ratio, Some(0.05));
+        engine.set_split_ratio(second.id, 4.0)?;
+        assert_eq!(engine.get_session(second.id)?.split_ratio, Some(0.95));
+
+        assert!(
+            engine.set_split_ratio(404, 0.5).is_err(),
+            "a pane that does not exist has no divider to move"
+        );
+
+        engine.destroy_session(second.id)?;
+        engine.destroy_session(first.id)?;
         Ok(())
     }
 
