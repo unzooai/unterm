@@ -34,8 +34,9 @@ $Suites = @(
         Name = "font discovery"
         Package = "unterm-engine"
         Filter = "next_core::font_discovery::tests::"
-        ExpectedCount = 5
+        ExpectedCount = 6
         RequiredTests = @(
+            "next_core::font_discovery::tests::cached_index_is_reused_in_process",
             "next_core::font_discovery::tests::the_platform_has_font_directories",
             "next_core::font_discovery::tests::scanning_finds_a_usable_monospace_face",
             "next_core::font_discovery::tests::family_lookup_is_case_insensitive_and_prefers_regular",
@@ -65,7 +66,7 @@ $Suites = @(
         Name = "pane layout"
         Package = "unterm-engine"
         Filter = "next_core::layout::tests::"
-        ExpectedCount = 19
+        ExpectedCount = 23
         RequiredTests = @(
             "next_core::layout::tests::a_horizontal_split_leaves_a_cell_for_the_divider",
             "next_core::layout::tests::a_vertical_split_divides_height_instead",
@@ -669,7 +670,7 @@ $Suites = @(
         Name = "directory picker"
         Package = "unterm-app"
         Filter = "directory::tests::"
-        ExpectedCount = 8
+        ExpectedCount = 12
         RequiredTests = @(
             "directory::tests::the_folders_are_listed_and_the_files_are_not",
             "directory::tests::a_folder_row_descends_into_it",
