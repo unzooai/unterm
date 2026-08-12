@@ -17,8 +17,13 @@ param(
     # locale, and zle shredded every CJK character with a 0x80-0x9F
     # continuation byte. Measured 12847 after trimming the fix to its
     # essentials; recalibrated to measured plus the usual headroom.
-    [int]$MaxCoreSourceLines = 12950,
-    [int]$MaxProbeSourceLines = 2500,
+    # 12950 -> 13320, probe 2500 -> 2600 (2026-08-12): the settings/layout
+    # tranche landed argv launches, split-layout persistence across GUI
+    # restarts, startup-session draw, and Core-first discovery hardening.
+    # Measured 13219 core / 2529 probe; recalibrated to measured plus the
+    # usual headroom.
+    [int]$MaxCoreSourceLines = 13320,
+    [int]$MaxProbeSourceLines = 2600,
     [int]$MaxDirectDependencies = 10,
     # A debug binary carries its debug info, so this tracks the toolchain and
     # the C libraries far more than it tracks next-core. The real size control

@@ -2362,15 +2362,22 @@ mod tests {
 
         assert_eq!(pwsh["recommended"], true);
         assert_eq!(pwsh["name"], "PowerShell 7");
-        // Case-insensitive: winget says Microsoft.PowerShell, brew and apt
-        // say powershell -- the point is that a plan exists on every
-        // platform, not how the package manager spells it.
-        assert!(
-            pwsh["install_command"]
-                .as_str()
-                .is_some_and(|command| command.to_ascii_lowercase().contains("powershell")),
-            "pwsh entry should expose an install command: {pwsh:?}"
-        );
+        // Case-insensitive: winget says Microsoft.PowerShell, brew says
+        // powershell. Linux has no one-line official install, so the plan
+        // is legitimately absent there rather than invented.
+        if cfg!(any(windows, target_os = "macos")) {
+            assert!(
+                pwsh["install_command"]
+                    .as_str()
+                    .is_some_and(|command| command.to_ascii_lowercase().contains("powershell")),
+                "pwsh entry should expose an install command: {pwsh:?}"
+            );
+        } else {
+            assert!(
+                pwsh["install_command"].is_null(),
+                "no invented install plan on platforms without one: {pwsh:?}"
+            );
+        }
     }
 
     #[test]
