@@ -4,7 +4,7 @@
 
 需求基线：`2026-08-03-unzoo-one-core-execution-plan.md`
 
-代码基线：Unterm `0.61.1` / `d84236dc`
+代码基线：Unterm `0.61.1` / `d84236dc`（进度表随开发推进，最近核对于 `0.64.0`）
 原则：一个 PR 只跨越一个主要架构边界；每项完成必须有测试或真机证据。
 
 ## 1. 交付策略
@@ -153,8 +153,8 @@ M7 门禁：不启动 UI 仍可工作；进程独立健康；升级失败恢复�
 | M0-02 | 已完成（源码切片） | 协议判定、双向身份、持久 registry、协作 drain、`-32010`；超时强退（30s 宽限后 terminate + 记录清理）、pre-registry 旧桥扫描（长寿命+无记录判别，Windows Toolhelp）、owner 重启 E2E（drain 退出清记录、重生全新注册）；GUI 启动接 bridge-drain-enforcer 线程 | 跨平台证据随 M0-03 |
 | M0-03 | 未开始 | 0.61.1 Windows 本机安装记录 | 12 项跨平台台账与回滚矩阵 |
 | M1-01/02 | 已完成（源码切片，`1148e8d7` + `core.events`） | unterm-core 进程：认证 IPC、discovery、single-instance 锁、drain、session.* 驱动 next-core、core.events 推送流；8 项测试含真实 PTY 往返与事件全生命周期 | 服务化安装（LaunchAgent/后台进程）随 M7 |
-| M1-03 | 开发中 | IPC 面 36 方法（含交互/录制/引擎健康）；`CoreEngineClient` 满足完整 TerminalEngine；`CoreEventStream` 订阅端；TCP_NODELAY + IPC 成本基准（全量 styled 5.2ms/未变化探询 291µs）；UNTERM_STATE_DIR 隔离；真实进程 E2E 含 8 进程竞锁；单元 9 + E2E 2 通过 | MCP server 迁入 Core 进程；GUI 重连 adopt、事件唤醒、MCP/statsbar 本地引擎缺口（见架构文档 M1-04b 节） |
-| M1-04 | 开发中 | `AppEngine` 后端抽象 + `UNTERM_CORE_CLIENT=1` 真机链路：杀 GUI 会话存活、重开领养且 scrollback 完好、MCP create/split 落 Core（split_from 血缘完整）、事件唤醒重绘、scrollback 配置传递、20 并发竞锁 1.1s 通过；server_info 补 UNTERM_STATE_DIR 隔离 | 退出三语义模态 UI；布局入 Core（split 比例/方向保真）；MCP server 本体迁 Core（M1-03c 阶段二，McpHost 反向 IPC）；M1-05 崩溃恢复与旧 MCP 合约回归 |
+| M1-03 | 开发中 | IPC 面（含交互/录制/引擎健康）；`CoreEngineClient` 满足完整 TerminalEngine；`CoreEventStream` 订阅端；TCP_NODELAY + IPC 成本基准（全量 styled 5.2ms/未变化探询 291µs）；UNTERM_STATE_DIR 隔离；Core 进程起 headless MCP（端口写 core.json）并在此之前读用户配置；`RemoteMcpHost` 反向 IPC 已装；CLI 端点回退级「活 Core MCP > 活 GUI > 旧 server.json」；E2E 7 项通过（含 `headless_mcp_serves_sessions_without_any_gui`、杀 Core 重建、健康/就绪分离） | 单一 MCP 终态（GUI 在场时也由 Core 服务） |
+| M1-04 | 开发中 | Core 模式**已转默认**（`UNTERM_CORE_CLIENT=0` 退回单进程）；杀 GUI 会话存活、重开领养且 scrollback 完好、MCP create/split 落 Core、事件唤醒重绘、scrollback 配置传递、20 并发竞锁 1.1s；退出三语义模态已落地（`42e82c54`：后台继续/排空后退出/立即取消，危险项红色、默认焦点在可恢复项）；布局保真方案 B 完成：分隔条回写（`SplitRatioChange` + `session.set_split_ratio`，归属记在 `Node::Split.owner`）、领养血缘根修正、left/up 分屏落错边修正（`SplitPlan.side` + `SessionSnapshot.split_side`）；B-4 真机通过（right 25% 与 left 30% 两组：分屏→杀 GUI→重开，tab 数、左右侧别、比例、scrollback 逐项一致）；engine 597 / core 18 / e2e 7 / app 617 / mcp 77 通过 | 后台继续运行后的持续可发现提示（托盘/状态）；键盘调分隔条→重开这一路的真机验证（合成按键送不达，需手动）；M1-05 崩溃恢复与旧 MCP 合约回归 |
 | M2–M7 | 未开始 | 现有 next-core/MCP/Audit 是迁移输入 | 按上述冻结点推进 |
 
 ## 7. 下一切片入口条件

@@ -196,13 +196,21 @@ trait，styled 读在 Core 模式走 FrameCache。
 进程；**杀 GUI 后 Core 存活、session.list 仍含该会话**——M1 门禁
 「关闭 GUI 后 PTY 继续运行」的首次真机证据。
 
-重开领养（M1-04c）已落地：窗口首 pane 优先领养 Core 中的活会话
-（偏好 is_active，跳过已死会话），仅在 Core 为空时才新建 shell；
+重开领养（M1-04c）已落地：窗口首 pane 领养 Core 中的活会话，仅在
+Core 为空时才新建 shell；
 其余会话由 `sync_tabs` 的既有对账逻辑接管（含 split 归属）。真机
 验证：GUI 写入 marker -> 杀 GUI -> 重开 -> 会话数不变（领养而非
 新建）、marker 内容仍在屏幕上——「重开 GUI 后可以看到相同 Pane 和
 Scrollback」门禁的首个真机证据。Local 模式启动时引擎必为空，走的
 仍是原来的新建路径，行为不变。
+
+**领养的是血缘根，不是聚焦的那个**（2026-08-12 真机验收修正）：首 pane
+原本挑 `is_active` 的会话，而分屏之后聚焦的恰是**新** pane；`sync_tabs`
+只能把 split 重建到「源 pane 已在某个 tab 里」的会话上，于是先领养子
+pane，父 pane 就无处可挂，两个 pane 的分屏重开后变成两个 tab。现在沿
+`split_from` 上溯到根再领养（`split_lineage_root`，步数以会话数封顶）。
+真机验收：`--direction right --size-percent 25` 分屏 → 杀 GUI → 重开，
+仍是一个 tab、右侧仍占 25%（此前为两个 tab）。
 
 MCP 一致性（M1-03c 第一阶段）已落地：`init_from_environment` 在 MCP
 server 启动前为**整个进程**决定引擎后端并装入 `ENGINE_PROVIDER`——
@@ -232,9 +240,10 @@ headless 安全语义：无窗口时确认门立即 fail-closed（审计
 握手不再把沉默当不兼容。
 
 过渡期形态：GUI 在场时 agent 走 GUI 的 MCP（完整确认 UI），GUI
-缺席时故障转移到 Core 的 MCP（fail-closed）。剩余缺口：Core 进程
-尚不读用户配置（settings 用默认值，trusted agents 不生效）；单一
-MCP + McpHost 反向 IPC（GUI 在场时也由 Core 服务）为最终形态。
+缺席时故障转移到 Core 的 MCP（fail-closed）。Core 进程已在起 MCP
+之前读用户配置（`settings::load` + `set_current`，trusted agents 与
+scrollback 生效），`RemoteMcpHost` 也已装上，Core 能反向问到窗口面。
+单一 MCP（GUI 在场时也由 Core 服务）仍是终态方向。
 
 事件唤醒（M1-04d）已接通：FrameCache 支持 on-change 通知
 （`start_with_notify`），Core 模式下回调直连
@@ -243,11 +252,30 @@ MCP + McpHost 反向 IPC（GUI 在场时也由 Core 服务）为最终形态。
 PTY 输出 -> Core watcher（25ms）-> core.events 推送 -> FrameCache
 拉增量 -> request_redraw -> 绘制读缓存。
 
-实验开关下的已知缺口（后续切片）：
-- 布局（split 树）仍在 GUI 进程，重开后 split 关系靠 split_from
-  降级重建，比例/方向不保真——布局入 Core 是后续设计决策
+布局保真（决策文档 `2026-08-05-layout-ownership-decision.md` 的方案 B）
+已完整落地：`SessionSnapshot` 带 `split_axis`/`split_ratio`，引擎在
+`split_session` 时记录，`sync_tabs` 按它们重建。收尾的一环是**分隔条
+回写**——比例此前只在分屏那一刻写下，用户之后调整分隔条只改 GUI 进程
+内的 `TabRegistry`，杀掉 GUI 重开会退回分屏初值。现在
+`Layout::adjust_split_ratio`/`set_split_ratio` 返回 `SplitRatioChange`
+（这条分隔条归属哪个 pane + 新比例），GUI 据此调
+`SessionEngine::set_split_ratio`，Core 模式下经 `session.set_split_ratio`
+落到持有会话的进程。归属规则：一个 split 属于**被分出来的那个 pane**，
+由 `Node::Split.owner` 在分屏时记下——不靠位置推断，因为新 pane 可能落在
+任一半（见下），只有从矩形重建的树才退回「第二子树首叶」的猜测。
+
+同一批修掉的还有 **left/up 分屏落错边**：`resolve_split` 早已把「新 pane
+在前」编码进比例，但 `split_node` 恒把新 pane 放第二位，于是
+`left, 30%` 得到的是「右边、70%」，50% 时两错相消所以长期未被发现。现在
+`resolve_split` 返回 `SplitPlan { axis, first_ratio, side }`，`side` 随
+`SessionSnapshot.split_side` 持久化（`serde(default)`，旧记录退回 Second），
+`sync_tabs` 重建时带上。
+
+已知缺口（后续切片）：
+- 布局树本身仍在 GUI 进程；tab 之间的先后顺序按 pane id 升序重建、
+  zoom 不恢复（决策文档第 3 节明确接受）。`TabRegistry` 整体入 Core
+  是终态方向（方案 C），留到 M2 的 Store 之后
 - MCP server 生命周期随 GUI（见上）
-- 退出三语义模态提醒（M1-04 原定验收）未实现
 
 scrollback 配置已打通：connect_core 时经 `core.set_scrollback_lines`
 把 GUI 的配置值回传 Core（配置文件在客户端侧；对既有 pane 不生效，

@@ -76,15 +76,54 @@ zoom 不恢复——zoom 本就是临时视图状态，一次重启把它复位�
 而不是缺陷。若日后需要，这两项加两个 session 元数据字段即可，
 不动架构。
 
-## 4. 若选 B，切片拆法
+## 4. B 的切片拆法（B-1~B-3 已完成，B-4 待真机）
 
 1. **B-1**：`SessionSnapshot` 增 `split_axis` / `split_ratio`；引擎在
    `split_session` 时记录；Core IPC 自动带过去（快照已整体序列化）。
 2. **B-2**：GUI 分屏路径从 `create_session` + `tabs.split` 改为
    `split_session`；删除 `mcp_host::SPLITS`。
 3. **B-3**：`sync_tabs` 读新字段重建；拖动分隔条时回写比例。
+   两半都已落地。回写这半需要先回答"这条分隔条属于谁"：比例记在
+   session 上，而调整分隔条的 pane 可能是它的任一侧。规则是**一个 split
+   属于被分出来的那个 pane**，即节点第二子树的首叶（`split` 恒把新 pane
+   放第二位，其后嵌套不改变首叶）。`Layout` 的两个比例方法因此改为返回
+   `SplitRatioChange`，GUI 据此调 `SessionEngine::set_split_ratio`，Core
+   模式下经 `session.set_split_ratio` 落到持有会话的进程。
 4. **B-4**：真机验收——分屏（含非 50% 比例、垂直方向）→ 杀 GUI → 重开，
    排布逐项比对。
+   - **已做**：`right / 25%` 分屏 → 杀 GUI（Core 存活）→ 重开 → 一个 tab、
+     右侧仍占 25%。这一轮**发现并修掉了一个真 bug**：首 pane 领养的是
+     `is_active` 的会话，而分屏后聚焦的是新 pane，导致父 pane 无处可挂、
+     分屏重开后裂成两个 tab。改为沿 `split_from` 上溯领养血缘根。
+   - **未做**：键盘调分隔条（Shift+Alt+方向）→ 杀 GUI → 重开这一路。
+     需要真实窗口接收按键，合成按键（SendKeys）没能送达。自动化覆盖到
+     两头——布局层归属（`a_moved_divider_names_the_pane_its_split_belongs_to`）
+     与「比例进了 Core 并留在快照里」（`unterm-core` 的
+     `a_dragged_divider_reaches_the_core_and_stays_in_the_snapshot`）——
+     中间那 5 行 GUI 回写调用未经真机验证。
+
+## 6. 附带切片：left/up 分屏落错边（已修）
+
+发现于 B-3 的读码：`resolve_split` 把「新 pane 在前」编码进比例
+（Left/Up 返回 `share`，Right/Down 返回 `1-share`），但
+`Layout::split_node` **恒**把新 pane 放第二位，无人做这个交换。于是
+`direction=left, size_percent=30` 的结果是：新 pane 落在右边（方向反了）
+且拿到 70%（比例镜像了）。50% 时两个错误互相掩盖，所以一直没被发现。
+
+修法（这是「一位信息缺失」，不是算术错）：
+
+- `resolve_split` 改为返回 `SplitPlan { axis, first_ratio, side }`，
+  `side: SplitSide::First | Second` 即新 pane 落在哪一半。
+- `Layout::split` 接受 `side`，据此决定 first/second 的落位。
+- `SessionSnapshot` 增 `split_side`（`#[serde(default)]`，旧记录读成
+  `None` → 退回 Second，与既有行为一致）；`sync_tabs` 重建时带上。
+- **归属规则随之改写**：原来的「第二子树的首叶」在新 pane 可能落在任一
+  半之后就会指向**源** pane。改为 `Node::Split` 直接持有
+  `owner: Option<usize>`，分屏时记下；只有从矩形重建的树
+  （`from_positions`，本就无此历史）才退回位置推断。
+
+真机验收：`--direction left --size-percent 30` → 新 pane 在**左**、占
+30%（修前在右、占 70%）→ 杀 GUI → 重开 → 仍在左、仍 30%、marker 还在。
 
 ## 5. 需要你拍板的
 
