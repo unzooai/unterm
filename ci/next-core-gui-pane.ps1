@@ -294,7 +294,7 @@ $Suites = @(
         Name = "app shell"
         Package = "unterm-app"
         Filter = "window::tests::"
-        ExpectedCount = 14
+        ExpectedCount = 15
         RequiredTests = @(
             @(
                 "window::tests::a_wide_glyph_copies_without_its_spacer_cell",
@@ -308,7 +308,7 @@ $Suites = @(
             # keeps its legacy PowerShell default, everywhere else the engine
             # chooses -- each platform carries its own cfg-gated test.
             ) + $(if ($env:OS -eq "Windows_NT") {
-                @("window::tests::a_config_naming_no_shell_keeps_the_legacy_powershell_default")
+                @("window::tests::a_config_naming_no_shell_uses_the_platform_powershell_default")
             } else {
                 @("window::tests::a_config_naming_no_shell_leaves_the_choice_to_the_engine")
             })

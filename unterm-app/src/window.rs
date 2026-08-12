@@ -676,6 +676,11 @@ pub struct App {
     /// A terminal is idle most of the time; redrawing an unchanged screen at
     /// display rate is a fan that never stops.
     drawn_revision: Option<u64>,
+    /// When the last frame was handed to the compositor. A flood of PTY
+    /// output must not draw faster than the display shows: past the
+    /// refresh interval the drawable pool runs dry and `nextDrawable`
+    /// turns the GUI thread into a queue behind the compositor.
+    presented_at: Option<std::time::Instant>,
     /// Cursor phase represented by the last submitted frame.
     ///
     /// A blinking cursor changes only twice per period. Treating "blinking is
@@ -1157,6 +1162,7 @@ impl App {
             selected: None,
             state: None,
             drawn_revision: None,
+            presented_at: None,
             drawn_cursor_solid: None,
             drawn_blink: None,
             screen_blink: (false, false),
@@ -1414,6 +1420,31 @@ impl App {
         // session that happened to create the window leaves the solid cursor,
         // scrollbar and keyboard focus behind when another pane is clicked.
         let session_id = self.focused_session();
+        // The very number `needs_redraw` compares, read before any screen
+        // is fetched so an update landing mid-draw still earns its frame.
+        // This used to record a sum of per-pane snapshot revisions instead
+        // — a different counter than the one compared, never equal in Core
+        // mode — and every idle tick redrew the whole window forever: the
+        // chronic 90%-CPU "GUI 卡" was this one line of double bookkeeping.
+        let generation = {
+            let panes: Vec<usize> = if placements.is_empty() {
+                if session_id == 0 {
+                    Vec::new()
+                } else {
+                    vec![session_id]
+                }
+            } else {
+                placements
+                    .iter()
+                    .map(|placement| placement.session_id)
+                    .collect()
+            };
+            if panes.is_empty() {
+                0
+            } else {
+                self.engine.render_generation(&panes)
+            }
+        };
 
         let mut quads = unterm_render::quads::FrameQuads::default();
         // The picture, under everything, filling the window with the middle of
@@ -1443,7 +1474,6 @@ impl App {
         let solid_cursor = self.cursor_is_solid();
         let blink = self.blink_phase();
         let mut screen_blink = (false, false);
-        let mut revision = 0u64;
         let mut terminal_has_content = false;
         for placement in &placements {
             let Ok(snapshot) = self.engine.read_styled_screen(placement.session_id) else {
@@ -1451,7 +1481,6 @@ impl App {
             };
             let background_start = quads.backgrounds.len();
             let glyph_start = quads.glyphs.len();
-            revision = revision.wrapping_add(snapshot.revision);
             if placement.session_id == session_id {
                 self.mouse_modes = snapshot.mouse;
                 self.note_bells(snapshot.bells);
@@ -1487,7 +1516,6 @@ impl App {
                 let Ok(snapshot) = self.engine.read_styled_screen(session_id) else {
                     return;
                 };
-                revision = snapshot.revision;
                 self.mouse_modes = snapshot.mouse;
                 self.note_bells(snapshot.bells);
                 self.take_clipboard_request(snapshot.clipboard_request.clone());
@@ -1612,7 +1640,8 @@ impl App {
             self.startup_terminal_content_marked = true;
             crate::startup_trace::mark("terminal_content.presented");
         }
-        self.drawn_revision = Some(revision);
+        self.drawn_revision = Some(generation);
+        self.presented_at = Some(std::time::Instant::now());
         self.drawn_cursor_solid = Some(solid_cursor);
         self.drawn_blink = Some(blink);
         self.screen_blink = screen_blink;
@@ -9229,8 +9258,17 @@ impl App {
         }
         if self.needs_redraw() {
             self.quiet_since = None;
-            if let Some(live) = self.state.as_ref() {
-                live.window.request_redraw();
+            // One frame per refresh interval, no matter how fast the PTY
+            // writes. A skipped request costs nothing: the busy tick fires
+            // within the same interval and asks again, so the trailing
+            // frame always lands.
+            let frame_due = self
+                .presented_at
+                .map_or(true, |at| at.elapsed() >= std::time::Duration::from_millis(8));
+            if frame_due {
+                if let Some(live) = self.state.as_ref() {
+                    live.window.request_redraw();
+                }
             }
         } else if self.quiet_since.is_none() {
             self.quiet_since = Some(std::time::Instant::now());
