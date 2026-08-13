@@ -839,6 +839,14 @@ pub struct App {
     tree: Option<crate::tree::Tree>,
     /// Set when the close button is pressed, so the loop can exit.
     closing: bool,
+    /// The menu-bar / notification-area indicator, while the window is parked
+    /// and its sessions run on in the Core. Its presence *is* the parked
+    /// state: this process only ever survives its window when there is
+    /// something on screen saying so.
+    tray: Option<crate::tray::Tray>,
+    /// When the indicator's counts were last refreshed, so a parked process
+    /// wakes to read them a few times a minute rather than at frame rate.
+    tray_refreshed: std::time::Instant,
     /// The cursor the config asked for, and how fast it blinks.
     cursor_style: crate::terminal::CursorStyle,
     cursor_blink_ms: u64,
@@ -911,6 +919,17 @@ pub struct App {
     startup_session: Option<std::thread::JoinHandle<anyhow::Result<SessionSnapshot>>>,
     startup_input: String,
     restore_extra_tabs_pending: bool,
+}
+
+/// What closing the window should do to the sessions behind it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CloseOutcome {
+    /// End every session on the way out. What a terminal has always done,
+    /// and the right answer whenever nobody was asked anything.
+    EndSessions,
+    /// Leave them to the Core, which outlives this process. Chosen by the
+    /// close prompt, and by it alone.
+    KeepSessions,
 }
 
 struct Live {
@@ -1086,6 +1105,8 @@ impl App {
             pane_notices: Default::default(),
             tree: None,
             closing: false,
+            tray: None,
+            tray_refreshed: std::time::Instant::now(),
             cursor_style: cursor_style.0,
             cursor_blink_ms: cursor_style.1,
             text_blink_ms: text_blink.0,
@@ -6054,7 +6075,11 @@ impl App {
     /// the palette line, and Enter there closes for real.
     fn request_close(&mut self) {
         if self.close_confirmed || !self.close_needs_confirmation() {
-            self.perform_close();
+            // Nothing was at stake, so nothing is left behind either: no
+            // prompt was shown, no indicator will appear, and a shell that
+            // outlived the window nobody was asked about is exactly the
+            // invisible state the prompt exists to avoid.
+            self.perform_close(CloseOutcome::EndSessions);
             return;
         }
         use unterm_services::i18n::t;
@@ -6182,9 +6207,26 @@ impl App {
             .request_inner_size(winit::dpi::PhysicalSize::new(width, height));
     }
 
-    fn perform_close(&mut self) {
+    /// Close the window, and end the sessions or leave them running.
+    ///
+    /// Both halves of that decision used to be spread across two paths that
+    /// disagreed: the title bar's own close button left every session alive,
+    /// while the same click on the system frame destroyed them all. One
+    /// function, one argument, so "did my shells survive?" has one answer.
+    fn perform_close(&mut self, outcome: CloseOutcome) {
         let _slow = SlowGuard::new("perform_close");
         self.save_last_session();
+        if outcome == CloseOutcome::EndSessions {
+            // Every session, not only the front one: a shell left running
+            // with nothing attached to it is a leak.
+            let sessions =
+                unterm_engine::SessionEngine::list_sessions(&self.engine).unwrap_or_default();
+            for session in sessions {
+                crate::statsbar::forget(session.id);
+                unterm_services::ghost_text::forget(session.id as u64);
+                let _ = self.engine.destroy_session(session.id);
+            }
+        }
         if let Some(live) = self.state.as_ref() {
             live.window.set_visible(false);
         }
@@ -6197,6 +6239,103 @@ impl App {
             std::thread::sleep(std::time::Duration::from_secs(3));
             std::process::exit(0);
         });
+    }
+
+    /// What the indicator has to report right now.
+    fn background_status(&self) -> crate::tray::Status {
+        crate::tray::Status {
+            sessions: unterm_engine::SessionEngine::list_sessions(&self.engine)
+                .map(|sessions| sessions.len())
+                .unwrap_or(0),
+            waiting: crate::cockpit::attention_count(
+                &unterm_services::cockpit::status::snapshot(),
+            ),
+        }
+    }
+
+    /// Put the window away and leave the sessions running behind an indicator.
+    ///
+    /// The window's GPU surface, its adopted panes and its Dock tile all go;
+    /// the process stays alive for one reason only, which is to be the thing
+    /// on screen that says the shells are still there and hands them back.
+    ///
+    /// Returns false when this desktop has no tray to put an indicator in. The
+    /// caller then closes the ordinary way rather than parking sessions where
+    /// nothing announces them -- the Core still holds them and `unterm` still
+    /// finds them, but nobody is left believing an icon exists.
+    fn enter_background(&mut self) -> bool {
+        let _slow = SlowGuard::new("enter_background");
+        self.save_last_session();
+        let status = self.background_status();
+        let Some(tray) = crate::tray::Tray::show(status) else {
+            return false;
+        };
+        self.tray = Some(tray);
+        self.tray_refreshed = std::time::Instant::now();
+        // A focus request made while the window was still up has been served
+        // already; leaving it pending would reopen the window the moment it
+        // finished closing.
+        crate::tray::clear_wake();
+        // The window handle goes -- an `instance.focus` arriving on the MCP
+        // thread must not raise a dead one. The Core's channel *stays*: a
+        // parked front end can still do everything except paint, and the two
+        // requests that do need a screen -- focus and confirmation -- are
+        // exactly the two that should bring the window back rather than fail.
+        // Detaching here would make an agent's "look at this" an error for as
+        // long as the user had Unterm in the background, which is precisely
+        // when an agent has something worth looking at.
+        crate::mcp_host::forget_window();
+        if let Some(live) = self.state.take() {
+            live.window.set_visible(false);
+            drop(live);
+        }
+        crate::tray::set_dock_visible(false);
+        log::info!(
+            "parked in the background: {} session(s), {} waiting",
+            status.sessions,
+            status.waiting
+        );
+        true
+    }
+
+    /// Come back from the tray: build the window again and let it adopt the
+    /// sessions the Core kept. `start` already does the adopting -- it is the
+    /// same path a cold launch onto a populated Core takes.
+    fn leave_background(&mut self, event_loop: &ActiveEventLoop) {
+        let _slow = SlowGuard::new("leave_background");
+        // The Dock tile first: a window created while the process is still an
+        // accessory opens behind every other app.
+        crate::tray::set_dock_visible(true);
+        match self.start(event_loop) {
+            Ok(live) => {
+                self.state = Some(live);
+                // The prompt was answered by the window that just came back,
+                // not by this one. Until parking existed the latch could
+                // never outlive its answer -- the process died moments after
+                // -- so nothing cleared it; now it does outlive it, and a
+                // stale `true` sends the *next* close straight past the
+                // prompt and into "end every session". Which is how a second
+                // Cmd-W killed two shells the user was never asked about.
+                self.close_confirmed = false;
+                self.restore_extra_tabs_pending = true;
+                self.drawn_revision = None;
+                if let Some(live) = self.state.as_ref() {
+                    live.window.set_visible(true);
+                    live.window.focus_window();
+                    live.window.request_redraw();
+                }
+                // The indicator's whole subject is back on screen; leaving it
+                // up would be a second, stale copy of the same report.
+                self.tray = None;
+                self.draw();
+            }
+            Err(err) => {
+                // Keep the indicator: it is the only way back, and the
+                // sessions it counts are still there to come back to.
+                crate::tray::set_dock_visible(false);
+                log::error!("could not reopen the window from the tray: {err:#}");
+            }
+        }
     }
 
     /// The rest of the tabs the last window had, one per saved directory.
@@ -7417,14 +7556,21 @@ impl App {
             }
             crate::palette::Command::ConfirmCloseWindow => {
                 self.close_confirmed = true;
-                self.perform_close();
+                self.perform_close(CloseOutcome::EndSessions);
             }
             // The window goes; the Core, the shells and the agents in
-            // them stay. Nothing to ask of the Core -- leaving it
-            // alone is the whole action.
+            // them stay -- and an indicator goes up saying so, because a
+            // promise nobody can see is one the user has to remember.
             crate::palette::Command::KeepRunningInBackground => {
                 self.close_confirmed = true;
-                self.perform_close();
+                if !self.enter_background() {
+                    // No tray on this desktop. The sessions still outlive
+                    // this process and `unterm` still reopens onto them,
+                    // but this window is not going to sit there invisibly
+                    // pretending an icon exists.
+                    log::warn!("no tray indicator available; closing instead of parking");
+                    self.perform_close(CloseOutcome::KeepSessions);
+                }
             }
             crate::palette::Command::DrainThenExit => {
                 // Off this thread: draining waits on shells that may take
@@ -7439,7 +7585,9 @@ impl App {
                     });
                 }
                 self.close_confirmed = true;
-                self.perform_close();
+                // Destroying the sessions here would be the opposite of
+                // draining: the Core is being asked to let them finish.
+                self.perform_close(CloseOutcome::KeepSessions);
             }
             crate::palette::Command::CancelAndExit => {
                 if let crate::engine_backend::AppEngine::Core { client, .. } = &self.engine {
@@ -7451,7 +7599,10 @@ impl App {
                     });
                 }
                 self.close_confirmed = true;
-                self.perform_close();
+                // `core.shutdown` ends everything it holds, which is more
+                // thorough than destroying the sessions one at a time from
+                // here -- and racing it would only make the log confusing.
+                self.perform_close(CloseOutcome::KeepSessions);
             }
             crate::palette::Command::OpenTabRename { index } => self.open_tab_rename(index),
             crate::palette::Command::SelectCaptureRegion => self.start_system_capture(false),
@@ -9448,7 +9599,10 @@ impl Live {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         crate::startup_trace::mark("winit.resumed");
-        if self.state.is_some() {
+        // A parked process has no window on purpose. Resuming into one here
+        // would put the terminal back on screen without anyone asking, which
+        // is the opposite of what "keep running in the background" means.
+        if self.state.is_some() || self.tray.is_some() {
             return;
         }
         match self.start(event_loop) {
@@ -9470,7 +9624,11 @@ impl ApplicationHandler for App {
 
     fn window_event(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        // Nothing here ends the loop directly any more: closing goes through
+        // `perform_close`, and `about_to_wait` is what acts on the flag it
+        // sets -- one exit path, whether the press was on our chrome or the
+        // system's.
+        _event_loop: &ActiveEventLoop,
         _window_id: WindowId,
         event: WindowEvent,
     ) {
@@ -9524,30 +9682,17 @@ impl ApplicationHandler for App {
 
             WindowEvent::CloseRequested => {
                 let _slow = SlowGuard::new("close_requested");
-                // A running program earns one confirmation before its window
-                // is taken away; 0.57.4 asked, and a stray click on the cross
-                // killing an agent mid-task is not a smaller accident now.
-                if !self.close_confirmed && self.close_needs_confirmation() {
-                    self.request_close();
-                    if let Some(live) = self.state.as_ref() {
-                        live.window.request_redraw();
-                    }
-                    return;
+                // The system frame's close button, Cmd-W and Alt-F4 all land
+                // here, and they mean exactly what the title bar's own cross
+                // means. Routing them through the same function is what stops
+                // the two disagreeing about whether the shells survive; a
+                // running program earns one confirmation either way, because
+                // a stray click killing an agent mid-task is no smaller an
+                // accident on this path than on the other.
+                self.request_close();
+                if let Some(live) = self.state.as_ref() {
+                    live.window.request_redraw();
                 }
-                self.save_last_session();
-                if let Some(live) = self.state.take() {
-                    // Destroy every session, not only the front one: a shell
-                    // left running with nothing attached is a leak.
-                    let sessions = unterm_engine::SessionEngine::list_sessions(&self.engine)
-                        .unwrap_or_default();
-                    for session in sessions {
-                        crate::statsbar::forget(session.id);
-                        unterm_services::ghost_text::forget(session.id as u64);
-                        let _ = self.engine.destroy_session(session.id);
-                    }
-                    drop(live);
-                }
-                event_loop.exit();
             }
 
             WindowEvent::Resized(size) => {
@@ -10507,7 +10652,57 @@ impl ApplicationHandler for App {
             event_loop.exit();
             return;
         }
+        // Before the parked branch below returns: a loop that stops beating
+        // is a loop the stall watchdog reports as frozen, and "parked" is the
+        // one quiet state that is not a freeze.
         crate::stallwatch::beat();
+        // Parked in the tray: no window, no frame, nothing to draw. The loop
+        // stays alive only to answer the indicator and keep its counts
+        // honest, so it wakes a few times a minute rather than at frame rate.
+        if self.tray.is_some() {
+            match crate::tray::poll() {
+                Some(crate::tray::Action::Open) => {
+                    self.leave_background(event_loop);
+                    return;
+                }
+                Some(crate::tray::Action::QuitAll) => {
+                    // The same irreversible action the close prompt's last
+                    // row performs, reached from the only surface left.
+                    if let crate::engine_backend::AppEngine::Core { client, .. } = &self.engine {
+                        let client = client.clone();
+                        std::thread::spawn(move || {
+                            if let Err(err) = client.shutdown() {
+                                log::warn!("could not stop the core: {err:#}");
+                            }
+                        });
+                    }
+                    self.tray = None;
+                    self.close_confirmed = true;
+                    self.perform_close(CloseOutcome::KeepSessions);
+                    return;
+                }
+                None => {}
+            }
+            if self.tray_refreshed.elapsed() >= std::time::Duration::from_secs(2) {
+                self.tray_refreshed = std::time::Instant::now();
+                // Nothing else drives the cockpit tracker, and "2 agents are
+                // waiting for you" is precisely the number this indicator
+                // exists to carry. Skipping it while parked would freeze that
+                // count at whatever it read the instant the window closed --
+                // a report that looks live and is not. It rate-limits itself,
+                // so calling it on every refresh costs one screen read per
+                // pane per second and no frames at all.
+                self.feed_cockpit();
+                let status = self.background_status();
+                if let Some(tray) = self.tray.as_mut() {
+                    tray.update(status);
+                }
+            }
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
+                std::time::Instant::now() + std::time::Duration::from_millis(200),
+            ));
+            return;
+        }
         // An input-source switch mid-composition strands marked text that
         // eats editing keys. But the pinyin IME announces a "switch" for
         // its own internal mode flips too -- half-width punctuation, caps

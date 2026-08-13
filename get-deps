@@ -49,6 +49,7 @@ alpine_deps() {
     'build-base' \
     'coreutils' \
     'fontconfig-dev' \
+    'gtk+3.0-dev' \
     'libssh2-dev' \
     'libx11-dev' \
     'libxkbcommon-dev' \
@@ -89,6 +90,7 @@ fedora_deps() {
     'gcc-c++' \
     'flatpak-builder' \
     'fontconfig-devel' \
+    'gtk3-devel' \
     'openssl-devel' \
     'perl-interpreter' \
     'python3' \
@@ -127,6 +129,7 @@ suse_deps() {
     'gcc' \
     'gcc-c++' \
     'fontconfig-devel' \
+    'gtk3-devel' \
     'libopenssl-devel' \
     'perl' \
     'python3' \
@@ -159,6 +162,7 @@ debian_deps() {
     'libegl1-mesa-dev' \
     'libssl-dev' \
     'libfontconfig1-dev' \
+    'libgtk-3-dev' \
     'libwayland-dev' \
     'libx11-xcb-dev' \
     'libxcb-ewmh-dev' \

@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **"Keep running in the background" leaves something on screen.**
+  Choosing it at the close prompt used to end with the process gone
+  and no evidence anywhere that the Core still held your shells — the
+  promise was real, but only the dialog you had just dismissed ever
+  said so. The window now parks instead of exiting: a menu-bar item on
+  macOS, a notification-area icon on Windows and Linux, reporting how
+  many sessions are running and how many agents are waiting, with
+  "Open Window" and "End everything and quit" behind it. Reopening
+  rebuilds the window onto the sessions the Core kept, scrollback and
+  split arrangement included. On macOS the Dock tile steps aside while
+  parked (the menu bar is where the app lives then) and clicking
+  Unterm in Finder or Spotlight brings the window back.
+- **An agent can bring a parked window back.** `instance.focus` and
+  any confirmation prompt now reopen the window instead of failing for
+  as long as Unterm sits in the background — which is exactly when an
+  agent has something worth showing you.
+
+### Fixed
+
+- **The two close buttons no longer disagree about your shells.** The
+  title bar's own cross went through one path and the system frame's
+  (along with Cmd-W and Alt-F4) through another: one left every Core
+  session running with nothing attached, the other destroyed them all,
+  for the very same click on the very same window. Both now run one
+  function with one argument, so whether your shells survive is
+  decided by what you chose, not by which pixel you hit.
+
 ## v0.65.0 — 2026-08-13
 
 ### Fixed

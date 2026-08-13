@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">
+  <!-- The menu-bar mark: the logo's chevron and state dot without the tile.
+       macOS renders a status item as a template image; only the alpha
+       matters, and the system tints it for the light or dark menu bar. The
+       app icon's rounded tile would arrive there as a solid black blob, so
+       the silhouette has to be the mark itself. Drawn in black for the same
+       reason: the colour is discarded, the coverage is not. -->
+  <path d="M5.2 6.5 L10.7 11 L5.2 15.5" fill="none" stroke="#000"
+        stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="16.1" cy="7.1" r="2.7" fill="#000"/>
+</svg>

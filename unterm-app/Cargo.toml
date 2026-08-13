@@ -42,11 +42,18 @@ wgpu.workspace = true
 winit = "0.30"
 arboard = "3"
 pollster = "0.4"
+tray-icon.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation.workspace = true
 objc2.workspace = true
 objc2-foundation.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# tray-icon's Linux backend is libappindicator, which needs a gtk main loop
+# on the thread that owns the icon. winit runs X11/Wayland, not gtk, so the
+# indicator gets a thread of its own and this is what starts it.
+gtk = "0.18"
 
 [target.'cfg(windows)'.dependencies]
 # Asking DWM to round the window's corners: a frameless window is not

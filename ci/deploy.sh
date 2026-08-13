@@ -174,6 +174,11 @@ Maintainer: Alex <lixd220@gmail.com>
 Homepage: https://github.com/zhitongblog/unterm
 EOF
 
+    # The appindicator library is opened by name at runtime, not linked, so
+    # dpkg-shlibdeps below cannot see it. Recommends rather than Depends
+    # because the terminal is whole without it: all that is missing is the
+    # tray indicator for a window parked in the background, and the close
+    # prompt already checks whether one appeared before relying on it.
     cat > "$debroot/DEBIAN/control" <<EOF
 Package: $pkgname
 Version: ${DEB_VERSION}
@@ -188,6 +193,7 @@ Description: Unterm terminal emulator
  built-in screenshots, proxy switching, theme switching, and
  a CLI/MCP automation surface.
 Provides: x-terminal-emulator
+Recommends: libayatana-appindicator3-1 | libappindicator3-1
 EOF
 
     install -Dsm755 -t "$debroot/usr/bin" "$TARGET_DIR/release/unterm"

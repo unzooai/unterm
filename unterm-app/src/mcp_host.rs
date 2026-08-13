@@ -32,19 +32,37 @@ pub fn install() {
 /// window the event loop owns. A winit `Window` is shareable, so the handle
 /// is kept here rather than a message being posted through the event loop --
 /// one fewer moving part on a path an agent calls to say "look at this".
-static WINDOW: std::sync::OnceLock<std::sync::Arc<winit::window::Window>> =
-    std::sync::OnceLock::new();
+/// Replaceable, not write-once: a window parked in the tray is destroyed and
+/// a later one takes its place. A `OnceLock` here would keep the dead window
+/// alive -- an `Arc` is what stops winit destroying it -- and would answer
+/// every agent's `instance.focus` by raising it.
+static WINDOW: std::sync::RwLock<Option<std::sync::Arc<winit::window::Window>>> =
+    std::sync::RwLock::new(None);
 
-/// Called once, when the window exists.
+/// The window handle, for the calls below and nothing else.
+fn window() -> Option<std::sync::Arc<winit::window::Window>> {
+    WINDOW.read().ok()?.clone()
+}
+
+/// Called when a window exists, and again for each one that follows it.
 pub fn remember_window(window: std::sync::Arc<winit::window::Window>) {
-    let _ = WINDOW.set(window);
+    if let Ok(mut held) = WINDOW.write() {
+        *held = Some(window);
+    }
+}
+
+/// Called when the window goes away without the process going with it.
+pub fn forget_window() {
+    if let Ok(mut held) = WINDOW.write() {
+        *held = None;
+    }
 }
 
 /// Ask the window to paint, from any thread. A no-op until the window
 /// exists; whoever calls before then loses nothing, because the first
 /// frame is on its way regardless.
 pub fn request_repaint() {
-    if let Some(window) = WINDOW.get() {
+    if let Some(window) = window() {
         window.request_redraw();
     }
 }
@@ -82,7 +100,7 @@ impl McpHost for AppMcpHost {
     /// Name the window, so an agent's chosen name is what a person sees in
     /// the taskbar and Alt-Tab -- not only what `instance.list` reports.
     fn set_window_title(&self, title: Option<&str>) -> bool {
-        let Some(window) = WINDOW.get() else {
+        let Some(window) = window() else {
             return false;
         };
         window.set_title(&match title {
@@ -98,7 +116,16 @@ impl McpHost for AppMcpHost {
     /// means the window should be visible, and raising one that is minimised
     /// otherwise does nothing at all.
     fn focus_window(&self) -> Result<()> {
-        let window = WINDOW.get().context("the window is not open yet")?;
+        let Some(window) = window() else {
+            // Parked in the tray. "Look at this" is exactly the request that
+            // should bring the terminal back, so it is answered by asking the
+            // event loop to rebuild the window rather than by an error --
+            // otherwise every agent's attention request fails for as long as
+            // the user has left Unterm in the background, which is precisely
+            // when an agent has something to show them.
+            crate::tray::request_wake();
+            return Ok(());
+        };
         window.set_minimized(false);
         window.focus_window();
         Ok(())
@@ -113,6 +140,14 @@ impl McpHost for AppMcpHost {
     /// it or it times out -- which is what an unanswered question must
     /// do, or an agent would write before anyone had said yes.
     fn ask_confirmation(&self, request: &Value) -> Result<Value> {
+        // A window parked in the tray is the same failure carried further:
+        // no frames because there is no window, so the question would spend
+        // its whole timeout somewhere nobody can see. An agent asking for
+        // permission is the strongest reason there is to put the terminal
+        // back on screen, so ask for that first.
+        if window().is_none() {
+            crate::tray::request_wake();
+        }
         // The banner is painted by the frame loop, and a resting window
         // schedules no frames: the question sat registered but invisible
         // for its whole timeout, and every agent write died "unanswered"

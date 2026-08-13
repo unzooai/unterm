@@ -61,6 +61,21 @@ extern "C" fn open_urls(_this: *mut AnyObject, _cmd: Sel, _app: *mut AnyObject, 
     }
 }
 
+/// The Dock, Finder or Spotlight asking an already-running Unterm for a
+/// window. Only interesting when there is none to show: with a window up,
+/// AppKit's own behaviour -- raise it -- is the right one.
+extern "C" fn should_handle_reopen(
+    _this: *mut AnyObject,
+    _cmd: Sel,
+    _app: *mut AnyObject,
+    has_visible_windows: bool,
+) -> bool {
+    if !has_visible_windows {
+        crate::tray::request_wake();
+    }
+    true
+}
+
 /// The folder a `unterm://open?path=<percent-encoded>` deep link points at.
 fn scheme_path(url: &str) -> Option<String> {
     let rest = url.strip_prefix("unterm://")?;
@@ -214,6 +229,24 @@ pub fn install() {
         );
         if !added.as_bool() {
             log::warn!("could not add openURLs handler (already present?)");
+        }
+        // A window parked in the tray leaves the app running with no window
+        // and, under the Accessory activation policy, no Dock tile either.
+        // Clicking Unterm in Finder or Spotlight then reaches an app macOS
+        // considers already open: it sends this instead of launching
+        // anything, and without a handler the click does nothing at all.
+        let reopen_types = std::ffi::CString::new("B@:@B").unwrap();
+        let reopened = objc2::ffi::class_addMethod(
+            class as *const _ as *mut _,
+            sel!(applicationShouldHandleReopen:hasVisibleWindows:),
+            std::mem::transmute::<
+                extern "C" fn(*mut AnyObject, Sel, *mut AnyObject, bool) -> bool,
+                unsafe extern "C-unwind" fn(),
+            >(should_handle_reopen),
+            reopen_types.as_ptr(),
+        );
+        if !reopened.as_bool() {
+            log::warn!("could not add reopen handler (already present?)");
         }
         // The Info.plist has promised "New Unterm Tab Here" / "New Unterm
         // Window Here" in the Services menu since v0.40; nothing ever

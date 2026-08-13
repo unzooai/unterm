@@ -55,6 +55,7 @@ mod system_capture;
 mod terminal;
 mod theme;
 mod topbar;
+mod tray;
 mod tree;
 mod ui_tokens;
 mod unicode_names;

@@ -114,10 +114,15 @@ fn connect_core_shared() -> Result<()> {
         .map_err(|_| anyhow::anyhow!("core backend initialized twice"))
 }
 
-/// Held for the process's lifetime once attached; dropping it would tell
-/// the Core this window is gone.
-static HOST_CHANNEL: std::sync::OnceLock<unterm_core::HostChannelClient> =
-    std::sync::OnceLock::new();
+/// Held for the process's lifetime once attached; dropping it tells the Core
+/// this front end is gone and it should go back to answering headless.
+///
+/// A lock rather than a `OnceLock` so `attach_host_channel` can see whether
+/// one is already held: a window returning from the tray runs the same setup
+/// path a first window does, and attaching twice would leave the Core
+/// reasoning about a detach that means nothing.
+static HOST_CHANNEL: std::sync::Mutex<Option<unterm_core::HostChannelClient>> =
+    std::sync::Mutex::new(None);
 
 /// Offer this window to the Core as the front end it can call back into.
 ///
@@ -133,13 +138,22 @@ pub fn attach_host_channel() {
     let Some(shared) = CORE_SHARED.get() else {
         return;
     };
+    // A window returning from the tray runs `start` again, and `start`
+    // attaches. The channel it would replace is the one still carrying this
+    // process's answers, so a second connection would gain nothing and cost
+    // the Core a detach it has to reason about.
+    if HOST_CHANNEL.lock().is_ok_and(|held| held.is_some()) {
+        return;
+    }
     match unterm_core::HostChannelClient::attach(
         &shared.endpoint,
         shared.token.clone(),
         std::sync::Arc::new(crate::mcp_host::AppHostResponder),
     ) {
         Ok(channel) => {
-            let _ = HOST_CHANNEL.set(channel);
+            if let Ok(mut held) = HOST_CHANNEL.lock() {
+                *held = Some(channel);
+            }
             eprintln!("unterm: attached to unterm-core as its front end");
         }
         Err(err) => {
@@ -241,23 +255,10 @@ impl AppEngine {
         matches!(self, Self::Core { .. })
     }
 
-    /// Ask the Core to refuse new sessions, and optionally to stop
-    /// once the running ones have ended. A no-op in Local mode, where
-    /// there is no Core to outlive anything.
-    pub fn drain_core(&self, exit_when_idle: bool) -> Result<()> {
-        match self {
-            Self::Local(_) => Ok(()),
-            Self::Core { client, .. } => client.drain(exit_when_idle),
-        }
-    }
-
-    /// Stop the Core now, ending every session it holds.
-    pub fn shutdown_core(&self) -> Result<()> {
-        match self {
-            Self::Local(_) => Ok(()),
-            Self::Core { client, .. } => client.shutdown(),
-        }
-    }
+    // `drain_core` and `shutdown_core` used to live here. Both waited on the
+    // Core from the UI thread, so every caller had already stopped using them
+    // in favour of cloning the client and asking off-thread -- leaving two
+    // spellings of the same request, one of which could freeze the window.
 
     pub fn pane_modes(&self, pane_id: usize) -> Result<PaneModesSnapshot> {
         route!(self, engine => engine.pane_modes(pane_id))
