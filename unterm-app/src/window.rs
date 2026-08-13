@@ -7504,17 +7504,29 @@ impl App {
             Ok(session) => session,
             Err(err) => {
                 log::warn!("could not open a tab: {err:#}");
+                #[cfg(target_os = "macos")]
+                crate::macos_open::trace(&format!("open_tab_with: create_session failed: {err:#}"));
                 return;
             }
         };
         match self.tabs.create_tab(session.id) {
             Ok(tab_id) => {
+                #[cfg(target_os = "macos")]
+                crate::macos_open::trace(&format!(
+                    "open_tab_with: pane {} in tab {tab_id}",
+                    session.id
+                ));
                 self.tabs.set_active_tab(tab_id);
                 self.tab_id = Some(tab_id);
                 self.focus_session(session.id);
             }
             Err(err) => {
                 log::warn!("could not record the tab: {err:#}");
+                #[cfg(target_os = "macos")]
+                crate::macos_open::trace(&format!(
+                    "open_tab_with: create_tab failed for pane {}: {err:#}",
+                    session.id
+                ));
                 crate::statsbar::forget(session.id);
                 unterm_services::ghost_text::forget(session.id as u64);
                 let _ = self.engine.destroy_session(session.id);

@@ -3,6 +3,11 @@
 //! next-core runs the shell and owns the screen; unterm-render draws it; winit
 //! provides the window. This binary exists alongside `unterm` rather than
 //! replacing it, so the working terminal keeps working while this one grows.
+// A GUI, not a console program: without this, every Explorer/Start-menu
+// launch on Windows drags a black console window along with the terminal.
+// Console-launched invocations reattach in main() so `unterm --version`
+// still prints where it was typed.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod args;
 mod background;
@@ -124,7 +129,29 @@ fn install_panic_reporter() {
     }));
 }
 
+/// Reattach to the console this process was typed into, if there was one.
+///
+/// The `windows` subsystem detaches stdout at birth, which is right for an
+/// Explorer launch and wrong for `unterm --version` in a shell: the version
+/// probe would print nothing and release scripts would read that silence as
+/// a broken binary. Attaching to the parent console (and only the parent --
+/// never allocating a fresh one) restores printing exactly where a console
+/// already existed.
+#[cfg(windows)]
+fn attach_parent_console() {
+    use winapi::um::wincon::{AttachConsole, ATTACH_PARENT_PROCESS};
+    // Attaching updates the process's standard handles, and Rust fetches
+    // them per write, so println! simply works afterwards. Failure means
+    // there is no parent console -- an Explorer launch -- and silence is
+    // exactly what that case wants.
+    unsafe {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+
 fn main() -> std::process::ExitCode {
+    #[cfg(windows)]
+    attach_parent_console();
     // This path must remain before logging, config migration, instance
     // registration, server creation and winit initialization. Release and
     // supervisor probes can therefore identify a binary without launching it.

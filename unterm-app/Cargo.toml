@@ -52,7 +52,7 @@ objc2-foundation.workspace = true
 # Asking DWM to round the window's corners: a frameless window is not
 # rounded by default, and square corners next to every other Windows 11
 # window read as a window that did not finish loading.
-winapi = { workspace = true, features = ["dwmapi", "windef", "minwindef", "winerror"] }
+winapi = { workspace = true, features = ["dwmapi", "windef", "minwindef", "winerror", "consoleapi", "wincon", "processenv", "winbase"] }
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = { workspace = true }
