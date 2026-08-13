@@ -378,6 +378,21 @@ impl HostChannel {
         id
     }
 
+    /// Forget every front end and every waiter.
+    ///
+    /// Tests only. The channel is a process-global singleton while the
+    /// front ends in it belong to individual tests, and a test that
+    /// inherits the previous one's window is measuring the wrong window.
+    #[cfg(test)]
+    fn clear_for_tests(&self) {
+        if let Ok(mut attachments) = self.attachments.lock() {
+            attachments.clear();
+        }
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.clear();
+        }
+    }
+
     fn detach(&self, id: u64) {
         let mut attachments = self.attachments.lock().expect("host channel lock poisoned");
         let was_current = attachments
@@ -3082,10 +3097,25 @@ mod tests {
 
     fn host_channel_test_guard() -> std::sync::MutexGuard<'static, ()> {
         static GUARD: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
-        GUARD
+        let guard = GUARD
             .get_or_init(|| std::sync::Mutex::new(()))
             .lock()
-            .expect("host channel test lock poisoned")
+            // A test that fails while holding this poisons it, and every
+            // later test then failed on the lock instead of on its own
+            // subject -- one real failure reported as two, the second one
+            // naming a defect that was not there.
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Serialising these tests does not make the process-global channel
+        // empty for them. A server thread detaches when its client's socket
+        // closes, which it notices on its own schedule and on the far side
+        // of a drop the test cannot observe -- and one test leaves a front
+        // end that stops answering on purpose. Either way the leftover
+        // attachment makes `is_attached` answer for a window this test
+        // never opened, which is how "the core kept a detached front end"
+        // failed roughly one run in four.
+        wait_for(Duration::from_secs(2), || !host_channel().is_attached());
+        host_channel().clear_for_tests();
+        guard
     }
 
     fn wait_for(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
