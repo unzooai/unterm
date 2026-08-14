@@ -21,6 +21,14 @@
   as long as Unterm sits in the background — which is exactly when an
   agent has something worth showing you.
 
+  Known limitation on Windows 11: it files every new notification-area
+  icon into the overflow flyout behind the `^` chevron, and there is no
+  supported way for an application to promote itself out of it. The
+  indicator is there and its menu works, but it is one click further
+  away than on macOS or GNOME until you drag it onto the taskbar. On
+  Linux the indicator needs a StatusNotifier host — Ubuntu ships and
+  enables one, bare upstream GNOME does not.
+
 ### Fixed
 
 - **The two close buttons no longer disagree about your shells.** The
