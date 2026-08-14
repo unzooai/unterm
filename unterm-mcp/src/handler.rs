@@ -1859,9 +1859,34 @@ mod engine_neutral_handler_tests {
         assert!(idle["output"]["total_bytes"].as_u64().unwrap_or_default() > 0);
         assert_eq!(idle["paste"]["total_pastes"], 1);
         assert_eq!(idle["paste"]["last_text_bytes"], 16);
+        // Input and paste move only when this test writes, so two samples of
+        // them must agree exactly.
         assert_eq!(status["input"], idle["input"]);
-        assert_eq!(status["output"], idle["output"]);
         assert_eq!(status["paste"], idle["paste"]);
+        // Output is the one counter the session advances on its own. The tty
+        // echoes back the 19 bytes just written -- "abc" plus the 16-byte
+        // paste -- at a moment neither call controls, so a sample taken after
+        // `session.idle` can legitimately have grown by exactly that much.
+        // Demanding equality made this a coin toss on a loaded runner: it lost
+        // once on macOS during the 0.66.0 release while the same commit passed
+        // on Linux and Windows. What the two methods actually promise is one
+        // counter read twice, so assert what that means -- same shape, never
+        // going backwards.
+        let sampled = |value: &serde_json::Value, key: &str| {
+            value["output"][key].as_u64().unwrap_or_default()
+        };
+        for key in ["total_bytes", "total_chunks", "recorded_chunks"] {
+            assert!(
+                sampled(&status, key) >= sampled(&idle, key),
+                "exec.status reported a smaller output {key} than session.idle: {} < {}",
+                sampled(&status, key),
+                sampled(&idle, key)
+            );
+        }
+        assert_eq!(
+            status["output"]["last_recorded"], idle["output"]["last_recorded"],
+            "recording state is not something the shell changes on its own"
+        );
     }
 
     #[test]
