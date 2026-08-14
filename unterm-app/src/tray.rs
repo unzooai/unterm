@@ -270,107 +270,187 @@ mod desktop {
 /// on the thread owning the icon. winit is running X11 or Wayland on the main
 /// thread, not gtk, so the indicator gets a thread of its own. The window
 /// never touches the icon -- it writes a `Status`, and the gtk thread notices.
+///
+/// That thread is started once and never stops. gtk refuses to be initialised
+/// from a second thread -- it panics, and the panic is on the thread that owns
+/// the indicator, so it takes the process with it. Ending the thread with each
+/// indicator therefore turns the *second* park of a session into a crash, which
+/// is why the thread outlives every icon it puts up: parking hands it a
+/// `Status`, unparking takes the `Status` away, and it idles in between.
 #[cfg(target_os = "linux")]
 mod gtk_thread {
     use super::{build_menu, icon, labels, Status};
-    use std::sync::mpsc;
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex, OnceLock};
+    use std::time::{Duration, Instant};
 
-    pub struct Tray {
-        /// `None` means "take yourself down": the window came back, or this
-        /// handle was dropped.
-        wanted: Arc<Mutex<Option<Status>>>,
+    /// What the window wants the indicator to be, and what it actually is.
+    #[derive(Default)]
+    struct Shared {
+        /// `Some` while an indicator should be on screen.
+        wanted: Mutex<Option<Status>>,
+        /// The gtk thread's answer: `None` while it has not looked yet,
+        /// `Some(true)` once an icon is up, `Some(false)` once it has tried
+        /// and failed or taken one down.
+        live: Mutex<Option<bool>>,
     }
+
+    /// Set when gtk itself is unavailable, so later parks fail immediately
+    /// instead of waiting out a timeout for a thread that is never coming.
+    static UNAVAILABLE: AtomicBool = AtomicBool::new(false);
+
+    fn shared() -> &'static Arc<Shared> {
+        static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
+        SHARED.get_or_init(|| {
+            let shared = Arc::new(Shared::default());
+            let worker = Arc::clone(&shared);
+            if std::thread::Builder::new()
+                .name("unterm-tray".into())
+                .spawn(move || run(worker))
+                .is_err()
+            {
+                UNAVAILABLE.store(true, Ordering::SeqCst);
+            }
+            shared
+        })
+    }
+
+    /// A token, not a handle: the icon belongs to the gtk thread, and holding
+    /// this is what keeps it on screen.
+    pub struct Tray;
 
     impl Tray {
         pub fn show(status: Status) -> Option<Self> {
-            let wanted = Arc::new(Mutex::new(Some(status)));
-            let worker = Arc::clone(&wanted);
-            // The thread reports whether an icon actually appeared. Without
-            // it the window would park its sessions behind an indicator that
-            // silently failed to start on a headless or tray-less session --
-            // the one outcome worse than not offering the choice at all.
-            let (report, appeared) = mpsc::sync_channel::<bool>(1);
-            std::thread::Builder::new()
-                .name("unterm-tray".into())
-                .spawn(move || run(worker, report, status))
-                .ok()?;
-            match appeared.recv_timeout(Duration::from_secs(5)) {
-                Ok(true) => Some(Self { wanted }),
-                _ => {
-                    *wanted.lock().unwrap() = None;
-                    None
-                }
+            if UNAVAILABLE.load(Ordering::SeqCst) {
+                return None;
             }
+            let shared = shared();
+            *shared.live.lock().ok()? = None;
+            *shared.wanted.lock().ok()? = Some(status);
+            // Wait for the thread to say whether an icon actually appeared.
+            // Without this the window would park its sessions behind an
+            // indicator that silently failed to start on a headless or
+            // tray-less session -- the one outcome worse than not offering
+            // the choice at all.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                if UNAVAILABLE.load(Ordering::SeqCst) {
+                    break;
+                }
+                if let Some(live) = shared.live.lock().ok().and_then(|live| *live) {
+                    if live {
+                        return Some(Self);
+                    }
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            if let Ok(mut wanted) = shared.wanted.lock() {
+                *wanted = None;
+            }
+            None
         }
 
         pub fn update(&mut self, status: Status) {
-            *self.wanted.lock().unwrap() = Some(status);
+            if let Ok(mut wanted) = shared().wanted.lock() {
+                *wanted = Some(status);
+            }
         }
     }
 
     impl Drop for Tray {
         fn drop(&mut self) {
-            // The gtk thread sees the `None` on its next turn, drops the icon
-            // and ends its own loop.
-            *self.wanted.lock().unwrap() = None;
+            // The gtk thread sees the `None` on its next turn and drops the
+            // icon, which is what removes it from the panel. The thread stays.
+            if let Ok(mut wanted) = shared().wanted.lock() {
+                *wanted = None;
+            }
         }
     }
 
-    fn run(wanted: Arc<Mutex<Option<Status>>>, report: mpsc::SyncSender<bool>, status: Status) {
-        if gtk::init().is_err() {
-            log::warn!("no gtk display for the tray indicator");
-            let _ = report.send(false);
-            return;
-        }
-        let labels = labels(status);
-        let Ok((menu, header)) = build_menu(&labels)
+    /// Everything the gtk thread holds for one indicator.
+    struct Live {
+        icon: tray_icon::TrayIcon,
+        header: tray_icon::menu::MenuItem,
+        shown: Status,
+    }
+
+    fn build(status: Status) -> Option<Live> {
+        // Named `first`, not `labels`: the refresh path below calls the
+        // `labels` function, and a binding of that name would shadow it --
+        // a compile error only on this platform, because this module is the
+        // only one that does both.
+        let first = labels(status);
+        let (menu, header) = build_menu(&first)
             .map_err(|error| log::warn!("could not build the tray menu: {error}"))
-        else {
-            let _ = report.send(false);
-            return;
-        };
+            .ok()?;
         let mut builder = tray_icon::TrayIconBuilder::new()
             .with_menu(Box::new(menu))
-            .with_tooltip(&labels.tooltip);
+            .with_tooltip(&first.tooltip);
         if let Some(icon) = icon() {
             builder = builder.with_icon(icon);
         }
-        let tray = match builder.build() {
-            Ok(tray) => tray,
+        match builder.build() {
+            Ok(icon) => Some(Live {
+                icon,
+                header,
+                shown: status,
+            }),
             Err(error) => {
                 log::warn!("no tray indicator on this desktop: {error}");
-                let _ = report.send(false);
-                return;
+                None
             }
-        };
-        let _ = report.send(true);
+        }
+    }
 
-        // Held in an Option so the loop can drop the icon itself: the panel
-        // removes it when the indicator goes, and waiting for the thread to
-        // unwind leaves a dead icon on the screen in between.
-        let mut tray = Some(tray);
-        let mut shown = status;
+    fn run(shared: Arc<Shared>) {
+        if gtk::init().is_err() {
+            log::warn!("no gtk display for the tray indicator");
+            UNAVAILABLE.store(true, Ordering::SeqCst);
+            return;
+        }
+        let mut live: Option<Live> = None;
         gtk::glib::timeout_add_local(Duration::from_millis(250), move || {
-            let next = *wanted.lock().unwrap();
-            let Some(next) = next else {
-                drop(tray.take());
-                gtk::main_quit();
-                return gtk::glib::ControlFlow::Break;
-            };
-            if next != shown {
-                shown = next;
-                let labels = labels(next);
-                header.set_text(&labels.header);
-                if let Some(tray) = tray.as_ref() {
-                    let _ = tray.set_tooltip(Some(&labels.tooltip));
-                    if labels.title.is_empty() {
-                        tray.set_title(None::<&str>);
-                    } else {
-                        tray.set_title(Some(&labels.title));
+            let wanted = shared.wanted.lock().ok().and_then(|wanted| *wanted);
+            match (wanted, live.as_mut()) {
+                (Some(status), None) => {
+                    let built = build(status);
+                    let appeared = built.is_some();
+                    live = built;
+                    if let Ok(mut report) = shared.live.lock() {
+                        *report = Some(appeared);
+                    }
+                    // A failed build must not be retried four times a second
+                    // for as long as the window stays parked.
+                    if !appeared {
+                        if let Ok(mut wanted) = shared.wanted.lock() {
+                            *wanted = None;
+                        }
                     }
                 }
+                (Some(status), Some(current)) => {
+                    if status != current.shown {
+                        current.shown = status;
+                        let labels = labels(status);
+                        current.header.set_text(&labels.header);
+                        let _ = current.icon.set_tooltip(Some(&labels.tooltip));
+                        if labels.title.is_empty() {
+                            current.icon.set_title(None::<&str>);
+                        } else {
+                            current.icon.set_title(Some(&labels.title));
+                        }
+                    }
+                }
+                (None, Some(_)) => {
+                    // Dropping the icon here rather than at thread exit: this
+                    // is what takes it off the panel, and the thread is not
+                    // exiting -- gtk would refuse to start again.
+                    live = None;
+                    if let Ok(mut report) = shared.live.lock() {
+                        *report = Some(false);
+                    }
+                }
+                (None, None) => {}
             }
             gtk::glib::ControlFlow::Continue
         });

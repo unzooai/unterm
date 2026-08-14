@@ -246,7 +246,12 @@ toml = "0.8"
 # The menu-bar / notification-area indicator a window leaves behind when the
 # user parks its sessions in the background. One crate for all three desktops
 # so the "keep running" promise looks the same everywhere.
-tray-icon = "0.24"
+#
+# Without `libxdo`, which is on by default: it exists to make muda's
+# predefined Copy/Cut/Paste menu items work, the indicator's menu has none of
+# those, and keeping it would link every Linux build against libxdo and put
+# it on the install list for a capability nothing here uses.
+tray-icon = { version = "0.24", default-features = false, features = ["gtk"] }
 ucd-trie = {version="0.1", default-features=false}
 uds_windows = "1.1"
 umask = { path = "umask" }
