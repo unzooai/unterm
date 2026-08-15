@@ -1274,7 +1274,15 @@ impl App {
         window.set_ime_allowed(true);
 
         let size = window.inner_size();
-        let (cols, rows) = self.font.grid_for(size.width as f32, size.height as f32);
+        // The terminal's own area, not the whole window: the strip on the
+        // left and the padding either side are not columns the shell may
+        // write into. Sizing the first pane from the raw window meant every
+        // TUI launched at startup drew past the right edge until something
+        // resized the window.
+        let (cols, rows) = self.font.grid_for(
+            self.terminal_width_for(size.width as f32),
+            self.terminal_height_for(size.height as f32),
+        );
         // A Core that outlived the previous window still holds its
         // sessions; a window that opened onto a populated Core must
         // show those, not stack a fresh shell on top of them. In Local
@@ -2227,7 +2235,23 @@ impl App {
     /// being covered: a panel over the grid hides a row the shell still
     /// believes in, and the cursor ends up somewhere nobody can see.
     fn dock_width(&self, metrics: unterm_render::quads::CellMetrics) -> f32 {
-        let window_width = self.state.as_ref().map(|live| live.width).unwrap_or(800) as f32;
+        self.dock_width_for(self.window_width(), metrics)
+    }
+
+    /// The same measurement against a window size the caller already knows.
+    ///
+    /// During `start` there is no `Live` yet, so every one of these used to
+    /// fall back to a hard-coded 800 — and the startup path sidestepped the
+    /// whole chain by sizing the first shell from the raw window width
+    /// instead. That handed the shell the sidebar's columns as well as its
+    /// own, which is why a TUI opened at launch was drawn wider than the grid
+    /// it lived in and why maximising fixed it: the resize was the first time
+    /// anything measured the terminal properly.
+    fn dock_width_for(
+        &self,
+        window_width: f32,
+        metrics: unterm_render::quads::CellMetrics,
+    ) -> f32 {
         crate::sidebar::width(
             self.sidebar_open,
             self.sidebar_points,
@@ -2237,16 +2261,30 @@ impl App {
         ) + crate::tree::width(self.tree.is_some(), metrics)
     }
 
+    /// The window's inner width, or a plausible stand-in before it exists.
+    fn window_width(&self) -> f32 {
+        self.state.as_ref().map(|live| live.width).unwrap_or(800) as f32
+    }
+
+    /// The window's inner height, same caveat.
+    fn window_height(&self) -> f32 {
+        self.state.as_ref().map(|live| live.height).unwrap_or(600) as f32
+    }
+
     /// How wide the terminal is, once the strip and the gaps are taken.
     fn terminal_width(&self) -> f32 {
+        self.terminal_width_for(self.window_width())
+    }
+
+    /// How wide the terminal is inside a window of this width.
+    fn terminal_width_for(&self, window_width: f32) -> f32 {
         let metrics = self.font.metrics();
-        let window = self.state.as_ref().map(|live| live.width).unwrap_or(800) as f32;
-        (window
-            - self.dock_width(metrics)
-            - self.git_panel_width()
+        (window_width
+            - self.dock_width_for(window_width, metrics)
+            - self.git_panel_width_for(window_width)
             - self.terminal_padding_left()
             - self.terminal_padding_right())
-        .max(self.font.metrics().width)
+        .max(metrics.width)
     }
 
     /// What the strip shows: one line per tab, grouped by project.
@@ -5392,12 +5430,15 @@ impl App {
     }
 
     fn git_panel_width(&self) -> f32 {
+        self.git_panel_width_for(self.window_width())
+    }
+
+    fn git_panel_width_for(&self, window_width: f32) -> f32 {
         if self.git_panel.is_none() {
             return 0.0;
         }
         let pt = self.chrome_pt();
-        let window = self.state.as_ref().map(|live| live.width).unwrap_or(800) as f32;
-        let max = (window * crate::ui_tokens::GIT_PANEL_MAX_RATIO)
+        let max = (window_width * crate::ui_tokens::GIT_PANEL_MAX_RATIO)
             .max(crate::ui_tokens::GIT_PANEL_MIN_WIDTH * pt);
         (crate::ui_tokens::GIT_PANEL_WIDTH * pt)
             .clamp(crate::ui_tokens::GIT_PANEL_MIN_WIDTH * pt, max)
@@ -7795,7 +7836,12 @@ impl App {
 
     /// How tall the terminal area is, once the tab bar has taken its share.
     fn terminal_height(&self) -> f32 {
-        let height = self.state.as_ref().map(|live| live.height).unwrap_or(600) as f32;
+        self.terminal_height_for(self.window_height())
+    }
+
+    /// How tall the terminal is inside a window of this height.
+    fn terminal_height_for(&self, window_height: f32) -> f32 {
+        let height = window_height;
         // The bar above, the status line below, and a gap at each end. Taken
         // out of the terminal rather than drawn over it: a bar over the grid
         // hides a row the shell still believes in.
@@ -11177,6 +11223,43 @@ bg_color = "#3a3a3a"
         assert!(name.contains("powershell") || name.contains("pwsh"), "{argv:?}");
         assert_eq!(argv[1].to_string_lossy(), "-NoLogo");
         assert_eq!(argv[2].to_string_lossy(), "-NoProfile");
+    }
+
+    #[test]
+    fn the_first_pane_is_measured_against_the_terminal_not_the_whole_window() {
+        // The bug this pins: `start` sized the very first shell with
+        // `grid_for(window_width, window_height)` while every later
+        // measurement used `terminal_width()`, which subtracts the tab strip
+        // and the padding. The shell was therefore told it had the sidebar's
+        // columns as well as its own, so a TUI launched at startup — Claude
+        // Code, reported 2026-08-15 — drew past the right edge and stayed
+        // that way until a resize. Maximising "fixed" it because the resize
+        // was the first measurement that was correct.
+        let config = config::parse("font_size = 13").expect("config should parse");
+        let app = App::new(&config).expect("an app without a window");
+        let metrics = app.font.metrics();
+
+        // Exactly the situation `start` is in: a known window size and no
+        // `Live` state yet.
+        let window_width = 1200.0_f32;
+        let dock = app.dock_width_for(window_width, metrics);
+        let terminal = app.terminal_width_for(window_width);
+
+        assert!(
+            dock > 0.0,
+            "the tab strip has width at startup, so it must be subtracted"
+        );
+        assert!(
+            terminal <= window_width - dock,
+            "the terminal is {terminal} wide inside a {window_width} window whose              strip already takes {dock}; the shell would be given columns it              cannot draw into"
+        );
+
+        let (honest_cols, _) = app.font.grid_for(terminal, 600.0);
+        let (whole_window_cols, _) = app.font.grid_for(window_width, 600.0);
+        assert!(
+            honest_cols < whole_window_cols,
+            "measuring the window instead of the terminal must yield more              columns ({whole_window_cols}) than the grid has ({honest_cols});              if these are equal the test is no longer measuring the defect"
+        );
     }
 
     #[test]
