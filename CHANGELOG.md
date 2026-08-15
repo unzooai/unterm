@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.67.0 — 2026-08-15
+
+### Fixed
+
+- **A TUI opened at startup is no longer drawn wider than the window.**
+  Launching Claude Code — or anything that trusts `$COLUMNS` — in a
+  freshly opened Unterm cut the right-hand side off until the window
+  was maximised. Maximising was not really a workaround: it was the
+  first time anything measured the terminal correctly. The startup path
+  sized the first shell from the whole window while every later
+  measurement subtracted the tab strip and the padding, so the shell was
+  told it owned the sidebar's columns as well as its own. Both paths now
+  measure the same thing.
+
+### Changed
+
+- **Fleets are stored durably instead of in a JSON file.** The Agent
+  Cockpit's record of what ran now lives in a transactional store with a
+  state machine and crash recovery, rather than `~/.unterm/fleets.json`
+  rewritten whole on every change — where a crash between the write and
+  the rename lost the lot. Existing fleets are imported automatically
+  the first time this version touches them, and the old file is kept
+  (renamed, not deleted) rather than consumed. Nothing about the Review
+  page, `fleet.*` or `review.*` changes: same commands, same shapes,
+  same behaviour.
+- A worker that dies mid-flight now leaves a verdict rather than a row
+  stuck at "running" forever, so the Cockpit stops showing work in
+  progress that nobody is doing.
+
+### Internal
+
+- The release pipeline now refuses to build a tag that does not match
+  the version in the tree, and unpacks each finished artifact to ask the
+  binaries inside what version they are — a correctly-named archive full
+  of the previous release used to be undetectable.
+- Milestones M0, M1 and M2 of the One Core plan are closed; the durable
+  task engine (`unterm-tasks`) and the action gateway's vocabulary
+  (`unterm-gateway`) are in place.
+
 ## v0.66.0 — 2026-08-14
 
 ### Added
