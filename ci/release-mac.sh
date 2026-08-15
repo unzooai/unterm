@@ -41,6 +41,18 @@ if [ -z "$TAG" ]; then
   exit 1
 fi
 
+# The tag has to name the version actually being built. Nothing downstream
+# would catch the drift: the DMG is named from the tag, so a stale bump ships
+# 0.65 binaries inside a file called 0.66 and every later bug report cites a
+# version that was never built.
+WANT_VERSION="${TAG#v}"
+HAVE_VERSION=$(awk '/^\[workspace.package\]/{f=1} f && /^version *=/{gsub(/[",]/,"",$3); print $3; exit}' Cargo.toml)
+if [ "$WANT_VERSION" != "$HAVE_VERSION" ]; then
+  echo "ERROR: tag $TAG does not match the workspace version $HAVE_VERSION." >&2
+  echo "Fix the version bump or the tag before releasing." >&2
+  exit 1
+fi
+
 if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
    && [ ! -f "$HOME/.unterm/notary-credentials" ]; then
   echo "ERROR: Notary profile '$NOTARY_PROFILE' not found in Keychain." >&2
@@ -83,6 +95,27 @@ TAG_NAME="$TAG" NOTARY_PROFILE="$NOTARY_PROFILE" bash ci/sign-macos.sh
 dmg="Unterm-macos-$TAG.dmg"
 if [ ! -f "$dmg" ]; then
   echo "ERROR: expected $dmg not produced by ci/sign-macos.sh" >&2
+  exit 1
+fi
+
+# Existence is not identity: ask the binaries inside the finished DMG what
+# version they are, before anyone can download them.
+echo ">> Probing $dmg for the version it actually carries"
+probe_mount=$(mktemp -d)
+hdiutil attach -nobrowse -quiet -mountpoint "$probe_mount" "$dmg"
+probe_failed=""
+for binary in unterm unterm-cli unterm-core ; do
+  got=$("$probe_mount/Unterm.app/Contents/MacOS/$binary" --version 2>/dev/null | awk '{print $NF}')
+  if [ "$got" != "$WANT_VERSION" ]; then
+    echo "ERROR: DMG ships $binary '$got', expected $WANT_VERSION" >&2
+    probe_failed="yes"
+  else
+    echo "   $binary $got"
+  fi
+done
+hdiutil detach "$probe_mount" -quiet || true
+rmdir "$probe_mount" 2>/dev/null || true
+if [ -n "$probe_failed" ]; then
   exit 1
 fi
 

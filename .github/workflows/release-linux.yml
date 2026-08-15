@@ -41,6 +41,19 @@ jobs:
         run: |
           if [ -n "${{ inputs.tag }}" ]; then echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           else echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"; fi
+      - name: Verify the tag names the version being built
+        env:
+          TAG_NAME: ${{ steps.tag.outputs.name }}
+        run: |
+          want="${TAG_NAME#v}"
+          have=$(awk '/^\[workspace.package\]/{f=1} f && /^version *=/{gsub(/[",]/,"",$3); print $3; exit}' Cargo.toml)
+          if [ "$want" != "$have" ]; then
+            echo "tag ${TAG_NAME} does not match the workspace version ${have}." >&2
+            echo "A release whose artifacts disagree with their tag is the one" >&2
+            echo "kind nobody can reason about afterwards; fix the bump or the tag." >&2
+            exit 1
+          fi
+          echo "tag ${TAG_NAME} matches workspace version ${have}"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install build deps
@@ -84,6 +97,30 @@ jobs:
           echo "Verified Linux artifacts:"
           echo "  $deb"
           echo "  ${appimages[0]}"
+          # Existence is not identity. Unpack what is about to be published and
+          # ask the binary inside what version it is: a packaging script that
+          # stages a stale target/ directory produces a correctly-named archive
+          # full of the previous release, and nothing else in this pipeline
+          # would notice.
+          want="${TAG_NAME#v}"
+          rm -rf probe && mkdir -p probe/deb
+          dpkg-deb -x "$deb" probe/deb
+          for binary in unterm unterm-cli unterm-core ; do
+            got=$(probe/deb/usr/bin/$binary --version | awk '{print $NF}')
+            if [ "$got" != "$want" ]; then
+              echo "deb ships $binary $got, expected $want" >&2
+              exit 1
+            fi
+            echo "  deb $binary $got"
+          done
+          ( cd probe && ../"${appimages[0]}" --appimage-extract >/dev/null )
+          got=$(probe/squashfs-root/usr/bin/unterm --version | awk '{print $NF}')
+          if [ "$got" != "$want" ]; then
+            echo "AppImage ships unterm $got, expected $want" >&2
+            exit 1
+          fi
+          echo "  AppImage unterm $got"
+          rm -rf probe
       - uses: actions/upload-artifact@v4
         with:
           # Per-arch name: upload-artifact@v4 rejects duplicate names across
