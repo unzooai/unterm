@@ -726,3 +726,224 @@ fn a_killed_core_is_replaced_without_restarting_the_client() {
     drop(cache);
     let _ = std::fs::remove_dir_all(&state_dir);
 }
+
+/// A window that dies takes nothing with it.
+///
+/// The Core exists so that shells outlive the thing drawing them, and the
+/// half of that nobody had a test for was the window's own death. Killing a
+/// GUI closes its sockets without draining, without closing sessions, and
+/// without saying goodbye — which at the Core's boundary is indistinguishable
+/// from any other abrupt disconnect, and is exactly what dropping these
+/// streams does. Both of the window's connections go: the request channel and
+/// the `core.host` registration that makes it the front end.
+///
+/// What has to survive is the whole point of the architecture: the shell, its
+/// scrollback, and the ability of the *next* window to pick both up and keep
+/// typing.
+#[test]
+fn sessions_and_scrollback_outlive_a_front_end_that_dies() {
+    let state_dir = scratch_state_dir("front-end-death");
+    let mut core = spawn_core(&state_dir);
+    let discovery = wait_for_discovery(&state_dir, Duration::from_secs(10));
+
+    let scrollback_of = |stream: &mut TcpStream, pane: u64| -> String {
+        let read = request(
+            stream,
+            &discovery.token,
+            "session.scrollback_text",
+            serde_json::json!({"pane_id": pane, "tail_lines": 500}),
+        );
+        read["result"]["text"].as_str().unwrap_or_default().to_string()
+    };
+
+    // The window: one request channel, one front-end registration.
+    let mut window = TcpStream::connect(&discovery.endpoint).unwrap();
+    window.set_nodelay(true).unwrap();
+    let mut host = TcpStream::connect(&discovery.endpoint).unwrap();
+    let attached = request(
+        &mut host,
+        &discovery.token,
+        "core.host",
+        serde_json::Value::Null,
+    );
+    assert_eq!(attached["ok"], true, "core.host refused the front end: {attached}");
+
+    let argv = if cfg!(windows) { ["cmd.exe"] } else { ["sh"] };
+    let created = request(
+        &mut window,
+        &discovery.token,
+        "session.create",
+        serde_json::json!({"cols": 80, "rows": 24, "argv": argv}),
+    );
+    assert_eq!(created["ok"], true, "session.create failed: {created}");
+    let pane_id = created["result"]["id"].as_u64().unwrap();
+
+    request(
+        &mut window,
+        &discovery.token,
+        "session.write",
+        serde_json::json!({"pane_id": pane_id, "data": "echo BEFORE_THE_CRASH\r"}),
+    );
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        if scrollback_of(&mut window, pane_id).contains("BEFORE_THE_CRASH") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        scrollback_of(&mut window, pane_id).contains("BEFORE_THE_CRASH"),
+        "the shell never echoed the marker, so there is nothing to lose yet"
+    );
+
+    // The window dies. No drain, no close, no warning.
+    drop(window);
+    drop(host);
+    std::thread::sleep(Duration::from_millis(500));
+
+    // The Core is still alive and still serving.
+    assert!(
+        core.try_wait().unwrap().is_none(),
+        "the Core followed its window into the grave"
+    );
+    let mut reopened = TcpStream::connect(&discovery.endpoint).unwrap();
+    reopened.set_nodelay(true).unwrap();
+    let health = request(
+        &mut reopened,
+        &discovery.token,
+        "core.health",
+        serde_json::Value::Null,
+    );
+    assert_eq!(health["ok"], true, "core.health failed after the window died: {health}");
+
+    // The session is still there, and so is everything it had printed.
+    let listed = request(
+        &mut reopened,
+        &discovery.token,
+        "session.list",
+        serde_json::Value::Null,
+    );
+    let sessions = listed["result"].as_array().cloned().unwrap_or_default();
+    assert!(
+        sessions.iter().any(|s| s["id"].as_u64() == Some(pane_id)),
+        "the pane died with its window: {listed}"
+    );
+    assert!(
+        scrollback_of(&mut reopened, pane_id).contains("BEFORE_THE_CRASH"),
+        "the pane came back empty; scrollback did not outlive the window"
+    );
+
+    // And the next window can register and keep typing into it.
+    let mut host_again = TcpStream::connect(&discovery.endpoint).unwrap();
+    let reattached = request(
+        &mut host_again,
+        &discovery.token,
+        "core.host",
+        serde_json::Value::Null,
+    );
+    assert_eq!(reattached["ok"], true, "the replacement front end was refused: {reattached}");
+    request(
+        &mut reopened,
+        &discovery.token,
+        "session.write",
+        serde_json::json!({"pane_id": pane_id, "data": "echo AFTER_THE_CRASH\r"}),
+    );
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        if scrollback_of(&mut reopened, pane_id).contains("AFTER_THE_CRASH") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let text = scrollback_of(&mut reopened, pane_id);
+    assert!(
+        text.contains("AFTER_THE_CRASH"),
+        "the adopted pane does not take input from the new window"
+    );
+    assert!(
+        text.contains("BEFORE_THE_CRASH"),
+        "typing into the adopted pane erased what was there before it"
+    );
+
+    let _ = request(
+        &mut reopened,
+        &discovery.token,
+        "core.shutdown",
+        serde_json::Value::Null,
+    );
+    assert!(wait_for_exit(&mut core, Duration::from_secs(10)));
+    let _ = std::fs::remove_dir_all(&state_dir);
+}
+
+/// The Core serves the same surface the GUI used to.
+///
+/// M1's whole promise to existing agents is that moving the MCP server from
+/// the window into the Core changed nothing they can see. `legacy_contract.rs`
+/// freezes the names against the in-process surface; this asserts the surface
+/// an agent actually reaches — over TCP, from a Core with no window at all —
+/// is that same set. A divergence here means the migration published a
+/// different API than the one the code thinks it has.
+#[test]
+fn the_headless_core_publishes_the_same_method_surface_as_the_library() {
+    let state_dir = scratch_state_dir("surface-parity");
+    let mut core = spawn_core(&state_dir);
+    let discovery = wait_for_discovery(&state_dir, Duration::from_secs(10));
+    let mcp_port = discovery.mcp_port.expect("core must publish an MCP port");
+
+    let mut stream = TcpStream::connect(("127.0.0.1", mcp_port)).unwrap();
+    stream.set_nodelay(true).unwrap();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut call = |method: &str, params: serde_json::Value| -> serde_json::Value {
+        let frame =
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+        writeln!(stream, "{frame}").unwrap();
+        stream.flush().unwrap();
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    };
+
+    let auth = call("auth.login", serde_json::json!({"token": discovery.token}));
+    assert_eq!(auth["result"]["status"], "ok", "auth failed: {auth}");
+
+    let names = |value: &serde_json::Value| -> Vec<String> {
+        let mut names: Vec<String> = value["mcp_methods"]
+            .as_array()
+            .expect("mcp_methods is an array")
+            .iter()
+            .map(|method| {
+                method
+                    .get("name")
+                    .and_then(|name| name.as_str())
+                    .or_else(|| method.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .filter(|name| !name.is_empty())
+            .collect();
+        names.sort();
+        names
+    };
+
+    let served = call("meta.surface", serde_json::json!({}));
+    let served = names(&served["result"]);
+    let in_process = names(&unterm_mcp::meta::surface(&serde_json::json!({})).unwrap());
+
+    assert!(!served.is_empty(), "the Core published an empty surface");
+    let only_served: Vec<_> = served.iter().filter(|n| !in_process.contains(n)).collect();
+    let only_library: Vec<_> = in_process.iter().filter(|n| !served.contains(n)).collect();
+    assert!(
+        only_served.is_empty() && only_library.is_empty(),
+        "the Core's surface and the library's have drifted apart; \
+         only over the wire: {only_served:?}; only in-process: {only_library:?}"
+    );
+
+    let _ = request(
+        &mut TcpStream::connect(&discovery.endpoint).unwrap(),
+        &discovery.token,
+        "core.shutdown",
+        serde_json::Value::Null,
+    );
+    assert!(wait_for_exit(&mut core, Duration::from_secs(10)));
+    let _ = std::fs::remove_dir_all(&state_dir);
+}

@@ -1,0 +1,186 @@
+//! What an agent written against an older Unterm may still call.
+//!
+//! M1 moved the MCP server out of the GUI and into `unterm-core`. Nothing
+//! about that migration is supposed to be visible to a client, and the
+//! existing count contract in `meta.rs` cannot see the failure that would
+//! matter most: a method renamed keeps the count identical and breaks every
+//! agent that called it. This is the other half — the names themselves,
+//! frozen.
+//!
+//! Adding methods is fine and deliberately does not fail here; the count
+//! contract already forces a new one to be acknowledged. Removing or
+//! renaming one is what this catches, because the agents in the wild are not
+//! recompiled when we move code between processes.
+
+/// Every method name the surface published at 0.66.0, when the Core became
+/// the only server. Do not delete a line to make a build pass: a name that
+/// leaves this list is a client that breaks in the field.
+const FROZEN_METHODS: &[&str] = &[
+    "agent.identify",
+    "agent.list_trusted",
+    "agent.signal",
+    "agent.status",
+    "agent.trust",
+    "agent.untrust",
+    "agent.whoami",
+    "capture.clipboard",
+    "capture.screen",
+    "capture.scrollback",
+    "capture.select",
+    "capture.window",
+    "capture.window_scroll",
+    "cockpit.inbox",
+    "exec.cancel",
+    "exec.run",
+    "exec.run_wait",
+    "exec.send",
+    "exec.status",
+    "fleet.clean",
+    "fleet.launch",
+    "fleet.list",
+    "fleet.retry",
+    "ghost.debug",
+    "instance.close",
+    "instance.focus",
+    "instance.info",
+    "instance.lifecycle",
+    "instance.list",
+    "instance.set_title",
+    "meta.surface",
+    "orchestrate.broadcast",
+    "orchestrate.launch",
+    "orchestrate.wait",
+    "policy.check",
+    "policy.set",
+    "profile.audit",
+    "profile.current",
+    "profile.list",
+    "proxy.clash_select",
+    "proxy.clash_set_controller",
+    "proxy.clash_status",
+    "proxy.configure",
+    "proxy.disable",
+    "proxy.env",
+    "proxy.nodes",
+    "proxy.rotation",
+    "proxy.set_nodes",
+    "proxy.speedtest",
+    "proxy.status",
+    "proxy.switch",
+    "review.diff",
+    "review.discard",
+    "review.list",
+    "review.merge",
+    "review.rollback",
+    "review.verify",
+    "screen.clear",
+    "screen.cursor",
+    "screen.detect_errors",
+    "screen.read",
+    "screen.scroll",
+    "screen.scrollback_text",
+    "screen.search",
+    "screen.text",
+    "selftest.run",
+    "server.capabilities",
+    "server.health",
+    "server.info",
+    "session.audit_log",
+    "session.create",
+    "session.cwd",
+    "session.destroy",
+    "session.env",
+    "session.export_markdown",
+    "session.focus",
+    "session.get",
+    "session.history",
+    "session.idle",
+    "session.input",
+    "session.list",
+    "session.paste",
+    "session.recording_attach_trace",
+    "session.recording_list",
+    "session.recording_read",
+    "session.recording_start",
+    "session.recording_status",
+    "session.recording_stop",
+    "session.resize",
+    "session.set_env",
+    "session.split",
+    "session.status",
+    "session.suggest",
+    "session.suggest_cancel",
+    "session.suggest_list",
+    "session.suggest_status",
+    "signal.send",
+    "system.info",
+    "system.launch_admin",
+    "upload.file",
+    "workspace.list",
+    "workspace.restore",
+    "workspace.save",
+];
+
+fn published_methods() -> Vec<String> {
+    let surface = unterm_mcp::meta::surface(&serde_json::json!({})).expect("meta.surface");
+    surface["mcp_methods"]
+        .as_array()
+        .expect("mcp_methods is an array")
+        .iter()
+        .map(|method| {
+            method
+                .get("name")
+                .and_then(|name| name.as_str())
+                .or_else(|| method.as_str())
+                .unwrap_or_default()
+                .to_string()
+        })
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+#[test]
+fn every_frozen_method_is_still_published() {
+    let published = published_methods();
+    let missing: Vec<&&str> = FROZEN_METHODS
+        .iter()
+        .filter(|frozen| !published.iter().any(|name| name == *frozen))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "these methods left the surface; any agent still calling them now gets \
+         an unknown-method error: {missing:?}"
+    );
+}
+
+#[test]
+fn the_frozen_list_is_sorted_and_unique() {
+    // So a merge that adds a name cannot quietly shadow one already there,
+    // and a reviewer can diff two versions of the list by eye.
+    let mut sorted = FROZEN_METHODS.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        FROZEN_METHODS.len(),
+        "the frozen list has duplicates"
+    );
+    assert_eq!(
+        sorted.as_slice(),
+        FROZEN_METHODS,
+        "the frozen list is not in sorted order"
+    );
+}
+
+#[test]
+fn the_surface_publishes_no_method_twice() {
+    let published = published_methods();
+    let mut unique = published.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        published.len(),
+        "a method name is published twice; a client cannot tell which one it reaches"
+    );
+}
