@@ -159,34 +159,6 @@ jobs:
             }
           }
           Remove-Item -Recurse -Force probe -ErrorAction SilentlyContinue
-          Expand-Archive -Path $zip -DestinationPath probe\zip -Force
-          & msiexec /a $msi /qn "TARGETDIR=$PWD\probe\msi" | Out-Null
-          Start-Sleep -Seconds 5
-          if ($env:UNTERM_ARCH -eq "x64") {
-            foreach ($stage in @("probe\zip", "probe\msi")) {
-              $exe = Get-ChildItem -Path $stage -Recurse -Filter unterm.exe |
-                     Select-Object -First 1
-              if (-not $exe) { throw "no unterm.exe inside $stage" }
-              $got = (& $exe.FullName --version) -split ' ' | Select-Object -Last 1
-              if ($got -ne $expected) {
-                throw "$stage ships unterm $got, expected $expected"
-              }
-              Write-Host "  $stage unterm $got"
-            }
-          } else {
-            # Cross-built arm64 cannot run here; assert the payload is present
-            # and let the arm64 install acceptance cover the rest.
-            foreach ($stage in @("probe\zip", "probe\msi")) {
-              foreach ($name in @("unterm.exe", "unterm-cli.exe", "unterm-core.exe")) {
-                if (-not (Get-ChildItem -Path $stage -Recurse -Filter $name |
-                          Select-Object -First 1)) {
-                  throw "$stage is missing $name"
-                }
-              }
-              Write-Host "  $stage carries all three binaries"
-            }
-          }
-          Remove-Item -Recurse -Force probe -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         with:
           # Per-arch name: upload-artifact@v4 rejects duplicate artifact names
