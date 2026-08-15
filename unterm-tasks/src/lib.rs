@@ -730,6 +730,69 @@ impl TaskStore {
         Ok(recovery)
     }
 
+
+    /// Replace a task's opaque detail, leaving its state and version alone.
+    ///
+    /// Detail is the caller's data, not the engine's; changing it is not a
+    /// state transition and must not make every reader's compare-and-swap
+    /// lose, for the same reason a heartbeat does not bump the version.
+    pub fn set_task_detail(&self, id: &TaskId, detail: serde_json::Value) -> Result<()> {
+        self.with(|connection| {
+            connection.execute(
+                "UPDATE tasks SET detail = ?2, updated_at = ?3 WHERE id = ?1",
+                params![id.as_str(), detail.to_string(), now()],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Replace a step's detail, and put it in `state`.
+    ///
+    /// Unlike [`Self::finish_step`] this does not walk the state machine: the
+    /// caller is projecting an outside truth it already owns — which member
+    /// is running, which has been reviewed — rather than driving work through
+    /// its life. Transitions that a worker performs still go through
+    /// `claim_step` and `finish_step`, where the edges are enforced.
+    pub fn set_step_detail(
+        &self,
+        id: &StepId,
+        detail: serde_json::Value,
+        state: State,
+    ) -> Result<()> {
+        self.with(|connection| {
+            connection.execute(
+                "UPDATE steps SET detail = ?2, state = ?3, updated_at = ?4,
+                                  version = version + 1
+                  WHERE id = ?1",
+                params![id.as_str(), detail.to_string(), state.as_str(), now()],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Remove a task and everything under it.
+    ///
+    /// The only destructive operation here. Runs and steps go with it through
+    /// the schema's cascade, and the events stay: what happened still
+    /// happened, and an audit trail that disappears with its subject is not
+    /// one.
+    pub fn delete_task(&self, id: &TaskId) -> Result<()> {
+        self.with(|connection| {
+            let transaction = connection.transaction()?;
+            transaction.execute("DELETE FROM tasks WHERE id = ?1", params![id.as_str()])?;
+            append_event(
+                &transaction,
+                Some(id.as_str()),
+                None,
+                None,
+                "task.deleted",
+                &serde_json::json!({}),
+            )?;
+            transaction.commit()?;
+            Ok(())
+        })
+    }
+
     // ---- events ------------------------------------------------------
 
     /// Everything after `cursor`, oldest first. A subscriber remembers the

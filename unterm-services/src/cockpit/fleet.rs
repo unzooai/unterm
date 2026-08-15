@@ -3,10 +3,15 @@
 //! `launch` verifies the repo is clean, adds a worktree + branch per
 //! member beside the repo (`../<repo>.fleet/<slug>-<n>/`), opens a tab
 //! per member (its own tab so the tab badge shows that member's state),
-//! and types the agent command into the fresh shell. Fleets persist in
-//! `~/.unterm/fleets.json` so the Review page and `fleet.clean` survive
-//! a restart; panes dying does NOT remove a fleet — the worktrees hold
-//! the work product until every member is merged or discarded.
+//! and types the agent command into the fresh shell. Fleets persist in the
+//! durable task engine (see `fleet_store`) so the Review page and
+//! `fleet.clean` survive a restart; panes dying does NOT remove a fleet —
+//! the worktrees hold the work product until every member is merged or
+//! discarded.
+//!
+//! Persistence used to be `~/.unterm/fleets.json`, rewritten whole on every
+//! change. The shapes here are unchanged; only where the bytes live moved,
+//! and an existing file is imported on first use.
 
 use anyhow::{anyhow, bail, Context, Result};
 use parking_lot::Mutex;
@@ -76,36 +81,40 @@ fn fleets_path() -> Option<PathBuf> {
 /// end to end.
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_store_for_tests() {
+    // Point the durable store at a file of this test's own before anything
+    // opens one. Without this the suite writes into the developer's real
+    // `~/.unterm/tasks.db` — which it did exactly once, during the change
+    // that introduced it.
+    let scratch = std::env::temp_dir().join(format!(
+        "unterm-fleet-test-{}-{}.db",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::env::set_var("UNTERM_TASKS_DB", scratch);
+    super::fleet_store::reset_for_tests();
     store().lock().clear();
 }
 
+/// The in-process view of what the durable store holds.
+///
+/// Since M1 every fleet operation runs in the Core, so there is one writer
+/// and this is a cache of the one truth rather than a competing copy of it.
+/// It is filled once, from the database, after any legacy JSON has been
+/// imported.
 fn store() -> &'static Mutex<Vec<Fleet>> {
     static S: OnceLock<Mutex<Vec<Fleet>>> = OnceLock::new();
     S.get_or_init(|| {
-        let fleets = fleets_path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str::<FleetFile>(&s).ok())
-            .map(|f| f.fleets)
-            .unwrap_or_default();
-        Mutex::new(fleets)
+        super::fleet_store::migrate_legacy_json();
+        Mutex::new(super::fleet_store::load_all())
     })
 }
 
+/// Persist the whole set.
+///
+/// Same meaning as the old whole-file rewrite, so every caller keeps its
+/// semantics — but as transactions, which a crash cannot catch halfway.
 fn save_locked(fleets: &[Fleet]) {
-    let Some(path) = fleets_path() else { return };
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let body = match serde_json::to_string_pretty(&FleetFile {
-        fleets: fleets.to_vec(),
-    }) {
-        Ok(b) => b,
-        Err(_) => return,
-    };
-    let tmp = path.with_extension("json.tmp");
-    if std::fs::write(&tmp, body).is_ok() {
-        let _ = std::fs::rename(&tmp, &path);
-    }
+    super::fleet_store::save_all(fleets);
 }
 
 /// `git` with no console flash on Windows (same trick as git_panel).

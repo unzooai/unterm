@@ -6330,6 +6330,7 @@ dependencies = [
  "unterm-engine",
  "unterm-profile",
  "unterm-protocol",
+ "unterm-tasks",
  "uuid",
  "winapi",
  "winreg",

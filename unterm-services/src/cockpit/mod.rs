@@ -9,6 +9,7 @@
 //! MCP — reads from this registry and never probes panes itself.
 
 pub mod fleet;
+pub mod fleet_store;
 pub mod observability;
 pub mod review;
 pub mod status;
