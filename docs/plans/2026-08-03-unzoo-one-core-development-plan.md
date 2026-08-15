@@ -156,7 +156,8 @@ M7 门禁：不启动 UI 仍可工作；进程独立健康；升级失败恢复�
 | M1-03 | **已完成**（源码切片） | IPC 面（含交互/录制/引擎健康）；`CoreEngineClient` 满足完整 TerminalEngine；`CoreEventStream` 订阅端；TCP_NODELAY + IPC 成本基准（全量 styled 5.2ms/未变化探询 291µs）；UNTERM_STATE_DIR 隔离；Core 进程起 headless MCP（端口写 core.json）并在此之前读用户配置；`RemoteMcpHost` 反向 IPC 已装；CLI 端点回退级「活 Core MCP > 活 GUI > 旧 server.json」；E2E 7 项通过（含 `headless_mcp_serves_sessions_without_any_gui`、杀 Core 重建、健康/就绪分离）；**单一 MCP 终态已达成**（`7fd39c12`）——Core 模式下 GUI 不再起自己的 MCP，只用 Core 的 port+token 注册实例，agent 面只有一个 | — |
 | M1-04 | **已完成**（随 0.66.0 发布，三平台实测） | Core 模式**已转默认**（`UNTERM_CORE_CLIENT=0` 退回单进程）；杀 GUI 会话存活、重开领养且 scrollback 完好、MCP create/split 落 Core、事件唤醒重绘、scrollback 配置传递、20 并发竞锁 1.1s；退出三语义模态已落地（`42e82c54`：后台继续/排空后退出/立即取消，危险项红色、默认焦点在可恢复项）；布局保真方案 B 完成：分隔条回写（`SplitRatioChange` + `session.set_split_ratio`，归属记在 `Node::Split.owner`）、领养血缘根修正、left/up 分屏落错边修正（`SplitPlan.side` + `SessionSnapshot.split_side`）；B-4 真机通过（right 25% 与 left 30% 两组：分屏→杀 GUI→重开，tab 数、左右侧别、比例、scrollback 逐项一致）；engine 597 / core 18 / e2e 7 / app 617 / mcp 77 通过；**后台常驻提示已落地**：选「后台继续」不再退进程而是驻留成托盘/菜单栏指示器（macOS NSStatusItem 模板图标 + Dock 隐藏、Windows 通知区、Linux libappindicator 走独立 gtk 线程），菜单三行＝会话/等待计数报告、打开窗口、全部结束并退出；重开走 `start()` 原领养路径，scrollback 与分屏一并回来；驻留期间仍喂 cockpit tracker，计数不会冻在关窗那一刻；`instance.focus`／confirmation／macOS Finder 重开都会唤回窗口；**三平台真机实测通过**（macOS 用已公证 DMG 内的签名产物、Ubuntu 24.04 GNOME 46、Windows 11 ARM 均从源码构建）——驻留/唤回各两轮、scrollback 与计数完好、无重复图标 | 键盘调分隔条→重开这一路的真机验证（合成按键送不达，需手动）；Windows 托盘「全部结束并退出」行未用合成输入点到（同菜单「打开窗口」已点通，通道已证） |
 | M1-05 | **已完成**（`89d1e3bd`） | 20 Client 竞争与杀 Core 重建早有 E2E；本轮补齐前端死亡 E2E（掐掉窗口的请求通道与 `core.host` 注册 → Core 健在、pane 仍在、crash 前 scrollback 完好、替补前端可注册并继续输入且不抹掉旧内容）与旧 MCP 合约成套化（`unterm-mcp/tests/legacy_contract.rs` 冻结 0.66.0 的 103 个方法名；E2E 再向真实 headless Core 要 `meta.surface` 与库内表逐项对差）；两者均做过变异验证 | — |
-| M2–M7 | 未开始 | 现有 next-core/MCP/Audit 是迁移输入 | 按上述冻结点推进 |
+| M2 | **已完成**（`88ba7baf` / `66560767` / `52259d21`） | 新建 `unterm-tasks`(仓库第一个数据库)：SQLite WAL + 编号迁移器 + 迁移前自动备份 + 未来版本拒绝；F2 冻结点定型(带前缀的 Task/Run/Step ID、六状态与合法边、event.seq 即游标)；幂等键 UNIQUE、原子 claim(条件 UPDATE)、heartbeat/lease、`reconcile`；cancel 级联一事务、`recover()` 三段上卷且对可续работы克制；`detail` 承载调用方数据而引擎不解释。Fleet 已改为 Task 投影(fleet=task、member=step)，`fleets.json` 首次使用时导入并退役，对外类型与 12 处调用点零改动。34 项存储用例 + 6 项投影用例 | Cockpit `status` 侧尚未改为读事件流投影(fleet/review 已切) |
+| M3–M7 | 未开始 | 现有 next-core/MCP/Audit 是迁移输入 | 按上述冻结点推进 |
 
 ## 7. 下一切片入口条件
 
@@ -169,8 +170,11 @@ M1-04 已随 0.66.0 收口，M1-03 的单一 MCP 终态经复核早在 `7fd39c12
 剩下的是门禁里那句「退出提醒在普通/最大化/多窗口下均清晰可见」的人工可用性确认，
 以及键盘调分隔条→重开这一路的真机验证（合成按键送不达）。
 
-**M0 与 M1 均已收口**（M0-03 见 `d6a56f5f` 与本轮验收文档）。M2 的 Task Store
-可以开工——M1 期间不应提前
+**M0、M1、M2 均已收口。** 下一步是 **M3 Action Gateway / Policy / Approval**：
+把 MCP、CLI、Brain、Workflow 与 PTY 写入全部收敛到唯一一条
+validate → scope → policy → approval → lease → invoke → verify 的通道上，
+并让未分类的 mutation 直接构建失败。它依赖 M2 的 Task 表存审批与授权，
+现在具备开工条件——M1 期间不应提前
 创建 Task Store 或 Provider Registry，以免在 F1/F2 冻结前形成第二套协议。
 
 M0-03（发布验收：12 项跨平台台账与回滚矩阵）仍未开始，且是 P0 门禁；0.66.0
