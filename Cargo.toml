@@ -17,6 +17,7 @@ members = [
   "unterm-agents",
   "unterm-protocol",
   "unterm-core",
+  "unterm-tasks",
 ]
 resolver = "2"
 exclude = [
@@ -259,6 +260,7 @@ unicode-normalization = "0.1.24"
 unicode-segmentation = "1.12"
 unterm-engine = { path = "unterm-engine" }
 unterm-profile = { path = "unterm-profile" }
+unterm-tasks = { path = "unterm-tasks" }
 unterm-agents = { path = "unterm-agents" }
 unterm-cli = { path = "unterm-cli" }
 url = "2"

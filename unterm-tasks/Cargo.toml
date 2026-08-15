@@ -1,0 +1,23 @@
+[package]
+name = "unterm-tasks"
+version.workspace = true
+edition = "2021"
+publish = false
+
+# The durable half of the Agent Cockpit: what was asked for, what ran, what
+# it did, and what is safe to do again. No GUI, no engine, no MCP — the Core
+# owns an instance of this and everything else reads projections of it.
+
+[dependencies]
+anyhow.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+# `bundled` compiles SQLite itself rather than linking whatever the host
+# happens to ship. A task store whose behaviour depends on the user's system
+# library is one that behaves differently on the machine where it breaks.
+rusqlite = { workspace = true, features = ["bundled"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+tempfile.workspace = true
