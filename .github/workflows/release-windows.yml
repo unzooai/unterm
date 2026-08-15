@@ -120,9 +120,44 @@ jobs:
           # Existence is not identity. Unpack both and ask the binaries what
           # version they are: a packaging script that stages a stale target\
           # directory produces a correctly-named archive full of the previous
-          # release, and nothing else here would notice. The arm64 job runs on
-          # an x64 runner, so only probe binaries this host can execute.
+          # release, and nothing else here would notice.
           $expected = $version
+          Remove-Item -Recurse -Force probe -ErrorAction SilentlyContinue
+          Expand-Archive -Path $zip -DestinationPath probe\zip -Force
+          & msiexec /a $msi /qn "TARGETDIR=$PWD\probe\msi" | Out-Null
+          Start-Sleep -Seconds 5
+          foreach ($stage in @("probe\zip", "probe\msi")) {
+            # unterm.exe is a GUI-subsystem binary: with no parent console its
+            # stdout goes nowhere, so `--version` is not a reliable probe for
+            # it and the embedded resource is. The other two are console
+            # programs and answer for themselves. Checked on the arm64 VM
+            # during the 0.66.0 acceptance, where `unterm.exe --version`
+            # printed nothing while the resource read 0.66.0.
+            $gui = Get-ChildItem -Path $stage -Recurse -Filter unterm.exe |
+                   Select-Object -First 1
+            if (-not $gui) { throw "no unterm.exe inside $stage" }
+            $resource = $gui.VersionInfo.FileVersion
+            if ($resource -notlike "$expected*") {
+              throw "$stage ships unterm.exe with FileVersion $resource, expected $expected"
+            }
+            Write-Host "  $stage unterm.exe resource $resource"
+            foreach ($name in @("unterm-cli.exe", "unterm-core.exe")) {
+              $exe = Get-ChildItem -Path $stage -Recurse -Filter $name |
+                     Select-Object -First 1
+              if (-not $exe) { throw "$stage is missing $name" }
+              if ($env:UNTERM_ARCH -eq "x64") {
+                $got = (& $exe.FullName --version) -split ' ' | Select-Object -Last 1
+                if ($got -ne $expected) {
+                  throw "$stage ships $name $got, expected $expected"
+                }
+                Write-Host "  $stage $name $got"
+              } else {
+                # Cross-built arm64 cannot execute on this x64 runner; the
+                # arm64 install acceptance covers running them.
+                Write-Host "  $stage carries $name"
+              }
+            }
+          }
           Remove-Item -Recurse -Force probe -ErrorAction SilentlyContinue
           Expand-Archive -Path $zip -DestinationPath probe\zip -Force
           & msiexec /a $msi /qn "TARGETDIR=$PWD\probe\msi" | Out-Null

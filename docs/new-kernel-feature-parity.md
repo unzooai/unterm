@@ -23,7 +23,7 @@ does not constitute parity.
 
 | Area | Requirements | Current audit state |
 | --- | ---: | --- |
-| TERM | 10 | 9 verified; 1 cross-platform runtime pending |
+| TERM | 10 | 10 verified |
 | UI | 11 | Detailed below; runtime acceptance remains |
 | COMP | 8 | Detailed below; runtime acceptance remains |
 | AGENT | 12 | Detailed below; cross-instance runtime acceptance remains |
@@ -43,13 +43,13 @@ does not constitute parity.
 | SAFE | 8 | Detailed below |
 | SYS | 5 | Detailed below; UAC runtime acceptance remains |
 | REL | 6 | Detailed below; platform artifact acceptance remains |
-| **Total** | **159** | **146 verified; 13 runtime pending** |
+| **Total** | **159** | **152 verified; 7 runtime pending** — the 0.66.0 release acceptance closed 5 (`docs/quality/2026-08-15-m0-03-release-acceptance.md`); 5 of the 7 left name a platform and a blocking condition there. (The previous summary said 13 pending while only 12 rows carried the marker; the count now matches the rows.) |
 
 ## Core terminal
 
 | Requirement | Status | Evidence / remaining work |
 | --- | --- | --- |
-| FR-TERM-001 | Implemented, runtime pending | `unterm-app` uses wgpu and builds on Windows. The `82d15857` remote CI exposed Linux `HOME` ownership, missing macOS CoreFoundation/CoreGraphics dependencies, an obsolete `scrollshot` reference, Unix shell quoting, and strict-test guard/panic-format failures. The parity branch repairs all five classes; both CI-equivalent Windows `cargo check -p unterm-app -p unterm-cli` and the complete `cargo test --release --workspace -- --test-threads=1` pass with `-D warnings`. A Windows-hosted macOS cross-check progressed through the Rust dependencies but stopped at the expected missing Apple C compiler/SDK, so native Linux/macOS CI and real-window rendering remain required. |
+| FR-TERM-001 | Verified | Verified 2026-08-15 (0.66.0): real-window rendering and interaction captured on macOS (from the notarized artifact), Ubuntu 24.04 GNOME 46, and Windows 11 ARM; CI runs check-and-test jobs on all three platforms. `unterm-app` uses wgpu and builds on Windows. The `82d15857` remote CI exposed Linux `HOME` ownership, missing macOS CoreFoundation/CoreGraphics dependencies, an obsolete `scrollshot` reference, Unix shell quoting, and strict-test guard/panic-format failures. The parity branch repairs all five classes; both CI-equivalent Windows `cargo check -p unterm-app -p unterm-cli` and the complete `cargo test --release --workspace -- --test-threads=1` pass with `-D warnings`. A Windows-hosted macOS cross-check progressed through the Rust dependencies but stopped at the expected missing Apple C compiler/SDK, so native Linux/macOS CI and real-window rendering remain required. |
 | FR-TERM-002 | Verified | Tabs, splits, focus, zoom, activation, close, visible tab order and relative movement are covered by layout/tab/key tests and real native interaction. A real top-bar split produced 37/38-column PTYs; selecting `Resize Pane Left` through the production command palette changed them to 34/41, proving boundary movement and both PTY resizes. Earlier keyboard acceptance also created/closed tabs and panes. |
 | FR-TERM-003 | Verified | Copy/paste, copy mode, search, quick select, character select, clearing and ordinary scrolling are implemented. The next core records OSC 133 prompt-start rows, keeps them aligned through history trimming/clearing, and exposes `Ctrl+Shift+Up/Down` navigation. In a real Windows pane, three emitted OSC 133 prompt blocks appeared in scrollback; selecting the production `Previous Prompt` action (shown with `CTRL\|SHIFT Up`) moved the live viewport from the bottom back to `PROMPT-3`. Parser, trimming, navigation and binding tests cover the underlying state transitions. |
 | FR-TERM-004 | Verified | `mouse::right_click` routes selection to copy-and-clear and an empty selection to paste. In a real pane, dragging across `PROMPT-3` then right-clicking placed exactly `PROMPT-3` on the Windows clipboard and cleared the selection; a second right-click with no selection inserted unique text at the live command prompt without executing it. Focused routing tests cover both branches. |
@@ -292,10 +292,10 @@ does not constitute parity.
 
 | Requirement | Status | Evidence / remaining work |
 | --- | --- | --- |
-| FR-REL-001 | Implemented, runtime pending | Release scripts/workflows define macOS DMG, Linux deb/AppImage and Windows MSI/zip outputs, including x64/arm64 where supported. Fresh artifacts still require their platform CI/manual jobs. |
-| FR-REL-002 | Implemented, runtime pending | `ci/sign-macos.sh` signs nested binaries/app/DMG, submits app and DMG to notarytool, verifies signatures and staples tickets; a fresh Apple-notarized artifact remains external acceptance. |
-| FR-REL-003 | Implemented, runtime pending | WiX targets `ProgramFiles64Folder` and installs Start Menu shortcuts; the MSI build script carries architecture into WiX. A clean-machine install remains. |
-| FR-REL-004 | Implemented, runtime pending | Debian staging supplies normal `/usr/bin`, desktop/icon, package metadata and shared-library dependency layout; AppImage builds a per-architecture AppDir. Distro installation remains. |
+| FR-REL-001 | Verified | Verified 2026-08-15 (0.66.0): the release published nine artifacts — macOS universal DMG, Windows MSI and zip for x64 and arm64, Linux deb and AppImage for amd64 and arm64. Release scripts/workflows define macOS DMG, Linux deb/AppImage and Windows MSI/zip outputs, including x64/arm64 where supported. Fresh artifacts still require their platform CI/manual jobs. |
+| FR-REL-002 | Verified | Verified 2026-08-15 (0.66.0): the DMG notarized on the first pass, stapled, and `spctl --assess --type install` reports `accepted / source=Notarized Developer ID`. `ci/sign-macos.sh` signs nested binaries/app/DMG, submits app and DMG to notarytool, verifies signatures and staples tickets; a fresh Apple-notarized artifact remains external acceptance. |
+| FR-REL-003 | Verified | Verified 2026-08-15 (0.66.0, Windows 11 ARM): uninstalled to empty, then a fresh MSI install landed in ProgramFiles64 with a Start Menu shortcut at `Programs\Unterm\Unterm.lnk`, and the installed build ran headless. WiX targets `ProgramFiles64Folder` and installs Start Menu shortcuts; the MSI build script carries architecture into WiX. A clean-machine install remains. |
+| FR-REL-004 | Verified | Verified 2026-08-15 (0.66.0, Ubuntu 24.04 arm64): the deb installs, upgrades over 0.65.0, downgrades back, and uninstalls leaving user config alone; the AppImage runs without installation with all three binaries at 0.66.0. Debian staging supplies normal `/usr/bin`, desktop/icon, package metadata and shared-library dependency layout; AppImage builds a per-architecture AppDir. Distro installation remains. |
 | FR-REL-005 | Verified | Update polling and manual refresh persist/read `~/.unterm/update_check.json`, and the Web Updates surface consumes that state. |
 | FR-REL-006 | Verified | README, website architecture/MCP/configuration/integration pages, all nine comparison translations, launch copy and dependency-map paths now describe native next-core and 103 authenticated methods. Stale-current-doc search is clean, all dictionaries parse and Astro builds all 84 pages successfully. |
 
@@ -679,4 +679,5 @@ landed:
 1. Publish or otherwise run the parity branch on native Linux/macOS CI, then
    exercise the remaining real-window, multi-monitor, external provider/vault,
    UAC, installer and signed-artifact acceptance scenarios before declaring
-   all 13 runtime-pending requirements verified.
+   all runtime-pending requirements verified (7 remain; see
+   `docs/quality/2026-08-15-m0-03-release-acceptance.md` for each one's blocker).
