@@ -150,6 +150,9 @@ pub struct Task {
     pub version: i64,
     pub created_at: String,
     pub updated_at: String,
+    /// The caller's own data, carried and never interpreted. Fleet keeps a
+    /// worktree and a branch here; the engine keeps its hands off.
+    pub detail: serde_json::Value,
 }
 
 /// One attempt at a task.
@@ -190,6 +193,8 @@ pub struct Step {
     pub lease_expires_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// As on [`Task`]: the caller's data, opaque to the engine.
+    pub detail: serde_json::Value,
 }
 
 /// Something that happened, in the order it happened.

@@ -27,7 +27,10 @@ const MIGRATIONS: &[&str] = &[
         state       TEXT NOT NULL,
         version     INTEGER NOT NULL DEFAULT 1,
         created_at  TEXT NOT NULL,
-        updated_at  TEXT NOT NULL
+        updated_at  TEXT NOT NULL,
+        -- Whatever the caller's domain needs and this engine must not care
+        -- about. JSON, opaque, never queried by the store itself.
+        detail      TEXT NOT NULL DEFAULT '{}'
     );
 
     CREATE TABLE runs (
@@ -56,7 +59,8 @@ const MIGRATIONS: &[&str] = &[
         claimed_by       TEXT,
         lease_expires_at TEXT,
         created_at       TEXT NOT NULL,
-        updated_at       TEXT NOT NULL
+        updated_at       TEXT NOT NULL,
+        detail           TEXT NOT NULL DEFAULT '{}'
     );
     CREATE INDEX steps_by_run ON steps(run_id);
     -- Reconciliation scans for running steps whose lease lapsed; without this

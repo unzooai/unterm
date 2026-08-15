@@ -65,6 +65,23 @@ impl StepRequest {
     }
 }
 
+/// What recovery found and put right.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Recovery {
+    pub steps_interrupted: Vec<StepId>,
+    pub runs_interrupted: Vec<RunId>,
+    pub tasks_interrupted: Vec<TaskId>,
+}
+
+impl Recovery {
+    /// Whether the previous life left anything behind.
+    pub fn is_clean(&self) -> bool {
+        self.steps_interrupted.is_empty()
+            && self.runs_interrupted.is_empty()
+            && self.tasks_interrupted.is_empty()
+    }
+}
+
 /// The task store.
 ///
 /// One connection behind a mutex rather than a pool: the writer is the Core,
@@ -121,6 +138,16 @@ impl TaskStore {
     // ---- tasks -------------------------------------------------------
 
     pub fn create_task(&self, kind: &str, title: &str) -> Result<Task> {
+        self.create_task_with_detail(kind, title, serde_json::json!({}))
+    }
+
+    /// A task carrying the caller's own data.
+    pub fn create_task_with_detail(
+        &self,
+        kind: &str,
+        title: &str,
+        detail: serde_json::Value,
+    ) -> Result<Task> {
         let task = Task {
             id: TaskId::new(),
             kind: kind.to_string(),
@@ -129,12 +156,13 @@ impl TaskStore {
             version: 1,
             created_at: now(),
             updated_at: now(),
+            detail,
         };
         self.with(|connection| {
             let transaction = connection.transaction()?;
             transaction.execute(
-                "INSERT INTO tasks (id, kind, title, state, version, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO tasks (id, kind, title, state, version, created_at, updated_at, detail)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     task.id.as_str(),
                     task.kind,
@@ -142,7 +170,8 @@ impl TaskStore {
                     task.state.as_str(),
                     task.version,
                     task.created_at,
-                    task.updated_at
+                    task.updated_at,
+                    task.detail.to_string()
                 ],
             )?;
             append_event(
@@ -163,7 +192,7 @@ impl TaskStore {
         self.with(|connection| {
             connection
                 .query_row(
-                    "SELECT id, kind, title, state, version, created_at, updated_at
+                    "SELECT id, kind, title, state, version, created_at, updated_at, detail
                      FROM tasks WHERE id = ?1",
                     params![id.as_str()],
                     row_to_task,
@@ -176,7 +205,7 @@ impl TaskStore {
     pub fn tasks(&self) -> Result<Vec<Task>> {
         self.with(|connection| {
             let mut statement = connection.prepare(
-                "SELECT id, kind, title, state, version, created_at, updated_at
+                "SELECT id, kind, title, state, version, created_at, updated_at, detail
                  FROM tasks ORDER BY created_at, id",
             )?;
             let rows = statement.query_map([], row_to_task)?;
@@ -189,7 +218,7 @@ impl TaskStore {
     pub fn set_task_state(&self, id: &TaskId, next: State, expected_version: i64) -> Result<Task> {
         self.transition("tasks", id.as_str(), next, expected_version, |connection| {
             connection.query_row(
-                "SELECT id, kind, title, state, version, created_at, updated_at
+                "SELECT id, kind, title, state, version, created_at, updated_at, detail
                  FROM tasks WHERE id = ?1",
                 params![id.as_str()],
                 row_to_task,
@@ -287,13 +316,24 @@ impl TaskStore {
         kind: &str,
         idempotency_key: Option<&str>,
     ) -> Result<StepRequest> {
+        self.request_step_with_detail(run_id, kind, idempotency_key, serde_json::json!({}))
+    }
+
+    /// A step carrying the caller's own data.
+    pub fn request_step_with_detail(
+        &self,
+        run_id: &RunId,
+        kind: &str,
+        idempotency_key: Option<&str>,
+        detail: serde_json::Value,
+    ) -> Result<StepRequest> {
         self.with(|connection| {
             let transaction = connection.transaction()?;
             if let Some(key) = idempotency_key {
                 let existing = transaction
                     .query_row(
                         "SELECT id, run_id, ordinal, kind, state, version, idempotency_key,
-                                claimed_by, lease_expires_at, created_at, updated_at
+                                claimed_by, lease_expires_at, created_at, updated_at, detail
                          FROM steps WHERE idempotency_key = ?1",
                         params![key],
                         row_to_step,
@@ -324,11 +364,12 @@ impl TaskStore {
                 lease_expires_at: None,
                 created_at: now(),
                 updated_at: now(),
+                detail,
             };
             transaction.execute(
                 "INSERT INTO steps (id, run_id, ordinal, kind, state, version, idempotency_key,
-                                    claimed_by, lease_expires_at, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8, ?9)",
+                                    claimed_by, lease_expires_at, created_at, updated_at, detail)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, ?8, ?9, ?10)",
                 params![
                     step.id.as_str(),
                     step.run_id.as_str(),
@@ -338,7 +379,8 @@ impl TaskStore {
                     step.version,
                     step.idempotency_key,
                     step.created_at,
-                    step.updated_at
+                    step.updated_at,
+                    step.detail.to_string()
                 ],
             )?;
             append_event(
@@ -373,7 +415,7 @@ impl TaskStore {
             )?;
             let step = transaction.query_row(
                 "SELECT id, run_id, ordinal, kind, state, version, idempotency_key,
-                        claimed_by, lease_expires_at, created_at, updated_at
+                        claimed_by, lease_expires_at, created_at, updated_at, detail
                  FROM steps WHERE id = ?1",
                 params![id.as_str()],
                 row_to_step,
@@ -421,7 +463,7 @@ impl TaskStore {
             connection
                 .query_row(
                     "SELECT id, run_id, ordinal, kind, state, version, idempotency_key,
-                            claimed_by, lease_expires_at, created_at, updated_at
+                            claimed_by, lease_expires_at, created_at, updated_at, detail
                      FROM steps WHERE id = ?1",
                     params![id.as_str()],
                     row_to_step,
@@ -435,7 +477,7 @@ impl TaskStore {
         self.with(|connection| {
             let mut statement = connection.prepare(
                 "SELECT id, run_id, ordinal, kind, state, version, idempotency_key,
-                        claimed_by, lease_expires_at, created_at, updated_at
+                        claimed_by, lease_expires_at, created_at, updated_at, detail
                  FROM steps WHERE run_id = ?1 ORDER BY ordinal",
             )?;
             let rows = statement.query_map(params![run_id.as_str()], row_to_step)?;
@@ -447,7 +489,7 @@ impl TaskStore {
         let step = self.transition("steps", id.as_str(), next, expected_version, |connection| {
             connection.query_row(
                 "SELECT id, run_id, ordinal, kind, state, version, idempotency_key,
-                        claimed_by, lease_expires_at, created_at, updated_at
+                        claimed_by, lease_expires_at, created_at, updated_at, detail
                  FROM steps WHERE id = ?1",
                 params![id.as_str()],
                 row_to_step,
@@ -504,7 +546,7 @@ impl TaskStore {
                 )?;
                 let step = transaction.query_row(
                     "SELECT id, run_id, ordinal, kind, state, version, idempotency_key,
-                            claimed_by, lease_expires_at, created_at, updated_at
+                            claimed_by, lease_expires_at, created_at, updated_at, detail
                      FROM steps WHERE id = ?1",
                     params![id],
                     row_to_step,
@@ -522,6 +564,170 @@ impl TaskStore {
             transaction.commit()?;
             Ok(reclaimed)
         })
+    }
+
+
+    /// Stop a task and everything still live underneath it.
+    ///
+    /// Cancelling only the task would leave its steps `Running` with workers
+    /// still holding them — the row says stopped, the machine says otherwise.
+    /// The whole cascade is one transaction, so a reader never sees a
+    /// cancelled task with live children. Children that already reached a
+    /// verdict keep it: a step that succeeded before the cancel arrived did
+    /// succeed, and rewriting that would be a lie about what happened.
+    pub fn cancel_task(&self, id: &TaskId, expected_version: i64) -> Result<Task> {
+        self.with(|connection| {
+            let transaction = connection.transaction()?;
+            let (state, version): (String, i64) = transaction
+                .query_row(
+                    "SELECT state, version FROM tasks WHERE id = ?1",
+                    params![id.as_str()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?
+                .ok_or_else(|| anyhow::anyhow!("no task with id {id}"))?;
+            let state = State::parse(&state)?;
+            if version != expected_version {
+                anyhow::bail!(
+                    "task {id} is at version {version}, not {expected_version}; \
+                     something changed it since you read it"
+                );
+            }
+            if !State::Cancelled.may_follow(state) {
+                anyhow::bail!("task {id} cannot go from {} to cancelled", state.as_str());
+            }
+
+            let stamp = now();
+            // Steps first, then runs, then the task: a reader walking down
+            // from a cancelled task must never find a live child, and the
+            // order inside one transaction is what guarantees it even for a
+            // reader on another connection.
+            transaction.execute(
+                "UPDATE steps
+                    SET state = 'cancelled', version = version + 1, updated_at = ?2,
+                        claimed_by = NULL, lease_expires_at = NULL
+                  WHERE state IN ('pending', 'running')
+                    AND run_id IN (SELECT id FROM runs WHERE task_id = ?1)",
+                params![id.as_str(), stamp],
+            )?;
+            transaction.execute(
+                "UPDATE runs
+                    SET state = 'cancelled', version = version + 1, updated_at = ?2,
+                        ended_at = COALESCE(ended_at, ?2)
+                  WHERE task_id = ?1 AND state IN ('pending', 'running')",
+                params![id.as_str(), stamp],
+            )?;
+            transaction.execute(
+                "UPDATE tasks SET state = 'cancelled', version = version + 1, updated_at = ?2
+                  WHERE id = ?1 AND version = ?3",
+                params![id.as_str(), stamp, expected_version],
+            )?;
+            append_event(
+                &transaction,
+                Some(id.as_str()),
+                None,
+                None,
+                "task.cancelled",
+                &serde_json::json!({"from": state.as_str(), "cascaded": true}),
+            )?;
+            let task = transaction.query_row(
+                "SELECT id, kind, title, state, version, created_at, updated_at, detail
+                 FROM tasks WHERE id = ?1",
+                params![id.as_str()],
+                row_to_task,
+            )?;
+            transaction.commit()?;
+            Ok(task)
+        })
+    }
+
+    /// Put the store back into a state somebody can act on, after a crash.
+    ///
+    /// Called when the Core starts, where by definition no worker from the
+    /// previous life survived. Three sweeps, in the order the containment
+    /// runs: a claim nobody is renewing is `Interrupted`; a run whose work is
+    /// all finished but which nobody closed is `Interrupted`; a task whose
+    /// attempts are all over but which nobody closed is the same. A run that
+    /// still has pending steps is left alone — a new worker can pick those
+    /// up, and reclaiming resumable work is worse than the stall it fixes.
+    pub fn recover(&self) -> Result<Recovery> {
+        let steps = self.reconcile()?;
+        let mut recovery = Recovery {
+            steps_interrupted: steps.into_iter().map(|step| step.id).collect(),
+            ..Recovery::default()
+        };
+        self.with(|connection| {
+            let transaction = connection.transaction()?;
+            let stamp = now();
+
+            let stalled_runs: Vec<String> = {
+                let mut statement = transaction.prepare(
+                    "SELECT r.id FROM runs r
+                      WHERE r.state = 'running'
+                        AND EXISTS (SELECT 1 FROM steps s WHERE s.run_id = r.id)
+                        AND NOT EXISTS (
+                            SELECT 1 FROM steps s
+                             WHERE s.run_id = r.id AND s.state IN ('pending', 'running'))",
+                )?;
+                let rows = statement
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                drop(statement);
+                rows
+            };
+            for id in &stalled_runs {
+                transaction.execute(
+                    "UPDATE runs SET state = 'interrupted', version = version + 1,
+                                     updated_at = ?2, ended_at = COALESCE(ended_at, ?2)
+                      WHERE id = ?1",
+                    params![id, stamp],
+                )?;
+                append_event(
+                    &transaction,
+                    None,
+                    Some(id.as_str()),
+                    None,
+                    "run.interrupted",
+                    &serde_json::json!({"reason": "no live work and nobody closed it"}),
+                )?;
+                recovery.runs_interrupted.push(RunId::parse(id)?);
+            }
+
+            let stalled_tasks: Vec<String> = {
+                let mut statement = transaction.prepare(
+                    "SELECT t.id FROM tasks t
+                      WHERE t.state = 'running'
+                        AND EXISTS (SELECT 1 FROM runs r WHERE r.task_id = t.id)
+                        AND NOT EXISTS (
+                            SELECT 1 FROM runs r
+                             WHERE r.task_id = t.id AND r.state IN ('pending', 'running'))",
+                )?;
+                let rows = statement
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                drop(statement);
+                rows
+            };
+            for id in &stalled_tasks {
+                transaction.execute(
+                    "UPDATE tasks SET state = 'interrupted', version = version + 1, updated_at = ?2
+                      WHERE id = ?1",
+                    params![id, stamp],
+                )?;
+                append_event(
+                    &transaction,
+                    Some(id.as_str()),
+                    None,
+                    None,
+                    "task.interrupted",
+                    &serde_json::json!({"reason": "every attempt is over and nobody closed it"}),
+                )?;
+                recovery.tasks_interrupted.push(TaskId::parse(id)?);
+            }
+            transaction.commit()?;
+            Ok(())
+        })?;
+        Ok(recovery)
     }
 
     // ---- events ------------------------------------------------------
@@ -637,6 +843,7 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         version: row.get(4)?,
         created_at: row.get(5)?,
         updated_at: row.get(6)?,
+        detail: json_column(row, 7)?,
     })
 }
 
@@ -666,6 +873,7 @@ fn row_to_step(row: &rusqlite::Row<'_>) -> rusqlite::Result<Step> {
         lease_expires_at: row.get(8)?,
         created_at: row.get(9)?,
         updated_at: row.get(10)?,
+        detail: json_column(row, 11)?,
     })
 }
 
@@ -686,6 +894,14 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
         kind: row.get(5)?,
         payload: serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null),
     })
+}
+
+/// A JSON column, tolerating a row written before the column existed.
+fn json_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<serde_json::Value> {
+    let raw: Option<String> = row.get(index)?;
+    Ok(raw
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_else(|| serde_json::json!({})))
 }
 
 fn to_sqlite_error(error: anyhow::Error) -> rusqlite::Error {
@@ -1058,6 +1274,140 @@ mod tests {
         assert!(after.lease_expires_at.is_none());
         // And reconciliation has no interest in it any more.
         assert!(store.reconcile().unwrap().is_empty());
+    }
+
+    #[test]
+    fn cancelling_a_task_stops_everything_still_live_under_it() {
+        let store = store();
+        let task = store.create_task("agent", "big job").unwrap();
+        let running = store
+            .set_task_state(&task.id, State::Running, task.version)
+            .unwrap();
+        let run = store.start_run(&task.id).unwrap();
+        let pending = store.request_step(&run.id, "a", None).unwrap().step().clone();
+        let claimed = store.request_step(&run.id, "b", None).unwrap().step().clone();
+        let finished = store.request_step(&run.id, "c", None).unwrap().step().clone();
+        store.claim_step(&claimed.id, "worker-a", 600).unwrap();
+        let claimed_now = store.step(&claimed.id).unwrap().unwrap();
+        let Claim::Granted(done) = store.claim_step(&finished.id, "worker-b", 600).unwrap() else {
+            panic!("claim refused");
+        };
+        store
+            .finish_step(&done.id, State::Succeeded, done.version)
+            .unwrap();
+
+        let cancelled = store.cancel_task(&task.id, running.version).unwrap();
+        assert_eq!(cancelled.state, State::Cancelled);
+
+        // Everything that was still live is stopped...
+        assert_eq!(store.step(&pending.id).unwrap().unwrap().state, State::Cancelled);
+        let was_running = store.step(&claimed.id).unwrap().unwrap();
+        assert_eq!(was_running.state, State::Cancelled);
+        assert!(
+            was_running.claimed_by.is_none(),
+            "a cancelled step must not still look held by a worker"
+        );
+        assert_eq!(store.runs(&task.id).unwrap()[0].state, State::Cancelled);
+        // ...and what already reached a verdict keeps it. Rewriting that
+        // would be a lie about what happened.
+        assert_eq!(store.step(&finished.id).unwrap().unwrap().state, State::Succeeded);
+        let _ = claimed_now;
+    }
+
+    #[test]
+    fn cancelling_refuses_a_stale_version_and_a_finished_task() {
+        let store = store();
+        let task = store.create_task("agent", "t").unwrap();
+        let error = store.cancel_task(&task.id, task.version + 9).unwrap_err().to_string();
+        assert!(error.contains("version"), "got: {error}");
+
+        let running = store
+            .set_task_state(&task.id, State::Running, task.version)
+            .unwrap();
+        let done = store
+            .set_task_state(&task.id, State::Succeeded, running.version)
+            .unwrap();
+        let error = store.cancel_task(&task.id, done.version).unwrap_err().to_string();
+        assert!(error.contains("cannot go from"), "got: {error}");
+        assert_eq!(store.task(&task.id).unwrap().unwrap().state, State::Succeeded);
+    }
+
+    #[test]
+    fn recovery_rolls_a_dead_worker_all_the_way_up() {
+        let store = store();
+        let task = store.create_task("agent", "t").unwrap();
+        store.set_task_state(&task.id, State::Running, task.version).unwrap();
+        let run = store.start_run(&task.id).unwrap();
+        let step = store.request_step(&run.id, "tool", None).unwrap().step().clone();
+        // A worker took it and died: the lease is already in the past.
+        store.claim_step(&step.id, "ghost", -1).unwrap();
+
+        let recovery = store.recover().unwrap();
+        assert!(!recovery.is_clean());
+        assert_eq!(recovery.steps_interrupted, vec![step.id.clone()]);
+        assert_eq!(recovery.runs_interrupted, vec![run.id.clone()]);
+        assert_eq!(recovery.tasks_interrupted, vec![task.id.clone()]);
+
+        assert_eq!(store.step(&step.id).unwrap().unwrap().state, State::Interrupted);
+        assert_eq!(store.runs(&task.id).unwrap()[0].state, State::Interrupted);
+        assert_eq!(store.task(&task.id).unwrap().unwrap().state, State::Interrupted);
+
+        // And it is idempotent: a second start must not keep rewriting rows.
+        assert!(store.recover().unwrap().is_clean());
+    }
+
+    #[test]
+    fn recovery_leaves_work_a_new_worker_could_still_pick_up() {
+        let store = store();
+        let task = store.create_task("agent", "t").unwrap();
+        store.set_task_state(&task.id, State::Running, task.version).unwrap();
+        let run = store.start_run(&task.id).unwrap();
+        let dead = store.request_step(&run.id, "dead", None).unwrap().step().clone();
+        let waiting = store.request_step(&run.id, "waiting", None).unwrap().step().clone();
+        store.claim_step(&dead.id, "ghost", -1).unwrap();
+
+        let recovery = store.recover().unwrap();
+        assert_eq!(recovery.steps_interrupted, vec![dead.id.clone()]);
+        assert!(
+            recovery.runs_interrupted.is_empty(),
+            "a run with pending work is resumable; reclaiming it is worse than the stall"
+        );
+        assert!(recovery.tasks_interrupted.is_empty());
+        assert_eq!(store.step(&waiting.id).unwrap().unwrap().state, State::Pending);
+        assert_eq!(store.runs(&task.id).unwrap()[0].state, State::Running);
+    }
+
+    #[test]
+    fn recovery_does_not_touch_a_run_that_has_not_started_work_yet() {
+        let store = store();
+        let task = store.create_task("agent", "t").unwrap();
+        store.set_task_state(&task.id, State::Running, task.version).unwrap();
+        store.start_run(&task.id).unwrap();
+        // No steps at all: nothing says this is dead, only that it is young.
+        assert!(store.recover().unwrap().is_clean());
+    }
+
+    #[test]
+    fn the_detail_column_carries_a_callers_own_data_untouched() {
+        let store = store();
+        let detail = serde_json::json!({"repo": "/tmp/x", "branch": "fleet/a-1"});
+        let task = store
+            .create_task_with_detail("fleet", "ship it", detail.clone())
+            .unwrap();
+        assert_eq!(task.detail, detail);
+        assert_eq!(store.task(&task.id).unwrap().unwrap().detail, detail);
+
+        let run = store.start_run(&task.id).unwrap();
+        let member = serde_json::json!({"agent": "claude", "review": "pending"});
+        let step = store
+            .request_step_with_detail(&run.id, "fleet.member", Some("k"), member.clone())
+            .unwrap();
+        assert_eq!(step.step().detail, member);
+        // A state change must not disturb it: the engine carries this, it
+        // does not own it.
+        let claimed = step.step().clone();
+        store.claim_step(&claimed.id, "w", 60).unwrap();
+        assert_eq!(store.step(&claimed.id).unwrap().unwrap().detail, member);
     }
 
     #[test]
