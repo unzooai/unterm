@@ -184,3 +184,24 @@ fn the_surface_publishes_no_method_twice() {
         "a method name is published twice; a client cannot tell which one it reaches"
     );
 }
+
+/// Every published method must have a risk classification.
+///
+/// The gateway refuses what it cannot classify, on the reasoning that an
+/// unregistered action is exactly the one that will surprise somebody. That
+/// is only safe if the registry actually covers the surface — otherwise the
+/// first caller of a forgotten method gets a refusal instead of a terminal.
+/// This is the check that keeps the two in step, and it fails at build time
+/// rather than in front of a user.
+#[test]
+fn every_published_method_has_a_risk_classification() {
+    let unclassified: Vec<&&str> = FROZEN_METHODS
+        .iter()
+        .filter(|method| unterm_gateway::risk_of(method).is_none())
+        .collect();
+    assert!(
+        unclassified.is_empty(),
+        "these methods have no entry in the gateway's risk registry, so the \
+         gateway would refuse them as unclassified: {unclassified:#?}"
+    );
+}

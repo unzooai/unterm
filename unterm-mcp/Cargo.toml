@@ -29,6 +29,7 @@ unterm-engine = { path = "../unterm-engine" }
 unterm-services = { path = "../unterm-services" }
 unterm-agents.workspace = true
 unterm-profile.workspace = true
+unterm-gateway.workspace = true
 unterm-protocol.workspace = true
 promise.workspace = true
 url.workspace = true

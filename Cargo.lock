@@ -6237,6 +6237,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "unterm-gateway"
+version = "0.66.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "unterm-mcp"
 version = "0.1.0"
 dependencies = [
@@ -6260,6 +6268,7 @@ dependencies = [
  "sha1",
  "unterm-agents",
  "unterm-engine",
+ "unterm-gateway",
  "unterm-profile",
  "unterm-protocol",
  "unterm-services",

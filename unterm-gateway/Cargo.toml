@@ -1,0 +1,14 @@
+[package]
+name = "unterm-gateway"
+version.workspace = true
+edition = "2021"
+publish = false
+
+# The one place an action is decided. Depends on `unterm-protocol` and nothing
+# else on purpose: the PTY write path lives in `unterm-engine`, which sits
+# below services and MCP, and a gateway a caller cannot reach is a gateway
+# that caller goes around.
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true

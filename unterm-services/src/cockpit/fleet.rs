@@ -64,18 +64,6 @@ pub struct Fleet {
     pub created_at: String,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct FleetFile {
-    fleets: Vec<Fleet>,
-}
-
-fn fleets_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("UNTERM_FLEETS_PATH") {
-        return Some(PathBuf::from(path));
-    }
-    unterm_protocol::state_path("fleets.json")
-}
-
 /// Empty the store. Behind a feature so it is not in a shipped binary, but
 /// reachable from another crate's tests, which is where the fleet is exercised
 /// end to end.
