@@ -31,6 +31,12 @@ pub fn start_mcp_server() -> (u16, String) {
 /// instance registry.  The MCP crate's version is an internal implementation
 /// detail and can legitimately differ from the GUI product version.
 pub fn start_mcp_server_with_version(product_version: &str) -> (u16, String) {
+    // Trust the user gave by clicking "always allow" moves into the grant
+    // store, once, before anything can read it from the old file. Done here
+    // rather than lazily so the import happens while nothing is racing to
+    // create the same grants.
+    crate::handler::migrate_trusted_agents_to_grants();
+
     let (listener, port) = match server_info::bind_with_fallback(MCP_PREFERRED_PORT) {
         Ok(pair) => pair,
         Err(e) => {

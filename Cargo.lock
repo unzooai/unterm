@@ -6272,6 +6272,7 @@ dependencies = [
  "unterm-profile",
  "unterm-protocol",
  "unterm-services",
+ "unterm-tasks",
  "url",
  "uuid",
  "winapi",

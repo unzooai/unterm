@@ -228,6 +228,10 @@ fn no_handler_keeps_a_private_risk_table_or_policy_evaluator() {
         "fn action_risk(",
         "struct ActionGatewayDecision",
         "fn gateway_decision_for_command(",
+        // The policy evaluator itself, which outlived the decision struct by
+        // one commit and would have drifted just as quietly.
+        "enum PolicyVerdict",
+        "fn policy_verdict(",
     ] {
         assert!(
             !handler.contains(banned),
