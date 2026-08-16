@@ -78,6 +78,56 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX events_by_task ON events(task_id, seq);
     "#,
+    // v2 — standing permissions and the questions that create them.
+    //
+    // v1 shipped in 0.67.0, so from here migrations are append-only for real:
+    // a user's file was migrated by the text above and will never see it
+    // again.
+    r#"
+    CREATE TABLE grants (
+        id          TEXT PRIMARY KEY,
+        -- once | task | resource | always. What the user agreed to, not how
+        -- long it happens to last: "just this once" and "for this task" are
+        -- different promises even when they expire at the same moment.
+        scope       TEXT NOT NULL,
+        -- NULL means any. A grant that names nothing is the broadest thing
+        -- the user can give, which is why answering "always" has to say what
+        -- "always" was about.
+        method      TEXT,
+        actor       TEXT,
+        task_id     TEXT,
+        resource    TEXT,
+        -- The most dangerous thing this grant will cover. A permission given
+        -- for a local mutation must not silently start covering destruction.
+        max_risk    TEXT NOT NULL,
+        created_at  TEXT NOT NULL,
+        expires_at  TEXT,
+        revoked_at  TEXT,
+        consumed_at TEXT
+    );
+    CREATE INDEX grants_live ON grants(revoked_at, expires_at);
+
+    CREATE TABLE approvals (
+        id          TEXT PRIMARY KEY,
+        method      TEXT NOT NULL,
+        actor       TEXT,
+        task_id     TEXT,
+        resource    TEXT,
+        command     TEXT,
+        risk        TEXT NOT NULL,
+        -- pending | allowed | denied | expired | revoked
+        state       TEXT NOT NULL,
+        created_at  TEXT NOT NULL,
+        expires_at  TEXT,
+        decided_at  TEXT,
+        decided_by  TEXT,
+        -- The grant answering this question created, if the user chose to be
+        -- asked less often; and the one that must take this with it when it
+        -- is revoked.
+        grant_id    TEXT
+    );
+    CREATE INDEX approvals_pending ON approvals(state, expires_at);
+    "#,
 ];
 
 /// The version a fresh file is migrated to.

@@ -19,6 +19,7 @@
 //!   is a verdict a reader can act on rather than a row stuck at `Running`
 //!   forever.
 
+pub mod approval;
 pub mod model;
 mod schema;
 
@@ -27,6 +28,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+pub use approval::{Approval, ApprovalState, Ask, Grant, NewGrant, Scope};
 pub use model::{Event, Run, RunId, State, Step, StepId, Task, TaskId};
 
 fn now() -> String {
@@ -793,6 +795,288 @@ impl TaskStore {
         })
     }
 
+
+    // ---- grants and approvals ---------------------------------------
+
+    /// Record what the user agreed to.
+    pub fn create_grant(&self, spec: NewGrant) -> Result<Grant> {
+        let scope = spec.scope_or_once.unwrap_or(Scope::Once);
+        let grant = Grant {
+            id: format!("grt_{}", uuid::Uuid::new_v4().simple()),
+            scope,
+            method: spec.method,
+            actor: spec.actor,
+            task_id: spec.task_id,
+            resource: spec.resource,
+            max_risk: spec.max_risk.unwrap_or_else(|| "local_mutation".to_string()),
+            created_at: now(),
+            expires_at: spec.ttl_seconds.map(|seconds| {
+                (chrono::Utc::now() + chrono::Duration::seconds(seconds)).to_rfc3339()
+            }),
+            revoked_at: None,
+            consumed_at: None,
+        };
+        self.with(|connection| {
+            connection.execute(
+                "INSERT INTO grants (id, scope, method, actor, task_id, resource, max_risk,
+                                     created_at, expires_at, revoked_at, consumed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, NULL)",
+                params![
+                    grant.id,
+                    grant.scope.as_str(),
+                    grant.method,
+                    grant.actor,
+                    grant.task_id,
+                    grant.resource,
+                    grant.max_risk,
+                    grant.created_at,
+                    grant.expires_at
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(grant)
+    }
+
+    pub fn grants(&self) -> Result<Vec<Grant>> {
+        self.with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, scope, method, actor, task_id, resource, max_risk,
+                        created_at, expires_at, revoked_at, consumed_at
+                 FROM grants ORDER BY created_at, id",
+            )?;
+            let rows = statement.query_map([], row_to_grant)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// The live grant that covers this action, if one does.
+    pub fn covering_grant(&self, ask: &Ask) -> Result<Option<Grant>> {
+        let stamp = now();
+        Ok(self
+            .grants()?
+            .into_iter()
+            .find(|grant| approval::matches(grant, ask, &stamp)))
+    }
+
+    /// Spend a one-shot grant.
+    pub fn consume_grant(&self, id: &str) -> Result<()> {
+        self.with(|connection| {
+            connection.execute(
+                "UPDATE grants SET consumed_at = ?2 WHERE id = ?1 AND consumed_at IS NULL",
+                params![id, now()],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Take a permission back.
+    ///
+    /// The gate this subsystem is judged by: revoking must stop the next
+    /// action *and* whatever is already proceeding on this grant's authority.
+    /// Stopping only the next one would leave the work the user just withdrew
+    /// permission for still running, which is the opposite of what they asked.
+    ///
+    /// Everything happens in one transaction, so there is no window where the
+    /// permission is gone but something still believes it holds it. Returns
+    /// how many things were cut off.
+    pub fn revoke_grant(&self, id: &str) -> Result<usize> {
+        self.with(|connection| {
+            let transaction = connection.transaction()?;
+            let stamp = now();
+            transaction.execute(
+                "UPDATE grants SET revoked_at = ?2 WHERE id = ?1 AND revoked_at IS NULL",
+                params![id, stamp],
+            )?;
+            let mut cut_off = transaction.execute(
+                "UPDATE approvals
+                    SET state = 'revoked', decided_at = ?2, decided_by = 'revocation'
+                  WHERE grant_id = ?1 AND state = 'pending'",
+                params![id, stamp],
+            )?;
+            // Work already under way on this grant's authority. The gateway
+            // stamps `authorised_by` onto a step when a grant is what let it
+            // through, which is the only way revocation can find it again.
+            cut_off += transaction.execute(
+                "UPDATE steps
+                    SET state = 'cancelled', version = version + 1, updated_at = ?2,
+                        claimed_by = NULL, lease_expires_at = NULL
+                  WHERE state IN ('pending', 'running')
+                    AND json_extract(detail, '$.authorised_by') = ?1",
+                params![id, stamp],
+            )?;
+            transaction.commit()?;
+            Ok(cut_off)
+        })
+    }
+
+    /// Record which grant let a step through.
+    ///
+    /// Without this the authority is only in the log, and revocation has no
+    /// way to find the work it needs to stop.
+    pub fn attribute_step_to_grant(&self, id: &StepId, grant_id: &str) -> Result<()> {
+        self.with(|connection| {
+            connection.execute(
+                "UPDATE steps
+                    SET detail = json_set(COALESCE(NULLIF(detail, ''), '{}'),
+                                          '$.authorised_by', ?2),
+                        updated_at = ?3
+                  WHERE id = ?1",
+                params![id.as_str(), grant_id, now()],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Ask the user about one action.
+    pub fn request_approval(
+        &self,
+        method: &str,
+        risk: &str,
+        ask: &Ask,
+        command: Option<&str>,
+        ttl_seconds: Option<i64>,
+    ) -> Result<Approval> {
+        let approval = Approval {
+            id: format!("apr_{}", uuid::Uuid::new_v4().simple()),
+            method: method.to_string(),
+            actor: ask.actor.clone(),
+            task_id: ask.task_id.clone(),
+            resource: ask.resource.clone(),
+            command: command.map(str::to_string),
+            risk: risk.to_string(),
+            state: ApprovalState::Pending,
+            created_at: now(),
+            expires_at: ttl_seconds.map(|seconds| {
+                (chrono::Utc::now() + chrono::Duration::seconds(seconds)).to_rfc3339()
+            }),
+            decided_at: None,
+            decided_by: None,
+            grant_id: None,
+        };
+        self.with(|connection| {
+            connection.execute(
+                "INSERT INTO approvals (id, method, actor, task_id, resource, command, risk,
+                                        state, created_at, expires_at, decided_at, decided_by,
+                                        grant_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, NULL)",
+                params![
+                    approval.id,
+                    approval.method,
+                    approval.actor,
+                    approval.task_id,
+                    approval.resource,
+                    approval.command,
+                    approval.risk,
+                    approval.state.as_str(),
+                    approval.created_at,
+                    approval.expires_at
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(approval)
+    }
+
+    pub fn approval(&self, id: &str) -> Result<Option<Approval>> {
+        self.with(|connection| {
+            connection
+                .query_row(
+                    "SELECT id, method, actor, task_id, resource, command, risk, state,
+                            created_at, expires_at, decided_at, decided_by, grant_id
+                     FROM approvals WHERE id = ?1",
+                    params![id],
+                    row_to_approval,
+                )
+                .optional()
+                .map_err(Into::into)
+        })
+    }
+
+    /// Questions nobody has answered yet.
+    pub fn pending_approvals(&self) -> Result<Vec<Approval>> {
+        self.with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, method, actor, task_id, resource, command, risk, state,
+                        created_at, expires_at, decided_at, decided_by, grant_id
+                 FROM approvals WHERE state = 'pending' ORDER BY created_at, id",
+            )?;
+            let rows = statement.query_map([], row_to_approval)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// Answer a question, optionally remembering the answer as a grant.
+    pub fn decide_approval(
+        &self,
+        id: &str,
+        allowed: bool,
+        decided_by: &str,
+        remember: Option<NewGrant>,
+    ) -> Result<Approval> {
+        // The grant is created first and outside the settle, so an approval
+        // can never end up pointing at a grant that does not exist.
+        let grant = match (allowed, remember) {
+            (true, Some(spec)) => Some(self.create_grant(spec)?),
+            _ => None,
+        };
+        self.with(|connection| {
+            let state = if allowed {
+                ApprovalState::Allowed
+            } else {
+                ApprovalState::Denied
+            };
+            let changed = connection.execute(
+                "UPDATE approvals
+                    SET state = ?2, decided_at = ?3, decided_by = ?4, grant_id = ?5
+                  WHERE id = ?1 AND state = 'pending'",
+                params![
+                    id,
+                    state.as_str(),
+                    now(),
+                    decided_by,
+                    grant.as_ref().map(|grant| grant.id.clone())
+                ],
+            )?;
+            if changed != 1 {
+                anyhow::bail!("approval {id} was already settled");
+            }
+            Ok(())
+        })?;
+        self.approval(id)?
+            .ok_or_else(|| anyhow::anyhow!("approval {id} vanished while being decided"))
+    }
+
+    /// Settle questions nobody answered in time.
+    ///
+    /// `Expired`, never `Denied`: nobody said no, they just were not there,
+    /// and a caller that retries a refusal must not retry an absence.
+    pub fn expire_approvals(&self) -> Result<Vec<String>> {
+        self.with(|connection| {
+            let stamp = now();
+            let transaction = connection.transaction()?;
+            let stale: Vec<String> = {
+                let mut statement = transaction.prepare(
+                    "SELECT id FROM approvals
+                      WHERE state = 'pending' AND expires_at IS NOT NULL AND expires_at < ?1",
+                )?;
+                let rows = statement
+                    .query_map(params![stamp], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                drop(statement);
+                rows
+            };
+            for id in &stale {
+                transaction.execute(
+                    "UPDATE approvals SET state = 'expired', decided_at = ?2 WHERE id = ?1",
+                    params![id, stamp],
+                )?;
+            }
+            transaction.commit()?;
+            Ok(stale)
+        })
+    }
+
     // ---- events ------------------------------------------------------
 
     /// Everything after `cursor`, oldest first. A subscriber remembers the
@@ -965,6 +1249,40 @@ fn json_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<serde_
     Ok(raw
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_else(|| serde_json::json!({})))
+}
+
+fn row_to_grant(row: &rusqlite::Row<'_>) -> rusqlite::Result<Grant> {
+    Ok(Grant {
+        id: row.get(0)?,
+        scope: Scope::parse(&row.get::<_, String>(1)?).map_err(to_sqlite_error)?,
+        method: row.get(2)?,
+        actor: row.get(3)?,
+        task_id: row.get(4)?,
+        resource: row.get(5)?,
+        max_risk: row.get(6)?,
+        created_at: row.get(7)?,
+        expires_at: row.get(8)?,
+        revoked_at: row.get(9)?,
+        consumed_at: row.get(10)?,
+    })
+}
+
+fn row_to_approval(row: &rusqlite::Row<'_>) -> rusqlite::Result<Approval> {
+    Ok(Approval {
+        id: row.get(0)?,
+        method: row.get(1)?,
+        actor: row.get(2)?,
+        task_id: row.get(3)?,
+        resource: row.get(4)?,
+        command: row.get(5)?,
+        risk: row.get(6)?,
+        state: ApprovalState::parse(&row.get::<_, String>(7)?).map_err(to_sqlite_error)?,
+        created_at: row.get(8)?,
+        expires_at: row.get(9)?,
+        decided_at: row.get(10)?,
+        decided_by: row.get(11)?,
+        grant_id: row.get(12)?,
+    })
 }
 
 fn to_sqlite_error(error: anyhow::Error) -> rusqlite::Error {
@@ -1471,6 +1789,214 @@ mod tests {
         let claimed = step.step().clone();
         store.claim_step(&claimed.id, "w", 60).unwrap();
         assert_eq!(store.step(&claimed.id).unwrap().unwrap().detail, member);
+    }
+
+    #[test]
+    fn an_approval_outlives_the_process_that_asked() {
+        // The gate: "审批可跨重启". A question that evaporates when the Core
+        // restarts turns an agent's request into a silent refusal, and the
+        // user never learns they were asked.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tasks.db");
+        let id = {
+            let store = TaskStore::open(&path).unwrap();
+            let ask = Ask {
+                method: "session.destroy".to_string(),
+                actor: Some("claude".to_string()),
+                ..Ask::default()
+            };
+            store
+                .request_approval("session.destroy", "destructive", &ask, None, None)
+                .unwrap()
+                .id
+        };
+
+        let store = TaskStore::open(&path).unwrap();
+        let pending = store.pending_approvals().unwrap();
+        assert_eq!(pending.len(), 1, "the question did not survive the restart");
+        assert_eq!(pending[0].id, id);
+        assert_eq!(pending[0].actor.as_deref(), Some("claude"));
+
+        // And it can still be answered afterwards.
+        let settled = store.decide_approval(&id, true, "the user", None).unwrap();
+        assert_eq!(settled.state, ApprovalState::Allowed);
+        assert!(store.pending_approvals().unwrap().is_empty());
+    }
+
+    #[test]
+    fn revoking_a_grant_stops_the_next_action_and_anything_already_waiting() {
+        // The gate: "Grant 撤销立即阻断等待及后续动作".
+        let store = store();
+        let ask = Ask {
+            method: "exec.run".to_string(),
+            risk_rank: unterm_tasks_risk("local_mutation"),
+            ..Ask::default()
+        };
+        let grant = store
+            .create_grant(NewGrant {
+                scope_or_once: Some(Scope::Always),
+                max_risk: Some("destructive".to_string()),
+                ..NewGrant::default()
+            })
+            .unwrap();
+        assert!(store.covering_grant(&ask).unwrap().is_some());
+
+        // A question that this grant is on the hook for.
+        let waiting = store
+            .request_approval("exec.run", "local_mutation", &ask, None, None)
+            .unwrap();
+        store
+            .with(|connection| {
+                connection.execute(
+                    "UPDATE approvals SET grant_id = ?2 WHERE id = ?1",
+                    rusqlite::params![waiting.id, grant.id],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+        let cut_off = store.revoke_grant(&grant.id).unwrap();
+
+        assert_eq!(cut_off, 1, "the waiting question was left hanging");
+        assert_eq!(
+            store.approval(&waiting.id).unwrap().unwrap().state,
+            ApprovalState::Revoked,
+            "a waiter must not still believe permission is coming"
+        );
+        assert!(
+            store.covering_grant(&ask).unwrap().is_none(),
+            "the next action must not still be covered"
+        );
+    }
+
+    #[test]
+    fn revoking_a_grant_stops_work_already_running_on_its_authority() {
+        // The half of the gate that a pending-approval cascade cannot reach:
+        // by the time work is under way there is no question outstanding, and
+        // stopping only future actions would leave the very thing the user
+        // withdrew permission for still running.
+        let store = store();
+        let grant = store
+            .create_grant(NewGrant {
+                scope_or_once: Some(Scope::Always),
+                max_risk: Some("destructive".to_string()),
+                ..NewGrant::default()
+            })
+            .unwrap();
+        let (_task, run) = scaffold(&store);
+        let authorised = store.request_step(&run.id, "tool", None).unwrap().step().clone();
+        let unrelated = store.request_step(&run.id, "tool", None).unwrap().step().clone();
+        store.claim_step(&authorised.id, "worker", 600).unwrap();
+        store.claim_step(&unrelated.id, "worker", 600).unwrap();
+        store
+            .attribute_step_to_grant(&authorised.id, &grant.id)
+            .unwrap();
+
+        let cut_off = store.revoke_grant(&grant.id).unwrap();
+        assert_eq!(cut_off, 1);
+        assert_eq!(
+            store.step(&authorised.id).unwrap().unwrap().state,
+            State::Cancelled,
+            "work running on a revoked grant kept going"
+        );
+        assert_eq!(
+            store.step(&unrelated.id).unwrap().unwrap().state,
+            State::Running,
+            "revocation reached work it had no business touching"
+        );
+    }
+
+    #[test]
+    fn a_once_grant_is_spent_after_it_is_used() {
+        let store = store();
+        let ask = Ask {
+            method: "session.destroy".to_string(),
+            risk_rank: unterm_tasks_risk("destructive"),
+            ..Ask::default()
+        };
+        let grant = store
+            .create_grant(NewGrant {
+                scope_or_once: Some(Scope::Once),
+                max_risk: Some("destructive".to_string()),
+                ..NewGrant::default()
+            })
+            .unwrap();
+        assert_eq!(
+            store.covering_grant(&ask).unwrap().map(|g| g.id),
+            Some(grant.id.clone())
+        );
+        store.consume_grant(&grant.id).unwrap();
+        assert!(
+            store.covering_grant(&ask).unwrap().is_none(),
+            "\"just this once\" covered a second action"
+        );
+    }
+
+    #[test]
+    fn saying_yes_and_remembering_it_creates_the_grant_the_answer_described() {
+        let store = store();
+        let ask = Ask {
+            method: "exec.run".to_string(),
+            task_id: Some("tsk_1".to_string()),
+            risk_rank: unterm_tasks_risk("local_mutation"),
+            ..Ask::default()
+        };
+        let question = store
+            .request_approval("exec.run", "local_mutation", &ask, Some("cargo test"), None)
+            .unwrap();
+        let settled = store
+            .decide_approval(
+                &question.id,
+                true,
+                "the user",
+                Some(NewGrant {
+                    scope_or_once: Some(Scope::Task),
+                    task_id: Some("tsk_1".to_string()),
+                    max_risk: Some("local_mutation".to_string()),
+                    ..NewGrant::default()
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(settled.state, ApprovalState::Allowed);
+        let grant_id = settled.grant_id.expect("remembering must create a grant");
+        // The grant covers this task and only this task.
+        assert!(store.covering_grant(&ask).unwrap().is_some());
+        let elsewhere = Ask {
+            task_id: Some("tsk_2".to_string()),
+            ..ask.clone()
+        };
+        assert!(store.covering_grant(&elsewhere).unwrap().is_none());
+        // And revoking it reaches the action that would next have used it.
+        store.revoke_grant(&grant_id).unwrap();
+        assert!(store.covering_grant(&ask).unwrap().is_none());
+    }
+
+    #[test]
+    fn an_unanswered_question_expires_rather_than_being_refused() {
+        let store = store();
+        let ask = Ask {
+            method: "session.destroy".to_string(),
+            ..Ask::default()
+        };
+        let question = store
+            .request_approval("session.destroy", "destructive", &ask, None, Some(-1))
+            .unwrap();
+        let expired = store.expire_approvals().unwrap();
+        assert_eq!(expired, vec![question.id.clone()]);
+        assert_eq!(
+            store.approval(&question.id).unwrap().unwrap().state,
+            ApprovalState::Expired,
+            "nobody said no; they were not there, and the two must stay tellable apart"
+        );
+        // Settling it twice must not resurrect it.
+        assert!(store.decide_approval(&question.id, true, "late", None).is_err());
+    }
+
+    /// Local mirror of the gateway's ranking, so this crate's tests do not
+    /// depend on the crate that sits above it.
+    fn unterm_tasks_risk(name: &str) -> u8 {
+        crate::approval::risk_rank(name)
     }
 
     #[test]
