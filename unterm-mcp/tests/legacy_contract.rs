@@ -205,3 +205,61 @@ fn every_published_method_has_a_risk_classification() {
          gateway would refuse them as unclassified: {unclassified:#?}"
     );
 }
+
+/// No door may keep its own copy of the rules.
+///
+/// M3's whole claim is that every entry point reaches the same verdict,
+/// which is only true while there is one implementation to reach. A second
+/// risk table or policy evaluator growing back inside a handler is exactly
+/// how that claim quietly stops being true — the copy starts identical and
+/// drifts, and the drift is invisible until an action is allowed at one door
+/// and refused at another.
+///
+/// This is a source check rather than a behavioural one on purpose: by the
+/// time a divergence is observable in behaviour, it has already shipped.
+#[test]
+fn no_handler_keeps_a_private_risk_table_or_policy_evaluator() {
+    let handler = include_str!("../src/handler.rs");
+    // Names of the copies that used to live there. Each was deleted when the
+    // door was routed through `unterm_services::gateway`; a reappearance
+    // means somebody rebuilt the thing this milestone removed.
+    for banned in [
+        "enum ActionRisk",
+        "fn action_risk(",
+        "struct ActionGatewayDecision",
+        "fn gateway_decision_for_command(",
+    ] {
+        assert!(
+            !handler.contains(banned),
+            "`{banned}` is back in the MCP handler. Decisions belong to \
+             unterm-gateway, asked through unterm_services::gateway, so that \
+             every door reaches the same answer — add the case there instead."
+        );
+    }
+}
+
+/// The doors that make decisions ask the shared gateway.
+///
+/// Weaker than proving no bypass exists — that needs a call-graph — but it
+/// catches the realistic regression: a handler that decides for itself
+/// without mentioning the gateway at all.
+#[test]
+fn the_deciding_doors_reference_the_shared_gateway() {
+    let handler = include_str!("../src/handler.rs");
+    assert!(
+        handler.contains("unterm_services::gateway::admit"),
+        "the MCP handler no longer calls the shared gateway; if the call moved, \
+         point this test at its new home rather than deleting it"
+    );
+    // The PTY write path specifically: the door with no protocol of its own,
+    // and the one whose private rules would be least visible.
+    let pty_gate = handler
+        .split("fn gate_pty_write")
+        .nth(1)
+        .expect("gate_pty_write should still exist");
+    let body = &pty_gate[..pty_gate.len().min(4000)];
+    assert!(
+        body.contains("unterm_services::gateway::admit"),
+        "the PTY write gate stopped asking the shared gateway"
+    );
+}
