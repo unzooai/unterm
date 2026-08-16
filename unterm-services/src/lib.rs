@@ -9,6 +9,7 @@ pub mod bridge_registry;
 pub mod clash_api;
 pub mod cockpit;
 pub mod env_names;
+pub mod gateway;
 pub mod ghost_text;
 pub mod i18n;
 pub mod interrupt;

@@ -6337,6 +6337,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "unterm-engine",
+ "unterm-gateway",
  "unterm-profile",
  "unterm-protocol",
  "unterm-tasks",
