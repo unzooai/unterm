@@ -35,6 +35,15 @@ pub use lease::{CallRecord, CallSlot, Chain, Lease, NewLease, Presented, Refusal
 pub use model::{Event, Run, RunId, State, Step, StepId, Task, TaskId};
 pub use workspace::{AgentSession, Artifact, NewArtifact, Workspace};
 
+/// The data schema this build understands.
+///
+/// Published in the provider manifest: an orchestrator comparing versions
+/// needs the one that says whether this build can read the file it finds,
+/// which is not the product version.
+pub fn schema_version() -> i64 {
+    schema::latest_version()
+}
+
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }

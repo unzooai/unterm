@@ -537,6 +537,13 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod { name: "agent_session.interrupt", namespace: "records", summary: "Stop the agent and everything it started.", params: &[Param { name: "session_id", kind: "string", required: true, summary: "" }, Param { name: "grace_ms", kind: "integer", required: false, summary: "" }] },
     McpMethod { name: "agent_session.status", namespace: "records", summary: "How it is doing, or how it ended — answerable after a restart.", params: &[Param { name: "session_id", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "agent_session.close", namespace: "records", summary: "Wait for it, record the ending, and forget it.", params: &[Param { name: "session_id", kind: "string", required: true, summary: "" }] },
+    // ---- Unterm as a governable Terminal Provider ----
+    McpMethod { name: "terminal.manifest", namespace: "records", summary: "Who this terminal is, what it speaks, and what it can do — with risk from the gateway, not from prose.", params: NO_PARAMS },
+    McpMethod { name: "terminal.health", namespace: "records", summary: "Whether it can take work now. Ready is about taking work, not about being alive.", params: NO_PARAMS },
+    McpMethod { name: "terminal.capabilities", namespace: "records", summary: "The capability families and their structured risk.", params: NO_PARAMS },
+    McpMethod { name: "terminal.accept_lease", namespace: "records", summary: "Check a lease the layer above issued. Never issues one.", params: &[Param { name: "lease", kind: "string", required: true, summary: "" }, Param { name: "capability", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "terminal.invoke", namespace: "records", summary: "Run a method under a lease and a task context, recorded and idempotent.", params: &[Param { name: "capability", kind: "string", required: true, summary: "" }, Param { name: "method", kind: "string", required: true, summary: "" }, Param { name: "params", kind: "object", required: false, summary: "" }, Param { name: "task_id", kind: "string", required: false, summary: "Required for anything that changes something." }, Param { name: "idempotency_key", kind: "string", required: false, summary: "Required for anything that changes something." }, Param { name: "lease_id", kind: "string", required: false, summary: "" }] },
+    McpMethod { name: "terminal.cancel", namespace: "records", summary: "Close a call that is still running, so nobody reads `pending` forever.", params: &[Param { name: "call_id", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "approval.list", namespace: "governance", summary: "Questions the gateway is waiting on a human to answer.", params: NO_PARAMS },
     McpMethod { name: "approval.decide", namespace: "governance", summary: "Answer a question. Refused over the network: agents cannot answer their own requests.", params: &[Param { name: "approval", kind: "string", required: true, summary: "" }, Param { name: "allowed", kind: "boolean", required: true, summary: "" }, Param { name: "remember", kind: "string", required: false, summary: "once | task | resource | always" }] },
     McpMethod { name: "server.info", namespace: "governance", summary: "Server version, uptime, instance id.", params: NO_PARAMS },
@@ -681,7 +688,7 @@ mod tests {
         // that is the whole mechanism. A surface that grows without anyone
         // noticing is one where a method ships undocumented, unclassified and
         // untested, and the count is the only thing that makes a person look.
-        assert_eq!(MCP_METHODS.len(), 143);
+        assert_eq!(MCP_METHODS.len(), 149);
         let namespaces: std::collections::HashSet<_> = MCP_METHODS
             .iter()
             .filter_map(|method| method.name.split('.').next())
@@ -710,6 +717,7 @@ mod tests {
             "audit",
             "supervisor",
             "agent_session",
+            "terminal",
             "fleet",
             "review",
             "system",

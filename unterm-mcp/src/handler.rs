@@ -169,6 +169,9 @@ fn method_is_mutating(method: &str) -> bool {
             | "agent_session.submit_input"
             | "agent_session.interrupt"
             | "agent_session.close"
+            | "terminal.invoke"
+            | "terminal.accept_lease"
+            | "terminal.cancel"
     )
 }
 
@@ -235,6 +238,9 @@ fn method_is_read_only(method: &str) -> bool {
             | "system.uninstall_plan"
             | "agent_session.events"
             | "agent_session.status"
+            | "terminal.manifest"
+            | "terminal.health"
+            | "terminal.capabilities"
             | "cockpit.inbox"
             | "fleet.list"
             | "review.list"
@@ -5595,7 +5601,7 @@ impl McpHandler {
             }
             // Workspaces, artifacts, the audit chain, evidence bundles
             method if crate::records::handles(method) => {
-                crate::records::dispatch(method, params)
+                crate::records::dispatch_with(self, ctx, method, params)
             }
             "meta.surface" => crate::meta::surface(params),
             // Multi-instance discovery (one Unterm process = one instance,

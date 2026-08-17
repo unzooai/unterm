@@ -68,6 +68,7 @@ pub fn system_beep() {
     }
 }
 pub mod settings;
+pub mod terminal_provider;
 pub mod theme_state;
 pub mod toast;
 pub mod wake_watch;

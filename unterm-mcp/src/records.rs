@@ -44,6 +44,12 @@ pub const METHODS: &[&str] = &[
     "agent_session.interrupt",
     "agent_session.status",
     "agent_session.close",
+    "terminal.manifest",
+    "terminal.health",
+    "terminal.capabilities",
+    "terminal.accept_lease",
+    "terminal.invoke",
+    "terminal.cancel",
 ];
 
 pub fn handles(method: &str) -> bool {
@@ -77,6 +83,76 @@ fn text(params: &Value, key: &str) -> Result<String> {
         .and_then(Value::as_str)
         .map(str::to_string)
         .ok_or_else(|| anyhow!("Missing '{key}'"))
+}
+
+/// Dispatch, with the handler for the one method that re-enters it.
+///
+/// `terminal.invoke` is a governed envelope around an ordinary method: it
+/// checks the lease and the context, records the call, and then dispatches
+/// through the *same* handler every other door uses — so the gateway judges
+/// it exactly as it would judge that method called directly. Anything less
+/// would be a second execution path, which is the thing M3 exists to prevent.
+pub fn dispatch_with(
+    handler: &crate::handler::McpHandler,
+    connection: &crate::handler::ConnectionContext,
+    method: &str,
+    params: &Value,
+) -> Result<Value> {
+    if method == "terminal.invoke" {
+        return invoke(handler, connection, params);
+    }
+    dispatch(method, params)
+}
+
+fn invoke(
+    handler: &crate::handler::McpHandler,
+    connection: &crate::handler::ConnectionContext,
+    params: &Value,
+) -> Result<Value> {
+    use unterm_services::terminal_provider::{self as provider, Admission};
+    let capability = text(params, "capability")?;
+    let method = text(params, "method")?;
+    let context = task_context(params);
+    let inner = params.get("params").cloned().unwrap_or(json!({}));
+
+    // Required before anything happens, not reported afterwards: a record
+    // that cannot be tied to the work it was done for is one nobody can join.
+    provider::check_context(
+        &capability,
+        context.task_id.as_deref(),
+        context.idempotency_key.as_deref(),
+    )?;
+    if let Some(lease) = context.lease_id.as_deref() {
+        provider::accept_lease(lease, &capability)?;
+    }
+
+    let call = match provider::begin(
+        &capability,
+        &method,
+        context.lease_id.as_deref(),
+        context.idempotency_key.as_deref(),
+        &inner,
+    )? {
+        Admission::Settled(answer) => return Ok(answer),
+        Admission::InFlight(id) => {
+            return Err(anyhow!(
+                "an identical call ({id}) is already running; wait for it rather than repeating it"
+            ))
+        }
+        Admission::Fresh(id) => id,
+    };
+
+    match handler.handle(connection, &method, &inner) {
+        Ok(value) => {
+            provider::finish(&call, true, Some(&value), None)?;
+            Ok(json!({"outcome": "succeeded", "call_id": call, "value": value}))
+        }
+        Err(error) => {
+            let message = error.to_string();
+            provider::finish(&call, false, None, Some(&message))?;
+            Err(anyhow!(message))
+        }
+    }
 }
 
 pub fn dispatch(method: &str, params: &Value) -> Result<Value> {
@@ -372,6 +448,29 @@ pub fn dispatch(method: &str, params: &Value) -> Result<Value> {
         "agent_session.close" => {
             unterm_services::agent_session::close(&text(params, "session_id")?)
         }
+
+        // ---- Unterm as a governable provider ---------------------------
+        // The mirror of `provider.*`: that surface is Unterm managing a
+        // browser, this one is something else managing Unterm.
+        "terminal.manifest" => Ok(unterm_services::terminal_provider::manifest()),
+
+        "terminal.health" => Ok(unterm_services::terminal_provider::health()),
+
+        "terminal.capabilities" => Ok(json!({
+            "capabilities": unterm_services::terminal_provider::manifest()["capabilities"].clone()
+        })),
+
+        "terminal.accept_lease" => unterm_services::terminal_provider::accept_lease(
+            &text(params, "lease")?,
+            &text(params, "capability")?,
+        ),
+
+        // Handled by `dispatch_with`, which has the handler to re-enter.
+        "terminal.invoke" => Err(anyhow!(
+            "terminal.invoke must be dispatched with the handler"
+        )),
+
+        "terminal.cancel" => unterm_services::terminal_provider::cancel(&text(params, "call_id")?),
 
         other => Err(anyhow!("records dispatch reached {other}")),
     }

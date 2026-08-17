@@ -354,6 +354,11 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "scope.archive",
         // Hosting an agent runs a program. What that agent then asks for goes
         // through this same gateway, one tool request at a time.
+        // The envelope is a mutation because what it carries usually is; the
+        // method inside is judged on its own terms as well.
+        "terminal.invoke",
+        "terminal.accept_lease",
+        "terminal.cancel",
         "agent_session.start",
         "agent_session.submit_input",
         "agent_session.interrupt",
@@ -443,6 +448,11 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "system.diagnostics",
         "agent_session.events",
         "agent_session.status",
+        // Describing yourself reveals nothing an orchestrator could not ask
+        // for method by method.
+        "terminal.manifest",
+        "terminal.health",
+        "terminal.capabilities",
         "system.installs",
         // A plan, not an uninstall. Nothing is removed by asking.
         "system.uninstall_plan",
