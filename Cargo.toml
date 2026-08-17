@@ -19,6 +19,7 @@ members = [
   "unterm-core",
   "unterm-tasks",
   "unterm-gateway",
+  "unterm-brain",
 ]
 resolver = "2"
 exclude = [
@@ -263,6 +264,7 @@ unterm-engine = { path = "unterm-engine" }
 unterm-profile = { path = "unterm-profile" }
 unterm-tasks = { path = "unterm-tasks" }
 unterm-gateway = { path = "unterm-gateway" }
+unterm-brain = { path = "unterm-brain" }
 unterm-agents = { path = "unterm-agents" }
 unterm-cli = { path = "unterm-cli" }
 url = "2"

@@ -1,0 +1,19 @@
+[package]
+name = "unterm-brain"
+version.workspace = true
+edition = "2021"
+publish = false
+
+# One shape for what a model did, whatever CLI printed it. Adapters are pure
+# parsers — bytes in, events out, no I/O — so two of them can be tested for
+# equivalence, which is the milestone's whole gate.
+
+[dependencies]
+anyhow.workspace = true
+# `std` as well as `derive`: the workspace pins serde with
+# default-features=false, and an internally-tagged enum — which BrainEvent is,
+# so a reader can match on "kind" — needs the tagged-content machinery that
+# lives behind it.
+serde = { workspace = true, features = ["derive", "std"] }
+serde_json.workspace = true
+unterm-tasks.workspace = true

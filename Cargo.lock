@@ -6171,6 +6171,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "unterm-brain"
+version = "0.67.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "unterm-tasks",
+]
+
+[[package]]
 name = "unterm-cli"
 version = "0.67.0"
 dependencies = [
