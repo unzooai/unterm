@@ -101,6 +101,14 @@ pub enum SystemSubCommand {
     },
     /// Put the data back as a snapshot has it.
     Restore { snapshot: String },
+    /// Every copy of Unterm on this machine, and which ones will fight.
+    Installs,
+    /// What removing Unterm would take away. Describes; never removes.
+    UninstallPlan {
+        /// Also list the data. Without this the plan keeps your history.
+        #[arg(long)]
+        remove_data: bool,
+    },
 }
 
 pub fn run_system(cmd: SystemCommand, json_out: bool) -> Result<()> {
@@ -193,6 +201,66 @@ pub fn run_system(cmd: SystemCommand, json_out: bool) -> Result<()> {
                 print_kv("Snapshot", result["snapshot"]["id"].as_str().unwrap_or("?"));
                 print_kv("Path", result["snapshot"]["path"].as_str().unwrap_or("?"));
             }
+        }
+        SystemSubCommand::Installs => {
+            let result = client.call("system.installs", json!({}))?;
+            if json_out {
+                print_json(&result);
+                return Ok(());
+            }
+            for install in result["installs"].as_array().cloned().unwrap_or_default() {
+                println!(
+                    "{:<15} {}{}{}",
+                    install["kind"].as_str().unwrap_or("?"),
+                    install["path"].as_str().unwrap_or("?"),
+                    install["target"]
+                        .as_str()
+                        .map(|target| format!(" -> {target}"))
+                        .unwrap_or_default(),
+                    if install["on_path"].as_bool().unwrap_or(false) {
+                        "  (this is what your shell runs)"
+                    } else {
+                        ""
+                    },
+                );
+            }
+            let conflicts = result["conflicts"].as_array().cloned().unwrap_or_default();
+            for conflict in &conflicts {
+                println!();
+                println!("CONFLICT {}", conflict["reason"].as_str().unwrap_or("?"));
+                println!("  {}", conflict["advice"].as_str().unwrap_or(""));
+            }
+            if !conflicts.is_empty() {
+                return Err(anyhow!("{} conflict(s)", conflicts.len()));
+            }
+        }
+        SystemSubCommand::UninstallPlan { remove_data } => {
+            let result =
+                client.call("system.uninstall_plan", json!({"keep_data": !remove_data}))?;
+            if json_out {
+                print_json(&result);
+                return Ok(());
+            }
+            println!("Would remove:");
+            for path in result["programs"].as_array().cloned().unwrap_or_default() {
+                println!("  {}", path.as_str().unwrap_or("?"));
+            }
+            let data = result["data"].as_array().cloned().unwrap_or_default();
+            if data.is_empty() {
+                println!("\nYour data stays. It is:");
+            } else {
+                println!("\nAnd your data — this is what that means:");
+            }
+            for line in result["data_description"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+            {
+                println!("  {}", line.as_str().unwrap_or("?"));
+            }
+            // Said last, because it is the sentence somebody needs before
+            // they answer.
+            println!("\n(Nothing was removed. This is a description.)");
         }
         SystemSubCommand::Restore { snapshot } => {
             let result = client.call("system.restore_snapshot", json!({"snapshot": snapshot}))?;

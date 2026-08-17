@@ -710,6 +710,9 @@ pub struct App {
     /// quiet is an orphan; one that talked milliseconds ago is live, and
     /// winit hands us KeyboardInput alongside Ime events either way.
     last_ime_event: Option<std::time::Instant>,
+    /// Notices that the machine slept, so providers are re-probed and lapsed
+    /// leases are reported rather than failing later for no visible reason.
+    wake_watch: unterm_services::wake_watch::WakeWatch,
     /// The open search, if there is one.
     search: Option<crate::search::Search>,
     /// How many bells the pane had rung when we last drew.
@@ -1025,6 +1028,7 @@ impl App {
             startup_terminal_content_marked: false,
             preedit: crate::ime::Preedit::default(),
             last_ime_event: None,
+            wake_watch: unterm_services::wake_watch::WakeWatch::new(),
             search: None,
             bells_seen: 0,
             bell_at: None,
@@ -10749,6 +10753,16 @@ impl ApplicationHandler for App {
             ));
             return;
         }
+        // The machine may have been asleep since the last tick. Nothing here
+        // asks the operating system: a monotonic clock does not advance while
+        // suspended and a wall clock does, so the two disagreeing by a lot is
+        // the wake. Cheap enough for an idle tick — two clock reads — and it
+        // works the same on all three platforms.
+        if let Some(away) = self.wake_watch.tick() {
+            let report = unterm_services::wake_watch::on_wake(away);
+            log::info!("woke after {}s away: {report}", away.as_secs());
+        }
+
         // An input-source switch mid-composition strands marked text that
         // eats editing keys. But the pinyin IME announces a "switch" for
         // its own internal mode flips too -- half-width punctuation, caps

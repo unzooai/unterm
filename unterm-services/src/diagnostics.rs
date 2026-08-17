@@ -12,7 +12,7 @@
 //! write it and would leak the first time somebody added a field, which is
 //! exactly the moment nobody is looking.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::path::Path;
 

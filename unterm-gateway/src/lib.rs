@@ -429,6 +429,9 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         // Reads everything and reveals nothing: the bundle is built by
         // naming what goes in.
         "system.diagnostics",
+        "system.installs",
+        // A plan, not an uninstall. Nothing is removed by asking.
+        "system.uninstall_plan",
     ];
     if READONLY_PREFIXES
         .iter()

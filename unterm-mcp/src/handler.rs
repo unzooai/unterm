@@ -225,6 +225,8 @@ fn method_is_read_only(method: &str) -> bool {
             | "supervisor.status"
             | "system.snapshots"
             | "system.diagnostics"
+            | "system.installs"
+            | "system.uninstall_plan"
             | "cockpit.inbox"
             | "fleet.list"
             | "review.list"

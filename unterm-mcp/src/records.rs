@@ -34,6 +34,8 @@ pub const METHODS: &[&str] = &[
     "system.snapshots",
     "system.snapshot",
     "system.restore_snapshot",
+    "system.installs",
+    "system.uninstall_plan",
 ];
 
 pub fn handles(method: &str) -> bool {
@@ -186,6 +188,22 @@ pub fn dispatch(method: &str, params: &Value) -> Result<Value> {
             let id = text(params, "snapshot")?;
             let snapshot = unterm_services::upgrade::restore(&id, env!("CARGO_PKG_VERSION"))?;
             Ok(json!({"restored": snapshot}))
+        }
+
+        "system.installs" => {
+            let installs = unterm_services::install::survey();
+            let conflicts = unterm_services::install::conflicts(&installs);
+            Ok(json!({"installs": installs, "conflicts": conflicts}))
+        }
+
+        // A plan, never an act. What somebody wants before they answer "yes,
+        // delete it" is what they would be losing.
+        "system.uninstall_plan" => {
+            let keep = params
+                .get("keep_data")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            Ok(serde_json::to_value(unterm_services::install::uninstall_plan(keep))?)
         }
 
         other => Err(anyhow!("records dispatch reached {other}")),
