@@ -6283,6 +6283,7 @@ dependencies = [
  "unterm-gateway",
  "unterm-profile",
  "unterm-protocol",
+ "unterm-providers",
  "unterm-services",
  "unterm-tasks",
  "url",
@@ -6315,6 +6316,21 @@ dependencies = [
  "serde",
  "serde_json",
  "toml 0.8.2",
+]
+
+[[package]]
+name = "unterm-providers"
+version = "0.67.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "unterm-tasks",
+ "uuid",
 ]
 
 [[package]]
@@ -6354,6 +6370,7 @@ dependencies = [
  "unterm-gateway",
  "unterm-profile",
  "unterm-protocol",
+ "unterm-providers",
  "unterm-tasks",
  "uuid",
  "winapi",
@@ -6389,6 +6406,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "uuid",
 ]

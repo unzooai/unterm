@@ -64,6 +64,21 @@ function untermSettings() {
       newAgentInput: '',
     },
 
+    // Providers tab — capability providers Unterm can reach, backed by
+    // /api/providers/*. Lazy like the others, and deliberately: listing
+    // providers reads a descriptor file, but *binding* wakes somebody's
+    // browser, so nothing here contacts anything until asked.
+    providers: {
+      loading: false,
+      loaded: false,
+      error: null,
+      list: [],
+      leases: [],
+      busy: null,
+      diagnosis: null,
+      approvals: [],
+    },
+
     // Reference tab — live surface inventory from /api/reference, which
     // proxies the `meta.surface` MCP method. Loaded lazily on first visit.
     reference: {
@@ -129,6 +144,7 @@ function untermSettings() {
         { id: 'mcp', label: this.t('web.nav.mcp') },
         { id: 'appearance', label: this.t('web.nav.appearance') },
         { id: 'proxy', label: this.t('web.nav.proxy') },
+        { id: 'providers', label: this.t('web.nav.providers') === 'web.nav.providers' ? 'Providers' : this.t('web.nav.providers') },
         { id: 'scrollback', label: this.t('web.nav.scrollback') },
         { id: 'compat', label: this.t('web.nav.compat') },
         { id: 'recording', label: this.t('web.nav.recording'), badge: !this._recordingSeen },
@@ -739,6 +755,113 @@ function untermSettings() {
       }
     },
 
+    async loadProviders(rediscover = false) {
+      this.providers.loading = true;
+      this.providers.error = null;
+      try {
+        const suffix = rediscover ? '?rediscover=1' : '';
+        const res = await fetch('/api/providers' + suffix, {
+          headers: { Authorization: 'Bearer ' + this.token },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        this.providers.list = data.providers || [];
+        // What is waiting on the person reading this page. Fetched with the
+        // provider list because that is where they will be looking when an
+        // agent asks for their browser.
+        const askRes = await fetch('/api/approvals', {
+          headers: { Authorization: 'Bearer ' + this.token },
+        });
+        const askData = await askRes.json();
+        this.providers.approvals = askData.approvals || [];
+        const leaseRes = await fetch('/api/providers/leases', {
+          headers: { Authorization: 'Bearer ' + this.token },
+        });
+        const leaseData = await leaseRes.json();
+        this.providers.leases = leaseData.leases || [];
+        this.providers.loaded = true;
+      } catch (e) {
+        // Shown, not swallowed: "no providers" and "could not look" are
+        // different answers and only one means install something.
+        this.providers.error = String(e.message || e);
+      } finally {
+        this.providers.loading = false;
+      }
+    },
+
+    async providerAction(id, action, body = {}) {
+      this.providers.busy = id + ':' + action;
+      this.providers.error = null;
+      this.providers.diagnosis = null;
+      try {
+        const res = await fetch('/api/providers/' + action, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + this.token,
+          },
+          body: JSON.stringify({ provider: id, ...body }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        if (action === 'diagnose') this.providers.diagnosis = data;
+      } catch (e) {
+        this.providers.error = String(e.message || e);
+      } finally {
+        this.providers.busy = null;
+        await this.loadProviders();
+      }
+    },
+
+    async decideApproval(id, allowed, remember = null) {
+      this.providers.busy = 'approval:' + id;
+      try {
+        const res = await fetch('/api/approvals/decide', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + this.token,
+          },
+          body: JSON.stringify({ approval: id, allowed, remember }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.statusText);
+      } catch (e) {
+        this.providers.error = String(e.message || e);
+      } finally {
+        this.providers.busy = null;
+        await this.loadProviders();
+      }
+    },
+
+    async revokeLease(id) {
+      this.providers.busy = 'lease:' + id;
+      try {
+        const res = await fetch('/api/providers/leases/revoke', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + this.token,
+          },
+          body: JSON.stringify({ lease: id }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.statusText);
+      } catch (e) {
+        this.providers.error = String(e.message || e);
+      } finally {
+        this.providers.busy = null;
+        await this.loadProviders();
+      }
+    },
+
+    providerTone(state) {
+      if (state === 'ready') return 'text-notion-teal';
+      if (state === 'paused') return 'text-notion-muted';
+      if (state === 'degraded') return 'text-orange-400';
+      return 'text-notion-faint';
+    },
+
     select(id, updateHash = true) {
       this.active = id;
       if (id === 'review') this.loadReview();
@@ -752,6 +875,7 @@ function untermSettings() {
       if (id === 'profiles' && !this.profiles.loaded) this.loadProfiles();
       if (id === 'mcp' && !this.mcp.loaded) this.loadMcp();
       if (id === 'reference' && !this.reference.loaded) this.loadReference();
+      if (id === 'providers' && !this.providers.loaded) this.loadProviders();
       if (id === 'shells') this.loadShells();
       if (id === 'agents') {
         // Re-detect every time the tab is opened, not just the first time.

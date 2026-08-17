@@ -290,6 +290,18 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         // A model fetching a URL sends whatever it puts in that request off
         // this machine, and nothing the user does afterwards calls it back.
         "brain.fetch",
+        // Both stop work that is already running and take back keys that were
+        // handed out; neither can be undone by re-issuing them.
+        "provider.unbind",
+        "provider.revoke_lease",
+        // Handing an agent the identities in somebody's browser, or the
+        // machine itself. Neither can be undone by taking it back afterwards:
+        // what was read has been read, what was typed has been typed.
+        "capability.profile",
+        "capability.computer",
+        // Answering an approval is the act of granting power, and it is the
+        // one thing an agent must never be able to do for itself.
+        "approval.decide",
     ];
     if DESTRUCTIVE.contains(&method) {
         return Some(Risk::Destructive);
@@ -323,6 +335,19 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         // gateway must not be the place those two answers diverge.
         "orchestrate.launch",
         "orchestrate.broadcast",
+        // Driving pages: a mutation, and one the user can watch happen.
+        "capability.browser",
+        "provider.bind",
+        "provider.pause",
+        "provider.resume",
+        "provider.acquire",
+        // A call through a provider does whatever the provider does; the
+        // lease's capability and the user's approval decide the rest, which
+        // is why this is not classified as destructive by default.
+        "provider.call",
+        // Diagnosis binds, leases and makes one harmless read — but it does
+        // all three, so it is not a read.
+        "provider.diagnose",
         // What a model's file-writing tools map to. Named apart from the MCP
         // surface's own methods because they are not the same door and an
         // audit trail should not have to guess which one wrote the file.
@@ -375,6 +400,10 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         // `brain.tool`, stays unclassified, and gets asked about.
         "brain.read",
         "brain.list",
+        "provider.list",
+        "provider.leases",
+        "provider.chain",
+        "approval.list",
     ];
     if READONLY_PREFIXES
         .iter()

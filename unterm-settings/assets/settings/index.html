@@ -1655,6 +1655,166 @@
         </div>
 
         <!-- Scrollback -->
+        <!-- Providers -->
+        <div x-show="active==='providers'">
+          <h2 class="text-xl font-semibold">Providers</h2>
+          <p class="mt-1 text-sm text-notion-muted">
+            Capabilities that live outside Unterm — a browser, its profiles, this machine.
+            Each is used under a lease you can take back.
+          </p>
+
+          <div class="mt-4 flex items-center gap-2">
+            <button
+              class="rounded border border-notion-border px-3 py-1.5 text-sm hover:bg-notion-surface"
+              @click="loadProviders(true)"
+              :disabled="providers.loading"
+            >Look again</button>
+            <span x-show="providers.loading" class="text-xs text-notion-faint">Looking…</span>
+          </div>
+
+          <div x-show="providers.approvals.length" class="mt-4 rounded border border-orange-400/40 bg-orange-400/5 p-4">
+            <div class="text-xs uppercase tracking-wider text-orange-300">Waiting for you</div>
+            <p class="mt-1 text-xs text-notion-muted">
+              An agent asked for something that needs a person. Nothing happens until you answer.
+            </p>
+            <template x-for="ask in providers.approvals" :key="ask.id">
+              <div class="mt-3 rounded border border-notion-border px-3 py-2">
+                <div class="text-sm">
+                  <span class="font-medium" x-text="ask.actor || 'an agent'"></span>
+                  <span class="text-notion-muted"> wants </span>
+                  <span class="font-mono text-xs" x-text="ask.method"></span>
+                  <span class="ml-2 text-xs uppercase tracking-wider text-orange-300" x-text="ask.risk"></span>
+                </div>
+                <div class="mt-1 text-xs text-notion-faint" x-show="ask.command" x-text="ask.command"></div>
+                <div class="mt-1 text-xs text-notion-faint" x-show="ask.resource" x-text="ask.resource"></div>
+                <div class="mt-2 flex flex-wrap gap-2">
+                  <button
+                    class="rounded border border-notion-border px-3 py-1 text-sm hover:bg-notion-surface"
+                    @click="decideApproval(ask.id, true)"
+                    :disabled="providers.busy"
+                  >Allow once</button>
+                  <!-- Remembering is opt-in and narrow: this task, not everything. -->
+                  <button
+                    class="rounded border border-notion-border px-3 py-1 text-sm hover:bg-notion-surface"
+                    @click="decideApproval(ask.id, true, 'task')"
+                    :disabled="providers.busy"
+                    x-show="ask.task_id"
+                  >Allow for this task</button>
+                  <button
+                    class="rounded border border-notion-border px-3 py-1 text-sm hover:bg-notion-surface"
+                    @click="decideApproval(ask.id, true, 'always')"
+                    :disabled="providers.busy"
+                  >Always allow</button>
+                  <button
+                    class="rounded border border-orange-400/40 px-3 py-1 text-sm text-orange-300 hover:bg-orange-400/10"
+                    @click="decideApproval(ask.id, false)"
+                    :disabled="providers.busy"
+                  >Deny</button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <div
+            x-show="providers.error"
+            class="mt-3 rounded border border-orange-400/40 bg-orange-400/10 px-3 py-2 text-sm text-orange-300"
+            x-text="providers.error"
+          ></div>
+
+          <div
+            x-show="providers.loaded && providers.list.length === 0"
+            class="mt-4 rounded border border-notion-border p-4 text-sm text-notion-muted"
+          >
+            Nothing found. Providers announce themselves — install one, or point Unterm at it
+            with <code class="text-notion-ink">UNTERM_PROVIDER_&lt;ID&gt;</code>.
+          </div>
+
+          <template x-for="p in providers.list" :key="p.id">
+            <div class="mt-4 rounded border border-notion-border p-4">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium" x-text="p.name"></span>
+                    <span class="text-xs uppercase tracking-wider" :class="providerTone(p.state)" x-text="p.state"></span>
+                  </div>
+                  <div class="mt-1 text-xs text-notion-faint" x-text="p.detail"></div>
+                  <div class="mt-2 text-xs text-notion-muted">
+                    <span x-text="(p.capabilities || []).join(' · ')"></span>
+                  </div>
+                  <div class="mt-1 text-xs text-notion-faint">
+                    <span x-text="p.endpoint"></span> · found via <span x-text="p.source"></span>
+                  </div>
+                  <div class="mt-1 text-xs text-notion-faint" x-show="p.pinned">
+                    pinned to <span x-text="p.pinned"></span>
+                  </div>
+                  <div class="mt-1 text-xs text-notion-faint">
+                    <span x-text="p.live_leases"></span> live lease(s)
+                  </div>
+                </div>
+                <div class="flex shrink-0 flex-col gap-2">
+                  <button
+                    class="rounded border border-notion-border px-3 py-1 text-sm hover:bg-notion-surface"
+                    @click="providerAction(p.id, p.state === 'paused' ? 'resume' : 'bind')"
+                    :disabled="providers.busy"
+                    x-text="p.state === 'paused' ? 'Resume' : (p.state === 'ready' ? 'Re-check' : 'Bind')"
+                  ></button>
+                  <button
+                    class="rounded border border-notion-border px-3 py-1 text-sm hover:bg-notion-surface"
+                    @click="providerAction(p.id, 'diagnose')"
+                    :disabled="providers.busy"
+                  >Diagnose</button>
+                  <button
+                    class="rounded border border-notion-border px-3 py-1 text-sm hover:bg-notion-surface"
+                    @click="providerAction(p.id, 'pause')"
+                    :disabled="providers.busy || p.state === 'paused'"
+                  >Pause</button>
+                  <!-- Unbinding revokes every key and forgets who answered. -->
+                  <button
+                    class="rounded border border-orange-400/40 px-3 py-1 text-sm text-orange-300 hover:bg-orange-400/10"
+                    @click="providerAction(p.id, 'unbind')"
+                    :disabled="providers.busy"
+                  >Unbind</button>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <div x-show="providers.diagnosis" class="mt-4 rounded border border-notion-border p-4">
+            <div class="text-xs uppercase tracking-wider text-notion-faint">Diagnosis</div>
+            <template x-for="check in (providers.diagnosis?.checks || [])" :key="check.name">
+              <div class="mt-2 flex items-start gap-2 text-sm">
+                <span
+                  class="font-mono text-xs"
+                  :class="check.passed ? 'text-notion-teal' : 'text-orange-400'"
+                  x-text="check.passed ? 'ok' : 'FAIL'"
+                ></span>
+                <span class="font-medium" x-text="check.name"></span>
+                <span class="text-notion-muted" x-text="check.detail"></span>
+              </div>
+            </template>
+          </div>
+
+          <div class="mt-6" x-show="providers.leases.length">
+            <div class="text-xs uppercase tracking-wider text-notion-faint">Live leases</div>
+            <template x-for="lease in providers.leases" :key="lease.id">
+              <div class="mt-2 flex items-center justify-between gap-4 rounded border border-notion-border px-3 py-2 text-sm">
+                <div>
+                  <span class="font-mono text-xs" x-text="lease.id"></span>
+                  <span class="ml-2" x-text="lease.capability"></span>
+                  <span class="ml-2 text-notion-faint" x-text="'on ' + lease.provider"></span>
+                  <span class="ml-2 text-xs text-notion-faint" x-text="'until ' + lease.expires_at"></span>
+                  <span class="ml-2 text-xs text-notion-faint" x-show="lease.actor" x-text="'for ' + lease.actor"></span>
+                </div>
+                <button
+                  class="rounded border border-notion-border px-2 py-1 text-xs hover:bg-notion-surface"
+                  @click="revokeLease(lease.id)"
+                  :disabled="providers.busy"
+                >Revoke</button>
+              </div>
+            </template>
+          </div>
+        </div>
+
         <div x-show="active==='scrollback'">
           <h2 class="text-xl font-semibold" x-text="t('web.scrollback.title')"></h2>
           <p class="mt-1 text-sm text-notion-muted" x-text="t('web.scrollback.subtitle')"></p>

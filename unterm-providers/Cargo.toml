@@ -1,0 +1,21 @@
+[package]
+name = "unterm-providers"
+version.workspace = true
+edition = "2021"
+publish = false
+
+# Capabilities that live in another process: found rather than assumed,
+# used under a lease that can be revoked, and every call leaving evidence.
+
+[dependencies]
+anyhow.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+reqwest = { workspace = true, features = ["blocking", "json"] }
+serde = { workspace = true, features = ["derive", "std"] }
+serde_json.workspace = true
+unterm-tasks.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+regex.workspace = true
+tempfile.workspace = true

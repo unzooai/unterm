@@ -4,6 +4,8 @@
 //! management via the MCP protocol. AI agents and unterm-cli can connect
 //! to read screen content, send input, and manage sessions.
 
+pub mod approvals;
+pub mod providers;
 pub mod handler;
 pub mod meta;
 mod server;

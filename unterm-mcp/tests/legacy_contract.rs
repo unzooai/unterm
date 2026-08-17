@@ -206,6 +206,25 @@ fn every_published_method_has_a_risk_classification() {
     );
 }
 
+/// Every method the surface publishes *today* must be classified.
+///
+/// The frozen list is the 0.66.0 contract and does not grow with each
+/// release, which means checking only it would stop covering the surface the
+/// moment anything new shipped. The gateway refuses what it cannot classify,
+/// so a method added without an entry is one whose first caller gets a
+/// refusal instead of a terminal — and nothing would have caught it.
+#[test]
+fn every_method_published_now_has_a_risk_classification() {
+    let unclassified: Vec<String> = published_methods()
+        .into_iter()
+        .filter(|method| unterm_gateway::risk_of(method).is_none())
+        .collect();
+    assert!(
+        unclassified.is_empty(),
+        "these are published but unclassified, so the gateway would refuse them: {unclassified:#?}"
+    );
+}
+
 /// No door may keep its own copy of the rules.
 ///
 /// M3's whole claim is that every entry point reaches the same verdict,

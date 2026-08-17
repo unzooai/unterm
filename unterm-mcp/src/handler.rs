@@ -147,6 +147,15 @@ fn method_is_mutating(method: &str) -> bool {
             | "session.recording_stop"
             | "session.recording_attach_trace"
             | "session.export_markdown"
+            | "provider.bind"
+            | "provider.pause"
+            | "provider.resume"
+            | "provider.unbind"
+            | "provider.diagnose"
+            | "provider.acquire"
+            | "provider.call"
+            | "provider.revoke_lease"
+            | "approval.decide"
     )
 }
 
@@ -195,6 +204,10 @@ fn method_is_read_only(method: &str) -> bool {
             | "agent.whoami"
             | "agent.list_trusted"
             | "agent.status"
+            | "provider.list"
+            | "provider.leases"
+            | "provider.chain"
+            | "approval.list"
             | "cockpit.inbox"
             | "fleet.list"
             | "review.list"
@@ -278,6 +291,18 @@ mod audit_entry_tests {
         let dispatch = &source[start..end];
 
         let mut accepted = std::collections::BTreeSet::new();
+        // Two namespaces are dispatched through a guard arm onto their own
+        // module's table rather than through literal arms here. Their tables
+        // are the dispatcher for those methods, and each module has its own
+        // test that the table and its match agree — so reading them here
+        // keeps this check honest instead of forcing thirteen arms that only
+        // exist to be scanned.
+        for method in crate::providers::METHODS
+            .iter()
+            .chain(crate::approvals::METHODS.iter())
+        {
+            accepted.insert(*method);
+        }
         for line in dispatch.lines() {
             let Some((left, _right)) = line.split_once("=>") else {
                 continue;
@@ -5532,6 +5557,14 @@ impl McpHandler {
             // Single-call discovery surface for AI agents and the Web Settings
             // "Reference" tab: MCP methods + CLI subcommands + live keybindings
             // in one round trip. See `meta.rs` for the source of truth list.
+            // Approvals — who may answer is decided inside.
+            method if crate::approvals::handles(method) => {
+                crate::approvals::dispatch(ctx, method, params)
+            }
+            // Providers
+            method if crate::providers::handles(method) => {
+                crate::providers::dispatch(method, params)
+            }
             "meta.surface" => crate::meta::surface(params),
             // Multi-instance discovery (one Unterm process = one instance,
             // each with a NATO-phonetic name like "alpha", "bravo", ...)

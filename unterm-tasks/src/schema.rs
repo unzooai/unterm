@@ -128,6 +128,73 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX approvals_pending ON approvals(state, expires_at);
     "#,
+    // v3 — capability leases: permission to use an outside provider, for a
+    // while, for a reason.
+    //
+    // A grant says the user agreed to a kind of action. A lease says a
+    // particular capability of a particular provider may be used until a
+    // particular moment — and, because it is the thing an outside process
+    // holds, it is the thing that can be stolen and replayed. Hence `epoch`
+    // and `last_seq`.
+    r#"
+    CREATE TABLE capability_leases (
+        id          TEXT PRIMARY KEY,
+        provider    TEXT NOT NULL,
+        capability  TEXT NOT NULL,
+        actor       TEXT,
+        task_id     TEXT,
+        step_id     TEXT,
+        -- The grant that authorised issuing this, so an action can be traced
+        -- back through the lease to the answer a human actually gave.
+        grant_id    TEXT,
+        approval_id TEXT,
+        issued_at   TEXT NOT NULL,
+        expires_at  TEXT NOT NULL,
+        renewed_at  TEXT,
+        revoked_at  TEXT,
+        -- Bumped on every renewal. A holder presenting an old epoch is
+        -- presenting a lease that has since been renewed by somebody else,
+        -- which is not the same lease.
+        epoch       INTEGER NOT NULL DEFAULT 1,
+        -- The highest sequence number this lease has been used with. A use at
+        -- or below it is a replay, and is refused without being performed.
+        last_seq    INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX leases_live ON capability_leases(provider, revoked_at, expires_at);
+    CREATE INDEX leases_by_task ON capability_leases(task_id);
+    "#,
+    // v4 — what was asked of a provider, and what came back.
+    //
+    // Two jobs in one table. The idempotency key makes "do this once" true
+    // across a crash, which an in-process memo cannot. And the hashes are the
+    // evidence: enough to prove afterwards that a particular request produced
+    // a particular answer, without keeping either payload — a provider call
+    // can carry a page of somebody's mail.
+    r#"
+    CREATE TABLE provider_calls (
+        id              TEXT PRIMARY KEY,
+        -- NULL opts out of deduplication, the way a NULL idempotency key does
+        -- on a step. SQLite treats NULLs as distinct, so unkeyed calls never
+        -- collide with each other.
+        idempotency_key TEXT UNIQUE,
+        provider        TEXT NOT NULL,
+        capability      TEXT NOT NULL,
+        method          TEXT NOT NULL,
+        lease_id        TEXT,
+        -- pending | succeeded | failed | cancelled
+        state           TEXT NOT NULL,
+        request_sha256  TEXT NOT NULL,
+        response_sha256 TEXT,
+        -- Kept only when small. Big answers live in the artifact store, which
+        -- is M6's problem; a database row is the wrong place for a video.
+        response        TEXT,
+        error           TEXT,
+        created_at      TEXT NOT NULL,
+        finished_at     TEXT
+    );
+    CREATE INDEX provider_calls_by_provider ON provider_calls(provider, created_at);
+    CREATE INDEX provider_calls_by_lease ON provider_calls(lease_id);
+    "#,
 ];
 
 /// The version a fresh file is migrated to.

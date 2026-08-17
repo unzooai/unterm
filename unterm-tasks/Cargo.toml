@@ -18,6 +18,9 @@ rusqlite = { workspace = true, features = ["bundled"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 uuid = { workspace = true, features = ["v4"] }
+# Call evidence: a hash proves what a request produced without keeping the
+# payload, which can be a page of somebody's mail.
+sha2.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

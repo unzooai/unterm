@@ -337,6 +337,20 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         ("POST", "/api/proxy") => api_proxy(handler, &req.body),
         ("POST", "/api/proxy/rotation") => api_proxy_rotation(handler, &req.body),
         ("POST", "/api/proxy/nodes") => api_proxy_set_nodes(handler, &req.body),
+        ("GET", "/api/approvals") => api_approvals(handler),
+        ("POST", "/api/approvals/decide") => api_approval_decide(handler, &req.body),
+        ("GET", "/api/providers") => api_providers(handler, &req.query),
+        ("POST", "/api/providers/bind") => api_provider_act(handler, "provider.bind", &req.body),
+        ("POST", "/api/providers/pause") => api_provider_act(handler, "provider.pause", &req.body),
+        ("POST", "/api/providers/resume") => api_provider_act(handler, "provider.resume", &req.body),
+        ("POST", "/api/providers/unbind") => api_provider_act(handler, "provider.unbind", &req.body),
+        ("POST", "/api/providers/diagnose") => {
+            api_provider_act(handler, "provider.diagnose", &req.body)
+        }
+        ("GET", "/api/providers/leases") => api_provider_leases(handler),
+        ("POST", "/api/providers/leases/revoke") => {
+            api_provider_act(handler, "provider.revoke_lease", &req.body)
+        }
         ("GET", "/api/proxy/clash") => api_proxy_clash_status(handler),
         ("POST", "/api/proxy/clash/select") => api_proxy_clash_select(handler, &req.body),
         ("POST", "/api/proxy/clash/controller") => api_proxy_clash_controller(handler, &req.body),
@@ -1859,6 +1873,76 @@ fn api_proxy_clash_status(handler: &McpHandler) -> Response {
     }
 }
 
+/// GET /api/approvals — what the gateway is waiting on a person to answer.
+fn api_approvals(handler: &McpHandler) -> Response {
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
+    match handler.handle(&ctx, "approval.list", &json!({})) {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(400, "Bad Request", &e.to_string()),
+    }
+}
+
+/// POST /api/approvals/decide — the answer.
+///
+/// This route is the reason `approval.decide` exists at all: the settings
+/// page is in-process, so it clears the check that keeps agents from
+/// answering their own questions.
+fn api_approval_decide(handler: &McpHandler, body: &[u8]) -> Response {
+    let body = parse_json_body(body);
+    let mut params = serde_json::Map::new();
+    for key in ["approval", "allowed", "remember"] {
+        if let Some(value) = body.get(key) {
+            params.insert(key.to_string(), value.clone());
+        }
+    }
+    params.insert("decided_by".into(), json!("the user, in settings"));
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
+    match handler.handle(&ctx, "approval.decide", &Value::Object(params)) {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(400, "Bad Request", &e.to_string()),
+    }
+}
+
+/// GET /api/providers — what can be reached, and how each one stands.
+fn api_providers(handler: &McpHandler, query: &str) -> Response {
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
+    // Rediscovery is explicit: opening the page must not go looking for the
+    // user's browser every time it refreshes.
+    let rediscover = query.contains("rediscover=1");
+    match handler.handle(&ctx, "provider.list", &json!({"rediscover": rediscover})) {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(400, "Bad Request", &e.to_string()),
+    }
+}
+
+/// GET /api/providers/leases — the keys currently handed out.
+fn api_provider_leases(handler: &McpHandler) -> Response {
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
+    match handler.handle(&ctx, "provider.leases", &json!({"live_only": true})) {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(400, "Bad Request", &e.to_string()),
+    }
+}
+
+/// The provider actions, which differ only in the method they call.
+///
+/// One function rather than six: they take the same arguments, and six
+/// copies is six chances for one of them to forget to report an error.
+fn api_provider_act(handler: &McpHandler, method: &str, body: &[u8]) -> Response {
+    let body = parse_json_body(body);
+    let mut params = serde_json::Map::new();
+    for key in ["provider", "lease", "method"] {
+        if let Some(value) = body.get(key) {
+            params.insert(key.to_string(), value.clone());
+        }
+    }
+    let ctx = unterm_mcp::handler::ConnectionContext::internal("web_settings");
+    match handler.handle(&ctx, method, &Value::Object(params)) {
+        Ok(v) => Response::ok_json(v),
+        Err(e) => Response::err(400, "Bad Request", &e.to_string()),
+    }
+}
+
 /// POST /api/proxy/clash/select — switch a Selector group to a node.
 fn api_proxy_clash_select(handler: &McpHandler, body: &[u8]) -> Response {
     let body = parse_json_body(body);
@@ -2543,6 +2627,72 @@ mod tests {
             let _ = std::fs::remove_dir_all(&self.path);
         }
     }
+
+    #[test]
+    fn the_providers_routes_are_reachable_and_authenticated() {
+        // Every provider route must sit behind the same token as the rest;
+        // one that did not would be a way to unbind somebody's browser from
+        // any page they happened to visit.
+        let handler = McpHandler::new();
+        for (method, path) in [
+            ("GET", "/api/providers"),
+            ("GET", "/api/providers/leases"),
+            ("POST", "/api/providers/bind"),
+            ("POST", "/api/providers/pause"),
+            ("POST", "/api/providers/resume"),
+            ("POST", "/api/providers/unbind"),
+            ("POST", "/api/providers/diagnose"),
+            ("POST", "/api/providers/leases/revoke"),
+        ] {
+            let unauthenticated = route(
+                &request(method, path, None, b"{}".to_vec()),
+                "secret",
+                &handler,
+            );
+            assert_eq!(unauthenticated.status, 401, "{method} {path} let a stranger in");
+
+            let authenticated = route(
+                &request(method, path, Some("secret"), b"{}".to_vec()),
+                "secret",
+                &handler,
+            );
+            // The action may well fail — there is no provider in a test
+            // process — but it must be *routed*, not 404.
+            assert_ne!(
+                authenticated.status, 404,
+                "{method} {path} is not routed"
+            );
+        }
+    }
+
+    #[test]
+    fn listing_providers_does_not_go_looking_unless_asked() {
+        // Opening the page must not wake the user's browser on every
+        // refresh; rediscovery is a button.
+        let handler = McpHandler::new();
+        let response = route(
+            &request("GET", "/api/providers", Some("secret"), Vec::new()),
+            "secret",
+            &handler,
+        );
+        assert_eq!(response.status, 200);
+        let value = response_json(response);
+        assert!(value.get("providers").is_some(), "{value}");
+    }
+
+    #[test]
+    fn the_settings_page_ships_the_providers_panel() {
+        // The assets are embedded at build time, so a panel that failed to
+        // make it into the binary is invisible until somebody opens the tab.
+        let html = crate::assets::INDEX_HTML;
+        assert!(html.contains("active==='providers'"), "no providers panel");
+        assert!(html.contains("Unbind"), "no way to take a binding back");
+
+        let js = crate::assets::APP_JS;
+        assert!(js.contains("loadProviders"), "the panel has nothing to load it");
+        assert!(js.contains("/api/providers/leases/revoke"), "leases cannot be revoked");
+    }
+
 }
 
 fn sessions_path_string() -> String {
@@ -2551,4 +2701,5 @@ fn sessions_path_string() -> String {
         .join("sessions")
         .display()
         .to_string()
+
 }

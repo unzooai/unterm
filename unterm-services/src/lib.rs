@@ -16,6 +16,7 @@ pub mod i18n;
 pub mod interrupt;
 pub mod launch_env;
 pub mod path_scope;
+pub mod providers;
 pub mod peer_mcp;
 pub mod recording;
 pub mod scrollback_options;

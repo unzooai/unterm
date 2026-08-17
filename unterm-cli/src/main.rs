@@ -21,6 +21,7 @@ mod legacy;
 mod mcp_stdio;
 mod output;
 mod policy;
+mod provider;
 mod profile;
 mod proxy;
 mod reference;
@@ -43,6 +44,7 @@ use instance::InstanceCommand;
 use lang::LangCommand;
 use legacy::LegacyCommand;
 use policy::PolicyCommand;
+use provider::ProviderCommand;
 use profile::ProfileCommand;
 use proxy::ProxyCommand;
 use reference::ReferenceCommand;
@@ -143,6 +145,12 @@ enum SubCommand {
 
     #[command(name = "policy", about = "Inspect MCP write-policy decisions")]
     Policy(PolicyCommand),
+
+    #[command(
+        name = "provider",
+        about = "Bind, pause, diagnose and revoke the capability providers Unterm can reach"
+    )]
+    Provider(ProviderCommand),
 
     #[command(
         name = "agent",
@@ -369,6 +377,7 @@ fn main() -> Result<()> {
         SubCommand::Settings(cmd) => run_settings(cmd),
         SubCommand::Lang(cmd) => run_lang(cmd, opts.json),
         SubCommand::Policy(cmd) => run_policy(cmd, opts.json),
+        SubCommand::Provider(cmd) => provider::run(cmd, opts.json),
         SubCommand::Agent(cmd) => run_agent(cmd, opts.json),
         SubCommand::Fleet(cmd) => run_fleet(cmd, opts.json),
         SubCommand::Review(cmd) => run_review(cmd, opts.json),
@@ -651,6 +660,7 @@ mod command_line_tests {
             "mcp-stdio",
             "settings",
             "policy",
+            "provider",
             "proxy",
             "theme",
             "profile",

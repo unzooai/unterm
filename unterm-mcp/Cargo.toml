@@ -31,6 +31,7 @@ unterm-agents.workspace = true
 unterm-profile.workspace = true
 unterm-gateway.workspace = true
 unterm-tasks.workspace = true
+unterm-providers.workspace = true
 unterm-protocol.workspace = true
 promise.workspace = true
 url.workspace = true

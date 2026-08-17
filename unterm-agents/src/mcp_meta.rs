@@ -495,6 +495,20 @@ pub const MCP_METHODS: &[McpMethod] = &[
     // ---- governance ----
     McpMethod { name: "policy.set", namespace: "governance", summary: "Update MCP write-confirmation policy.", params: NO_PARAMS },
     McpMethod { name: "policy.check", namespace: "governance", summary: "Test whether a command would be allowed by policy.", params: &[Param { name: "command", kind: "string", required: true, summary: "" }] },
+    // ---- providers ----
+    McpMethod { name: "provider.list", namespace: "providers", summary: "Capability providers Unterm can reach, and how each stands.", params: &[Param { name: "rediscover", kind: "boolean", required: false, summary: "Look again before answering." }] },
+    McpMethod { name: "provider.bind", namespace: "providers", summary: "Contact a provider; the first bind pins who answered.", params: &[Param { name: "provider", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "provider.pause", namespace: "providers", summary: "Stop using a provider and revoke its leases.", params: &[Param { name: "provider", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "provider.resume", namespace: "providers", summary: "Undo a pause and bind again.", params: &[Param { name: "provider", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "provider.unbind", namespace: "providers", summary: "Forget a binding: leases revoked, pinned identity dropped.", params: &[Param { name: "provider", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "provider.diagnose", namespace: "providers", summary: "Run the provider contract suite: handshake, lease, evidence, idempotency, replay.", params: &[Param { name: "provider", kind: "string", required: true, summary: "" }, Param { name: "method", kind: "string", required: false, summary: "Probe with this method instead of the read-only default." }] },
+    McpMethod { name: "provider.leases", namespace: "providers", summary: "Capability leases, newest first.", params: &[Param { name: "live_only", kind: "boolean", required: false, summary: "" }] },
+    McpMethod { name: "provider.acquire", namespace: "providers", summary: "Ask for a lease on a capability; answers `waiting` when no provider is ready.", params: &[Param { name: "capability", kind: "string", required: true, summary: "browser | profile | computer" }, Param { name: "ttl_seconds", kind: "integer", required: false, summary: "" }, Param { name: "task_id", kind: "string", required: false, summary: "" }] },
+    McpMethod { name: "provider.call", namespace: "providers", summary: "Do one thing through a provider, under a lease. Every use needs its own `seq`.", params: &[Param { name: "lease", kind: "string", required: true, summary: "" }, Param { name: "seq", kind: "integer", required: true, summary: "Higher than the last use of this lease." }, Param { name: "capability", kind: "string", required: true, summary: "" }, Param { name: "method", kind: "string", required: true, summary: "The provider's own tool name." }, Param { name: "params", kind: "object", required: false, summary: "" }, Param { name: "idempotency_key", kind: "string", required: false, summary: "Repeating a key returns the first answer instead of acting twice." }] },
+    McpMethod { name: "provider.revoke_lease", namespace: "providers", summary: "Take one lease back.", params: &[Param { name: "lease", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "provider.chain", namespace: "providers", summary: "Everything that authorised a lease, and every call made under it.", params: &[Param { name: "lease", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "approval.list", namespace: "governance", summary: "Questions the gateway is waiting on a human to answer.", params: NO_PARAMS },
+    McpMethod { name: "approval.decide", namespace: "governance", summary: "Answer a question. Refused over the network: agents cannot answer their own requests.", params: &[Param { name: "approval", kind: "string", required: true, summary: "" }, Param { name: "allowed", kind: "boolean", required: true, summary: "" }, Param { name: "remember", kind: "string", required: false, summary: "once | task | resource | always" }] },
     McpMethod { name: "server.info", namespace: "governance", summary: "Server version, uptime, instance id.", params: NO_PARAMS },
     McpMethod { name: "server.health", namespace: "governance", summary: "Liveness + readiness flags.", params: NO_PARAMS },
     McpMethod { name: "server.capabilities", namespace: "governance", summary: "Method namespace map (back-compat — prefer meta.surface).", params: NO_PARAMS },
@@ -579,6 +593,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
 pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "start", summary: "Start the GUI, optionally running an alternative program.", subcommands: &[] },
     CliCommand { name: "cli", summary: "Legacy mux compatibility stub; use session, instance, or server commands instead.", subcommands: &[] },
+    CliCommand { name: "provider", summary: "Bind, pause, diagnose and revoke capability providers.", subcommands: &["list", "bind", "pause", "resume", "unbind", "diagnose", "leases", "acquire", "call", "approvals", "revoke", "chain"] },
     CliCommand { name: "session", summary: "Operate on a single live pane.", subcommands: &["list", "create", "split", "focus", "resize", "destroy", "record", "export", "input", "text", "cwd", "status", "errors", "history", "audit-log", "search", "suggest"] },
     CliCommand { name: "exec", summary: "Run commands in a live pane via MCP.", subcommands: &["run", "wait", "status", "cancel", "signal"] },
     CliCommand { name: "sessions", summary: "Browse the recorded session archive.", subcommands: &["list", "read"] },
@@ -623,10 +638,16 @@ mod tests {
             MCP_METHODS.len(),
             "duplicate MCP method metadata"
         );
-        // The requirements enumerate 101 authenticated public methods plus
-        // auth.login. The current surface keeps those and two compatible
-        // additions (screen.clear and session.paste).
-        assert_eq!(MCP_METHODS.len(), 103);
+        // 103 through 0.67.0: the 101 methods the requirements enumerate,
+        // plus auth.login, plus two compatible additions (screen.clear and
+        // session.paste). M5 adds thirteen — eleven `provider.*` and two
+        // `approval.*`.
+        //
+        // This number is meant to be edited, once, by whoever adds a method:
+        // that is the whole mechanism. A surface that grows without anyone
+        // noticing is one where a method ships undocumented, unclassified and
+        // untested, and the count is the only thing that makes a person look.
+        assert_eq!(MCP_METHODS.len(), 116);
         let namespaces: std::collections::HashSet<_> = MCP_METHODS
             .iter()
             .filter_map(|method| method.name.split('.').next())
@@ -648,6 +669,8 @@ mod tests {
             "selftest",
             "agent",
             "cockpit",
+            "provider",
+            "approval",
             "fleet",
             "review",
             "system",

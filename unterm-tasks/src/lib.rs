@@ -20,6 +20,7 @@
 //!   forever.
 
 pub mod approval;
+pub mod lease;
 pub mod model;
 mod schema;
 
@@ -29,6 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 pub use approval::{Approval, ApprovalState, Ask, Grant, NewGrant, Scope};
+pub use lease::{CallRecord, CallSlot, Chain, Lease, NewLease, Presented, Refusal};
 pub use model::{Event, Run, RunId, State, Step, StepId, Task, TaskId};
 
 fn now() -> String {
@@ -905,6 +907,14 @@ impl TaskStore {
                     AND json_extract(detail, '$.authorised_by') = ?1",
                 params![id, stamp],
             )?;
+            // And the capability leases issued on this grant's authority. A
+            // lease outliving the permission that created it is a key still
+            // turning in a lock the user changed.
+            cut_off += transaction.execute(
+                "UPDATE capability_leases SET revoked_at = ?2
+                  WHERE grant_id = ?1 AND revoked_at IS NULL",
+                params![id, stamp],
+            )?;
             transaction.commit()?;
             Ok(cut_off)
         })
@@ -925,6 +935,383 @@ impl TaskStore {
                 params![id.as_str(), grant_id, now()],
             )?;
             Ok(())
+        })
+    }
+
+
+    // ---- capability leases -------------------------------------------
+
+    /// Issue a lease.
+    pub fn issue_lease(&self, spec: NewLease) -> Result<Lease> {
+        let lease = Lease {
+            id: format!("lse_{}", uuid::Uuid::new_v4().simple()),
+            provider: spec.provider,
+            capability: spec.capability,
+            actor: spec.actor,
+            task_id: spec.task_id,
+            step_id: spec.step_id,
+            grant_id: spec.grant_id,
+            approval_id: spec.approval_id,
+            issued_at: now(),
+            expires_at: (chrono::Utc::now()
+                + chrono::Duration::seconds(spec.ttl_seconds.max(1)))
+            .to_rfc3339(),
+            renewed_at: None,
+            revoked_at: None,
+            epoch: 1,
+            last_seq: 0,
+        };
+        self.with(|connection| {
+            connection.execute(
+                "INSERT INTO capability_leases
+                    (id, provider, capability, actor, task_id, step_id, grant_id, approval_id,
+                     issued_at, expires_at, renewed_at, revoked_at, epoch, last_seq)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, 1, 0)",
+                params![
+                    lease.id,
+                    lease.provider,
+                    lease.capability,
+                    lease.actor,
+                    lease.task_id,
+                    lease.step_id,
+                    lease.grant_id,
+                    lease.approval_id,
+                    lease.issued_at,
+                    lease.expires_at
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(lease)
+    }
+
+    pub fn lease(&self, id: &str) -> Result<Option<Lease>> {
+        self.with(|connection| {
+            connection
+                .query_row(
+                    "SELECT id, provider, capability, actor, task_id, step_id, grant_id,
+                            approval_id, issued_at, expires_at, renewed_at, revoked_at,
+                            epoch, last_seq
+                     FROM capability_leases WHERE id = ?1",
+                    params![id],
+                    row_to_lease,
+                )
+                .optional()
+                .map_err(Into::into)
+        })
+    }
+
+    /// Every lease, newest first.
+    pub fn leases(&self) -> Result<Vec<Lease>> {
+        self.with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, provider, capability, actor, task_id, step_id, grant_id,
+                        approval_id, issued_at, expires_at, renewed_at, revoked_at,
+                        epoch, last_seq
+                 FROM capability_leases ORDER BY issued_at DESC, id",
+            )?;
+            let rows = statement.query_map([], row_to_lease)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// Extend a lease and bump its epoch.
+    ///
+    /// The bump is what makes renewal meaningful: whoever renewed holds the
+    /// current lease, and a copy of the old one — recorded by something
+    /// listening, or kept by a process that was told to stop — no longer is.
+    pub fn renew_lease(&self, id: &str, ttl_seconds: i64) -> Result<Option<Lease>> {
+        self.with(|connection| {
+            let stamp = now();
+            let expires =
+                (chrono::Utc::now() + chrono::Duration::seconds(ttl_seconds.max(1))).to_rfc3339();
+            connection.execute(
+                "UPDATE capability_leases
+                    SET expires_at = ?2, renewed_at = ?3, epoch = epoch + 1
+                  WHERE id = ?1 AND revoked_at IS NULL",
+                params![id, expires, stamp],
+            )?;
+            Ok(())
+        })?;
+        self.lease(id)
+    }
+
+    /// Take a lease back. Returns whether there was a live one to take.
+    pub fn revoke_lease(&self, id: &str) -> Result<bool> {
+        self.with(|connection| {
+            let changed = connection.execute(
+                "UPDATE capability_leases SET revoked_at = ?2
+                  WHERE id = ?1 AND revoked_at IS NULL",
+                params![id, now()],
+            )?;
+            Ok(changed == 1)
+        })
+    }
+
+    /// Revoke every live lease for a provider. Returns how many.
+    ///
+    /// What "unbind this provider" means: the binding is not a setting to be
+    /// forgotten, it is a set of keys that have to be taken back.
+    pub fn revoke_provider_leases(&self, provider: &str) -> Result<usize> {
+        self.with(|connection| {
+            Ok(connection.execute(
+                "UPDATE capability_leases SET revoked_at = ?2
+                  WHERE provider = ?1 AND revoked_at IS NULL",
+                params![provider, now()],
+            )?)
+        })
+    }
+
+    /// Present a lease for one use.
+    ///
+    /// Refuses *before* anything is performed. Checking afterwards would mean
+    /// the replay had already happened and all that was left was to notice.
+    pub fn use_lease(&self, presented: &Presented) -> Result<std::result::Result<Lease, Refusal>> {
+        let refusal = self.with(|connection| {
+            let transaction = connection.transaction()?;
+            let existing: Option<(String, Option<String>, i64, i64)> = transaction
+                .query_row(
+                    "SELECT expires_at, revoked_at, epoch, last_seq
+                     FROM capability_leases WHERE id = ?1",
+                    params![presented.lease_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .optional()?;
+            let Some((expires_at, revoked_at, epoch, last_seq)) = existing else {
+                return Ok(Some(Refusal::Unknown));
+            };
+            if revoked_at.is_some() {
+                return Ok(Some(Refusal::Revoked));
+            }
+            if expires_at <= now() {
+                return Ok(Some(Refusal::Expired));
+            }
+            if presented.epoch != epoch {
+                return Ok(Some(Refusal::StaleEpoch));
+            }
+            if presented.seq <= last_seq {
+                return Ok(Some(Refusal::Replay));
+            }
+            // Recording the sequence number is part of the same transaction
+            // that checked it. Two uses arriving at once must not both find
+            // the old value and both be allowed.
+            transaction.execute(
+                "UPDATE capability_leases SET last_seq = ?2 WHERE id = ?1",
+                params![presented.lease_id, presented.seq],
+            )?;
+            transaction.commit()?;
+            Ok(None)
+        })?;
+        if let Some(refusal) = refusal {
+            return Ok(Err(refusal));
+        }
+        Ok(self
+            .lease(&presented.lease_id)?
+            .ok_or(Refusal::Unknown)
+            .map_err(|refusal| refusal))
+    }
+
+    /// Sweep leases whose time has run out. Returns the ids.
+    ///
+    /// Expiry is already enforced on use; this is so a reader can see that a
+    /// lease is over without having to compare timestamps itself.
+    pub fn expire_leases(&self) -> Result<Vec<String>> {
+        self.with(|connection| {
+            let stamp = now();
+            let lapsed: Vec<String> = {
+                let mut statement = connection.prepare(
+                    "SELECT id FROM capability_leases
+                      WHERE revoked_at IS NULL AND expires_at <= ?1",
+                )?;
+                let rows = statement.query_map(params![stamp], |row| row.get::<_, String>(0))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            Ok(lapsed)
+        })
+    }
+
+    /// Everything that authorised one action.
+    ///
+    /// The gate this exists for: given a lease an action was performed under,
+    /// produce the grant it rested on, the question a human answered, and the
+    /// task it was done for — records, not log lines, each of which can still
+    /// be revoked.
+    pub fn authorisation_chain(&self, lease_id: &str) -> Result<Option<Chain>> {
+        let Some(lease) = self.lease(lease_id)? else {
+            return Ok(None);
+        };
+        let grant = match &lease.grant_id {
+            Some(id) => self.grants()?.into_iter().find(|grant| &grant.id == id),
+            None => None,
+        };
+        let approval = match &lease.approval_id {
+            Some(id) => self.approval(id)?,
+            None => None,
+        };
+        let task = match &lease.task_id {
+            Some(id) => match TaskId::parse(id) {
+                Ok(id) => self.task(&id)?,
+                Err(_) => None,
+            },
+            None => None,
+        };
+        Ok(Some(Chain {
+            lease,
+            grant,
+            approval,
+            task,
+        }))
+    }
+
+    // ---- provider calls ----------------------------------------------
+
+    /// Start a call, or discover that it has already been made.
+    ///
+    /// The key is what makes "once" true across a crash: an in-process memo
+    /// forgets exactly when the process died mid-call, which is the moment
+    /// the caller will retry.
+    pub fn begin_call(
+        &self,
+        idempotency_key: Option<&str>,
+        provider: &str,
+        capability: &str,
+        method: &str,
+        lease_id: Option<&str>,
+        request: &serde_json::Value,
+    ) -> Result<CallSlot> {
+        let record = CallRecord {
+            id: format!("pcl_{}", uuid::Uuid::new_v4().simple()),
+            idempotency_key: idempotency_key.map(str::to_string),
+            provider: provider.to_string(),
+            capability: capability.to_string(),
+            method: method.to_string(),
+            lease_id: lease_id.map(str::to_string),
+            state: "pending".to_string(),
+            request_sha256: lease::digest(request),
+            response_sha256: None,
+            response: None,
+            error: None,
+            created_at: now(),
+            finished_at: None,
+        };
+        self.with(|connection| {
+            let transaction = connection.transaction()?;
+            if let Some(key) = idempotency_key {
+                let existing = transaction
+                    .query_row(
+                        "SELECT id, idempotency_key, provider, capability, method, lease_id,
+                                state, request_sha256, response_sha256, response, error,
+                                created_at, finished_at
+                         FROM provider_calls WHERE idempotency_key = ?1",
+                        params![key],
+                        row_to_call,
+                    )
+                    .optional()?;
+                if let Some(found) = existing {
+                    return Ok(if found.is_finished() {
+                        CallSlot::Settled(found)
+                    } else {
+                        CallSlot::InFlight(found)
+                    });
+                }
+            }
+            transaction.execute(
+                "INSERT INTO provider_calls
+                    (id, idempotency_key, provider, capability, method, lease_id, state,
+                     request_sha256, response_sha256, response, error, created_at, finished_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, NULL, NULL, NULL, ?8, NULL)",
+                params![
+                    record.id,
+                    record.idempotency_key,
+                    record.provider,
+                    record.capability,
+                    record.method,
+                    record.lease_id,
+                    record.request_sha256,
+                    record.created_at
+                ],
+            )?;
+            transaction.commit()?;
+            Ok(CallSlot::Fresh(record.clone()))
+        })
+    }
+
+    /// Record how a call turned out.
+    pub fn finish_call(
+        &self,
+        id: &str,
+        state: &str,
+        response: Option<&serde_json::Value>,
+        error: Option<&str>,
+    ) -> Result<Option<CallRecord>> {
+        let hash = response.map(lease::digest);
+        // Big answers keep their hash and lose their body: the row still
+        // proves what came back without storing it.
+        let body = response.and_then(|value| {
+            let text = value.to_string();
+            (text.len() <= lease::RESPONSE_KEPT_BYTES).then_some(text)
+        });
+        self.with(|connection| {
+            connection.execute(
+                "UPDATE provider_calls
+                    SET state = ?2, response_sha256 = ?3, response = ?4, error = ?5,
+                        finished_at = ?6
+                  WHERE id = ?1 AND state = 'pending'",
+                params![id, state, hash, body, error, now()],
+            )?;
+            Ok(())
+        })?;
+        self.call_by_id(id)
+    }
+
+    pub fn call_by_id(&self, id: &str) -> Result<Option<CallRecord>> {
+        self.with(|connection| {
+            connection
+                .query_row(
+                    "SELECT id, idempotency_key, provider, capability, method, lease_id,
+                            state, request_sha256, response_sha256, response, error,
+                            created_at, finished_at
+                     FROM provider_calls WHERE id = ?1",
+                    params![id],
+                    row_to_call,
+                )
+                .optional()
+                .map_err(Into::into)
+        })
+    }
+
+    /// Every call made under one lease — the other end of the authorisation
+    /// chain: from a permission to what was actually done with it.
+    pub fn calls_under_lease(&self, lease_id: &str) -> Result<Vec<CallRecord>> {
+        self.with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, idempotency_key, provider, capability, method, lease_id,
+                        state, request_sha256, response_sha256, response, error,
+                        created_at, finished_at
+                 FROM provider_calls WHERE lease_id = ?1 ORDER BY created_at, id",
+            )?;
+            let rows = statement.query_map(params![lease_id], row_to_call)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// Calls still in flight for a provider, so a restart can settle them.
+    ///
+    /// A call left `pending` by a crash is not evidence that it did not
+    /// happen — only that nobody heard the answer. It is reported rather than
+    /// quietly resolved either way.
+    pub fn unsettled_calls(&self, provider: Option<&str>) -> Result<Vec<CallRecord>> {
+        self.with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, idempotency_key, provider, capability, method, lease_id,
+                        state, request_sha256, response_sha256, response, error,
+                        created_at, finished_at
+                 FROM provider_calls
+                  WHERE state = 'pending' AND (?1 IS NULL OR provider = ?1)
+                  ORDER BY created_at",
+            )?;
+            let rows = statement.query_map(params![provider], row_to_call)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
         })
     }
 
@@ -994,6 +1381,22 @@ impl TaskStore {
     }
 
     /// Questions nobody has answered yet.
+    /// The questions whose answers created this grant.
+    ///
+    /// The other direction from `approvals.grant_id`, so a lease resting on a
+    /// grant can name the moment a human actually said yes.
+    pub fn approvals_for_grant(&self, grant_id: &str) -> Result<Vec<Approval>> {
+        self.with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, method, actor, task_id, resource, command, risk, state,
+                        created_at, expires_at, decided_at, decided_by, grant_id
+                 FROM approvals WHERE grant_id = ?1 ORDER BY created_at DESC",
+            )?;
+            let rows = statement.query_map(params![grant_id], row_to_approval)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
     pub fn pending_approvals(&self) -> Result<Vec<Approval>> {
         self.with(|connection| {
             let mut statement = connection.prepare(
@@ -1249,6 +1652,43 @@ fn json_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<serde_
     Ok(raw
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_else(|| serde_json::json!({})))
+}
+
+fn row_to_call(row: &rusqlite::Row<'_>) -> rusqlite::Result<CallRecord> {
+    Ok(CallRecord {
+        id: row.get(0)?,
+        idempotency_key: row.get(1)?,
+        provider: row.get(2)?,
+        capability: row.get(3)?,
+        method: row.get(4)?,
+        lease_id: row.get(5)?,
+        state: row.get(6)?,
+        request_sha256: row.get(7)?,
+        response_sha256: row.get(8)?,
+        response: row.get(9)?,
+        error: row.get(10)?,
+        created_at: row.get(11)?,
+        finished_at: row.get(12)?,
+    })
+}
+
+fn row_to_lease(row: &rusqlite::Row<'_>) -> rusqlite::Result<Lease> {
+    Ok(Lease {
+        id: row.get(0)?,
+        provider: row.get(1)?,
+        capability: row.get(2)?,
+        actor: row.get(3)?,
+        task_id: row.get(4)?,
+        step_id: row.get(5)?,
+        grant_id: row.get(6)?,
+        approval_id: row.get(7)?,
+        issued_at: row.get(8)?,
+        expires_at: row.get(9)?,
+        renewed_at: row.get(10)?,
+        revoked_at: row.get(11)?,
+        epoch: row.get(12)?,
+        last_seq: row.get(13)?,
+    })
 }
 
 fn row_to_grant(row: &rusqlite::Row<'_>) -> rusqlite::Result<Grant> {
@@ -2016,5 +2456,313 @@ mod tests {
         // it can protect against a retry that follows a crash.
         let run = store.runs(&task_id).unwrap().remove(0);
         assert!(!store.request_step(&run.id, "tool", Some("k")).unwrap().is_new());
+    }
+
+    // ---- capability leases -------------------------------------------
+
+    fn a_lease(store: &TaskStore) -> Lease {
+        store
+            .issue_lease(NewLease {
+                provider: "unzoo".into(),
+                capability: "browser".into(),
+                ttl_seconds: 300,
+                ..NewLease::default()
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn a_fresh_lease_can_be_used_once_per_sequence_number() {
+        let store = TaskStore::in_memory().unwrap();
+        let lease = a_lease(&store);
+        let present = |seq| Presented {
+            lease_id: lease.id.clone(),
+            epoch: lease.epoch,
+            seq,
+        };
+        assert!(store.use_lease(&present(1)).unwrap().is_ok());
+        assert!(store.use_lease(&present(2)).unwrap().is_ok());
+    }
+
+    #[test]
+    fn a_recorded_exchange_cannot_be_replayed() {
+        // The whole reason leases carry a sequence number: something that
+        // captured a legitimate use must not be able to repeat it.
+        let store = TaskStore::in_memory().unwrap();
+        let lease = a_lease(&store);
+        let use_once = Presented {
+            lease_id: lease.id.clone(),
+            epoch: lease.epoch,
+            seq: 7,
+        };
+        assert!(store.use_lease(&use_once).unwrap().is_ok());
+        assert_eq!(
+            store.use_lease(&use_once).unwrap().unwrap_err(),
+            Refusal::Replay
+        );
+        // And an older number, which is what a recording of an earlier
+        // exchange would carry.
+        assert_eq!(
+            store
+                .use_lease(&Presented { seq: 3, ..use_once })
+                .unwrap()
+                .unwrap_err(),
+            Refusal::Replay
+        );
+    }
+
+    #[test]
+    fn renewing_invalidates_the_lease_somebody_else_is_holding() {
+        let store = TaskStore::in_memory().unwrap();
+        let lease = a_lease(&store);
+        let old_epoch = lease.epoch;
+        let renewed = store.renew_lease(&lease.id, 600).unwrap().unwrap();
+        assert_eq!(renewed.epoch, old_epoch + 1);
+        assert!(renewed.expires_at > lease.expires_at);
+
+        assert_eq!(
+            store
+                .use_lease(&Presented {
+                    lease_id: lease.id.clone(),
+                    epoch: old_epoch,
+                    seq: 1,
+                })
+                .unwrap()
+                .unwrap_err(),
+            Refusal::StaleEpoch
+        );
+        assert!(store
+            .use_lease(&Presented {
+                lease_id: lease.id,
+                epoch: renewed.epoch,
+                seq: 1,
+            })
+            .unwrap()
+            .is_ok());
+    }
+
+    #[test]
+    fn a_revoked_lease_stops_working_immediately() {
+        let store = TaskStore::in_memory().unwrap();
+        let lease = a_lease(&store);
+        assert!(store.revoke_lease(&lease.id).unwrap());
+        assert_eq!(
+            store
+                .use_lease(&Presented {
+                    lease_id: lease.id.clone(),
+                    epoch: lease.epoch,
+                    seq: 1,
+                })
+                .unwrap()
+                .unwrap_err(),
+            Refusal::Revoked
+        );
+        // Revoking twice is not an error, but it does report that there was
+        // nothing left to take.
+        assert!(!store.revoke_lease(&lease.id).unwrap());
+        // And a revoked lease cannot be renewed back to life.
+        let renewed = store.renew_lease(&lease.id, 600).unwrap().unwrap();
+        assert!(renewed.revoked_at.is_some());
+        assert_eq!(renewed.epoch, lease.epoch, "a revoked lease was renewed");
+    }
+
+    #[test]
+    fn a_lease_whose_time_ran_out_is_refused_and_reported() {
+        let store = TaskStore::in_memory().unwrap();
+        let lease = store
+            .issue_lease(NewLease {
+                provider: "unzoo".into(),
+                capability: "browser".into(),
+                // The floor is one second, so this is the shortest lease the
+                // store will issue; the sweep sees it after it lapses.
+                ttl_seconds: -5,
+                ..NewLease::default()
+            })
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        assert_eq!(
+            store
+                .use_lease(&Presented {
+                    lease_id: lease.id.clone(),
+                    epoch: lease.epoch,
+                    seq: 1,
+                })
+                .unwrap()
+                .unwrap_err(),
+            Refusal::Expired
+        );
+        assert_eq!(store.expire_leases().unwrap(), vec![lease.id]);
+    }
+
+    #[test]
+    fn unbinding_a_provider_takes_back_every_key_it_handed_out() {
+        let store = TaskStore::in_memory().unwrap();
+        let browser = a_lease(&store);
+        let profile = store
+            .issue_lease(NewLease {
+                provider: "unzoo".into(),
+                capability: "profile".into(),
+                ttl_seconds: 300,
+                ..NewLease::default()
+            })
+            .unwrap();
+        let elsewhere = store
+            .issue_lease(NewLease {
+                provider: "other".into(),
+                capability: "browser".into(),
+                ttl_seconds: 300,
+                ..NewLease::default()
+            })
+            .unwrap();
+
+        assert_eq!(store.revoke_provider_leases("unzoo").unwrap(), 2);
+        for id in [&browser.id, &profile.id] {
+            assert!(store.lease(id).unwrap().unwrap().revoked_at.is_some());
+        }
+        // Another provider's leases are none of this one's business.
+        assert!(store.lease(&elsewhere.id).unwrap().unwrap().revoked_at.is_none());
+    }
+
+    #[test]
+    fn revoking_the_permission_revokes_the_lease_it_paid_for() {
+        // A lease outliving the grant that created it is a key still turning
+        // in a lock the user changed.
+        let store = TaskStore::in_memory().unwrap();
+        let grant = store
+            .create_grant(NewGrant {
+                scope_or_once: Some(Scope::Always),
+                method: Some("browser.navigate".into()),
+                ..NewGrant::default()
+            })
+            .unwrap();
+        let lease = store
+            .issue_lease(NewLease {
+                provider: "unzoo".into(),
+                capability: "browser".into(),
+                grant_id: Some(grant.id.clone()),
+                ttl_seconds: 3600,
+                ..NewLease::default()
+            })
+            .unwrap();
+
+        store.revoke_grant(&grant.id).unwrap();
+        assert!(store.lease(&lease.id).unwrap().unwrap().revoked_at.is_some());
+        assert_eq!(
+            store
+                .use_lease(&Presented {
+                    lease_id: lease.id,
+                    epoch: 1,
+                    seq: 1,
+                })
+                .unwrap()
+                .unwrap_err(),
+            Refusal::Revoked
+        );
+    }
+
+    #[test]
+    fn an_action_can_be_traced_back_to_the_human_who_allowed_it() {
+        // M5's gate: not a log line saying it was allowed, but the records —
+        // each of which can still be revoked.
+        let store = TaskStore::in_memory().unwrap();
+        let task = store.create_task("browse", "check the dashboard").unwrap();
+        let approval = store
+            .request_approval(
+                "browser.navigate",
+                "local_mutation",
+                &Ask {
+                    method: "browser.navigate".into(),
+                    actor: Some("claude".into()),
+                    task_id: Some(task.id.to_string()),
+                    resource: None,
+                    risk_rank: 1,
+                },
+                None,
+                Some(300),
+            )
+            .unwrap();
+        store
+            .decide_approval(
+                &approval.id,
+                true,
+                "the user",
+                Some(NewGrant {
+                    scope_or_once: Some(Scope::Task),
+                    method: Some("browser.navigate".into()),
+                    task_id: Some(task.id.to_string()),
+                    ..NewGrant::default()
+                }),
+            )
+            .unwrap();
+        let grant = store.grants().unwrap().remove(0);
+        let lease = store
+            .issue_lease(NewLease {
+                provider: "unzoo".into(),
+                capability: "browser".into(),
+                actor: Some("claude".into()),
+                task_id: Some(task.id.to_string()),
+                grant_id: Some(grant.id.clone()),
+                approval_id: Some(approval.id.clone()),
+                ttl_seconds: 300,
+                ..NewLease::default()
+            })
+            .unwrap();
+
+        let chain = store.authorisation_chain(&lease.id).unwrap().unwrap();
+        assert_eq!(chain.lease.id, lease.id);
+        assert_eq!(chain.grant.unwrap().id, grant.id);
+        assert_eq!(chain.approval.unwrap().id, approval.id);
+        assert_eq!(chain.task.unwrap().id, task.id);
+    }
+
+    #[test]
+    fn a_lease_nobody_issued_cannot_be_used() {
+        let store = TaskStore::in_memory().unwrap();
+        assert_eq!(
+            store
+                .use_lease(&Presented {
+                    lease_id: "lse_invented".into(),
+                    epoch: 1,
+                    seq: 1,
+                })
+                .unwrap()
+                .unwrap_err(),
+            Refusal::Unknown
+        );
+        assert!(store.authorisation_chain("lse_invented").unwrap().is_none());
+    }
+
+    #[test]
+    fn leases_survive_a_restart_with_their_sequence_intact() {
+        // Otherwise a restart would reset the replay window, and the oldest
+        // recorded exchange would work again.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tasks.db");
+        let id = {
+            let store = TaskStore::open(&path).unwrap();
+            let lease = a_lease(&store);
+            store
+                .use_lease(&Presented {
+                    lease_id: lease.id.clone(),
+                    epoch: 1,
+                    seq: 42,
+                })
+                .unwrap()
+                .unwrap();
+            lease.id
+        };
+        let store = TaskStore::open(&path).unwrap();
+        assert_eq!(store.lease(&id).unwrap().unwrap().last_seq, 42);
+        assert_eq!(
+            store
+                .use_lease(&Presented {
+                    lease_id: id,
+                    epoch: 1,
+                    seq: 42,
+                })
+                .unwrap()
+                .unwrap_err(),
+            Refusal::Replay
+        );
     }
 }

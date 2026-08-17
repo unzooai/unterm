@@ -199,6 +199,54 @@ pub fn answer(
     Ok(())
 }
 
+/// The questions waiting for a human.
+pub fn pending() -> Vec<unterm_tasks::Approval> {
+    fleet_store::tasks()
+        .and_then(|store| store.pending_approvals().ok())
+        .unwrap_or_default()
+}
+
+/// Answer a question knowing only its id.
+///
+/// [`answer`] needs the context the question came from, which the caller who
+/// asked still has. Whoever is *answering* — a settings page listing what is
+/// waiting — does not, and should not have to reconstruct it: the recorded
+/// approval already says what was asked, by whom and about what, and a grant
+/// derived from anything else would be a grant for a different question.
+pub fn answer_by_id(
+    approval_id: &str,
+    allowed: bool,
+    decided_by: &str,
+    remember: Option<Scope>,
+) -> anyhow::Result<unterm_tasks::Approval> {
+    let store = fleet_store::tasks()
+        .ok_or_else(|| anyhow::anyhow!("there is no approval store to answer into"))?;
+    let approval = store
+        .approval(approval_id)?
+        .ok_or_else(|| anyhow::anyhow!("no such approval: {approval_id}"))?;
+    if approval.state != unterm_tasks::ApprovalState::Pending {
+        // Answering twice is not an error worth hiding: the second answer
+        // would create a second grant for a question already settled.
+        anyhow::bail!(
+            "{approval_id} was already {}",
+            approval.state.as_str()
+        );
+    }
+    let remember = remember.map(|scope| NewGrant {
+        scope_or_once: Some(scope),
+        method: Some(approval.method.clone()),
+        actor: approval.actor.clone(),
+        task_id: approval.task_id.clone(),
+        resource: approval.resource.clone(),
+        max_risk: Some(approval.risk.clone()),
+        ttl_seconds: None,
+    });
+    store.decide_approval(approval_id, allowed, decided_by, remember)?;
+    store
+        .approval(approval_id)?
+        .ok_or_else(|| anyhow::anyhow!("the approval vanished while being answered"))
+}
+
 /// Describe an entry point for the audit trail.
 pub fn describe_entry(entry: Option<Entry>) -> &'static str {
     entry.map(Entry::as_str).unwrap_or("unknown")

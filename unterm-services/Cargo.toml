@@ -33,6 +33,7 @@ unterm-protocol.workspace = true
 unterm-gateway.workspace = true
 unterm-tasks.workspace = true
 unterm-brain.workspace = true
+unterm-providers.workspace = true
 
 # Killing a process group and asking whether a pid is still alive have no
 # portable form; both are raw syscalls on Unix and Win32 calls on Windows.
