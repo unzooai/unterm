@@ -160,6 +160,9 @@ fn method_is_mutating(method: &str) -> bool {
             | "scope.archive"
             | "artifact.forget"
             | "task.export_evidence"
+            | "supervisor.reconcile"
+            | "system.snapshot"
+            | "system.restore_snapshot"
     )
 }
 
@@ -219,6 +222,9 @@ fn method_is_read_only(method: &str) -> bool {
             | "artifact.verify"
             | "audit.verify"
             | "task.verify_evidence"
+            | "supervisor.status"
+            | "system.snapshots"
+            | "system.diagnostics"
             | "cockpit.inbox"
             | "fleet.list"
             | "review.list"

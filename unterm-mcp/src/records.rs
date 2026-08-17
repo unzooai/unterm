@@ -28,6 +28,12 @@ pub const METHODS: &[&str] = &[
     "audit.verify",
     "task.export_evidence",
     "task.verify_evidence",
+    "supervisor.status",
+    "supervisor.reconcile",
+    "system.diagnostics",
+    "system.snapshots",
+    "system.snapshot",
+    "system.restore_snapshot",
 ];
 
 pub fn handles(method: &str) -> bool {
@@ -115,6 +121,72 @@ pub fn dispatch(method: &str, params: &Value) -> Result<Value> {
         "task.verify_evidence" => Ok(serde_json::to_value(evidence::verify(text(
             params, "path",
         )?)?)?),
+
+        "supervisor.status" => {
+            // Flattened on the way out. `Health` is an internally-tagged enum
+            // whose payload differs per variant, which is right for Rust and
+            // awkward on a wire: every client would have to know that `pid`
+            // lives under `health` and only for some states.
+            let processes: Vec<Value> = unterm_services::supervisor::survey()
+                .into_iter()
+                .map(|process| {
+                    json!({
+                        "role": process.role.as_str(),
+                        "state": process.health.as_str(),
+                        "pid": process.health.pid(),
+                        "usable": process.health.is_usable(),
+                        "detail": match &process.health {
+                            unterm_services::supervisor::Health::Ready { endpoint, .. } => {
+                                endpoint.clone()
+                            }
+                            unterm_services::supervisor::Health::Stale { since, .. } => {
+                                since.clone().map(|since| format!("since {since}"))
+                            }
+                            _ => None,
+                        },
+                        "version": process.version,
+                        "source": process.source,
+                    })
+                })
+                .collect();
+            Ok(json!({
+                "processes": processes,
+                // The answer to "can this machine do work right now", which
+                // is not the same as "is every process up".
+                "can_work_without_ui": unterm_services::supervisor::can_work_without_ui(),
+            }))
+        }
+
+        "supervisor.reconcile" => unterm_services::supervisor::reconcile_after_crash(),
+
+        "system.diagnostics" => {
+            let bundle = match params.get("path").and_then(Value::as_str) {
+                Some(path) => unterm_services::diagnostics::write(path)?,
+                // Without a path the bundle is returned rather than written:
+                // a caller reading it over MCP should not have to find a
+                // directory first.
+                None => unterm_services::diagnostics::redact(
+                    &unterm_services::diagnostics::collect(),
+                ),
+            };
+            Ok(bundle)
+        }
+
+        "system.snapshots" => Ok(json!({"snapshots": unterm_services::upgrade::snapshots()})),
+
+        "system.snapshot" => {
+            let version = params
+                .get("version")
+                .and_then(Value::as_str)
+                .unwrap_or(env!("CARGO_PKG_VERSION"));
+            Ok(json!({"snapshot": unterm_services::upgrade::snapshot(version)?}))
+        }
+
+        "system.restore_snapshot" => {
+            let id = text(params, "snapshot")?;
+            let snapshot = unterm_services::upgrade::restore(&id, env!("CARGO_PKG_VERSION"))?;
+            Ok(json!({"restored": snapshot}))
+        }
 
         other => Err(anyhow!("records dispatch reached {other}")),
     }

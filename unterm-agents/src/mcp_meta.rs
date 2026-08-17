@@ -519,6 +519,13 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod { name: "audit.verify", namespace: "records", summary: "Walk the audit hash-chain and report the first break, if any.", params: NO_PARAMS },
     McpMethod { name: "task.export_evidence", namespace: "records", summary: "Write one task's whole story into a directory somebody else can check.", params: &[Param { name: "task_id", kind: "string", required: true, summary: "" }, Param { name: "path", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "task.verify_evidence", namespace: "records", summary: "Recompute an evidence bundle's hashes and report what does not hold.", params: &[Param { name: "path", kind: "string", required: true, summary: "" }] },
+    // ---- supervisor and delivery ----
+    McpMethod { name: "supervisor.status", namespace: "records", summary: "The Core, GUI and MCP processes, and whether work can happen without a window.", params: NO_PARAMS },
+    McpMethod { name: "supervisor.reconcile", namespace: "records", summary: "Turn what a dead process left into verdicts and take back its claims.", params: NO_PARAMS },
+    McpMethod { name: "system.diagnostics", namespace: "records", summary: "A redacted bundle safe to send: versions, health, counts. No tokens, prompts, commands or paths.", params: &[Param { name: "path", kind: "string", required: false, summary: "Write it here instead of returning it." }] },
+    McpMethod { name: "system.snapshots", namespace: "records", summary: "Data snapshots taken before upgrades, newest first.", params: NO_PARAMS },
+    McpMethod { name: "system.snapshot", namespace: "records", summary: "Copy the data aside now.", params: &[Param { name: "version", kind: "string", required: false, summary: "" }] },
+    McpMethod { name: "system.restore_snapshot", namespace: "records", summary: "Put the data back as a snapshot has it. The current state is snapshotted first.", params: &[Param { name: "snapshot", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "approval.list", namespace: "governance", summary: "Questions the gateway is waiting on a human to answer.", params: NO_PARAMS },
     McpMethod { name: "approval.decide", namespace: "governance", summary: "Answer a question. Refused over the network: agents cannot answer their own requests.", params: &[Param { name: "approval", kind: "string", required: true, summary: "" }, Param { name: "allowed", kind: "boolean", required: true, summary: "" }, Param { name: "remember", kind: "string", required: false, summary: "once | task | resource | always" }] },
     McpMethod { name: "server.info", namespace: "governance", summary: "Server version, uptime, instance id.", params: NO_PARAMS },
@@ -605,6 +612,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
 pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "start", summary: "Start the GUI, optionally running an alternative program.", subcommands: &[] },
     CliCommand { name: "cli", summary: "Legacy mux compatibility stub; use session, instance, or server commands instead.", subcommands: &[] },
+    CliCommand { name: "system", summary: "Process health, redacted diagnostics, and data snapshots.", subcommands: &["status", "reconcile", "diagnostics", "snapshots", "snapshot", "restore"] },
     CliCommand { name: "scope", summary: "Workspaces: named roots that work is confined to.", subcommands: &["list", "create", "check", "archive"] },
     CliCommand { name: "artifact", summary: "What tasks produced, addressed by content.", subcommands: &["list", "usage", "verify", "forget"] },
     CliCommand { name: "evidence", summary: "Export a task's evidence bundle, verify one, or check the audit chain.", subcommands: &["export", "verify", "audit"] },
@@ -662,7 +670,7 @@ mod tests {
         // that is the whole mechanism. A surface that grows without anyone
         // noticing is one where a method ships undocumented, unclassified and
         // untested, and the count is the only thing that makes a person look.
-        assert_eq!(MCP_METHODS.len(), 127);
+        assert_eq!(MCP_METHODS.len(), 133);
         let namespaces: std::collections::HashSet<_> = MCP_METHODS
             .iter()
             .filter_map(|method| method.name.split('.').next())
@@ -689,6 +697,7 @@ mod tests {
             "scope",
             "artifact",
             "audit",
+            "supervisor",
             "fleet",
             "review",
             "system",

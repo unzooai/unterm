@@ -46,7 +46,7 @@ use lang::LangCommand;
 use legacy::LegacyCommand;
 use policy::PolicyCommand;
 use provider::ProviderCommand;
-use records::{ArtifactCommand, EvidenceCommand, ScopeCommand};
+use records::{ArtifactCommand, EvidenceCommand, ScopeCommand, SystemCommand};
 use profile::ProfileCommand;
 use proxy::ProxyCommand;
 use reference::ReferenceCommand;
@@ -147,6 +147,12 @@ enum SubCommand {
 
     #[command(name = "policy", about = "Inspect MCP write-policy decisions")]
     Policy(PolicyCommand),
+
+    #[command(
+        name = "system",
+        about = "Process health, redacted diagnostics, and data snapshots"
+    )]
+    System(SystemCommand),
 
     #[command(
         name = "scope",
@@ -398,6 +404,7 @@ fn main() -> Result<()> {
         SubCommand::Lang(cmd) => run_lang(cmd, opts.json),
         SubCommand::Policy(cmd) => run_policy(cmd, opts.json),
         SubCommand::Provider(cmd) => provider::run(cmd, opts.json),
+        SubCommand::System(cmd) => records::run_system(cmd, opts.json),
         SubCommand::Scope(cmd) => records::run_scope(cmd, opts.json),
         SubCommand::Artifact(cmd) => records::run_artifact(cmd, opts.json),
         SubCommand::Evidence(cmd) => records::run_evidence(cmd, opts.json),
@@ -687,6 +694,7 @@ mod command_line_tests {
             "scope",
             "artifact",
             "evidence",
+            "system",
             "proxy",
             "theme",
             "profile",

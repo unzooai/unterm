@@ -73,6 +73,140 @@ pub enum EvidenceSubCommand {
     Audit,
 }
 
+/// `unterm-cli system …` — the processes, and the data behind them.
+#[derive(Debug, Parser, Clone)]
+pub struct SystemCommand {
+    #[command(subcommand)]
+    pub sub: SystemSubCommand,
+}
+
+#[derive(Debug, Subcommand, Clone)]
+pub enum SystemSubCommand {
+    /// What is running: the Core, the window, the MCP server.
+    Status,
+    /// Turn what a dead process left into verdicts and take back its claims.
+    Reconcile,
+    /// A redacted bundle safe to send: versions, health, counts.
+    Diagnostics {
+        /// Write it here instead of printing it.
+        #[arg(long)]
+        out: Option<String>,
+    },
+    /// Data snapshots, newest first.
+    Snapshots,
+    /// Copy the data aside now.
+    Snapshot {
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Put the data back as a snapshot has it.
+    Restore { snapshot: String },
+}
+
+pub fn run_system(cmd: SystemCommand, json_out: bool) -> Result<()> {
+    let mut client = McpClient::connect()?;
+    match cmd.sub {
+        SystemSubCommand::Status => {
+            let result = client.call("supervisor.status", json!({}))?;
+            if json_out {
+                print_json(&result);
+                return Ok(());
+            }
+            for process in result["processes"].as_array().cloned().unwrap_or_default() {
+                println!(
+                    "{:<6} {:<9} {:<8} {}",
+                    process["role"].as_str().unwrap_or("?"),
+                    process["state"].as_str().unwrap_or("?"),
+                    process["pid"]
+                        .as_i64()
+                        .map(|pid| pid.to_string())
+                        .unwrap_or_default(),
+                    process["detail"].as_str().unwrap_or(""),
+                );
+            }
+            // The line that answers the question people actually have.
+            print_kv(
+                "Can work without a window",
+                if result["can_work_without_ui"].as_bool().unwrap_or(false) {
+                    "yes"
+                } else {
+                    "no"
+                },
+            );
+        }
+        SystemSubCommand::Reconcile => {
+            let result = client.call("supervisor.reconcile", json!({}))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                let stale = result["stale"].as_array().cloned().unwrap_or_default();
+                print_kv("Stale records", &stale.len().to_string());
+                for kind in ["steps", "runs", "tasks"] {
+                    print_kv(kind, &result["recovered"][kind].to_string());
+                }
+            }
+        }
+        SystemSubCommand::Diagnostics { out } => {
+            let mut params = json!({});
+            if let Some(out) = &out {
+                params["path"] = json!(out);
+            }
+            let result = client.call("system.diagnostics", params)?;
+            if let Some(out) = out {
+                print_kv("Written", &out);
+                // Said plainly, because the whole point of the bundle is that
+                // somebody feels safe sending it.
+                print_kv("Contains", "versions, process health and counts — no tokens, prompts, commands or paths");
+            } else {
+                print_json(&result);
+            }
+        }
+        SystemSubCommand::Snapshots => {
+            let result = client.call("system.snapshots", json!({}))?;
+            if json_out {
+                print_json(&result);
+                return Ok(());
+            }
+            let list = result["snapshots"].as_array().cloned().unwrap_or_default();
+            if list.is_empty() {
+                println!("No snapshots.");
+                return Ok(());
+            }
+            for snapshot in list {
+                println!(
+                    "{}  {:<10} {}",
+                    snapshot["id"].as_str().unwrap_or("?"),
+                    snapshot["version"].as_str().unwrap_or("?"),
+                    snapshot["taken_at"].as_str().unwrap_or("?"),
+                );
+            }
+        }
+        SystemSubCommand::Snapshot { version } => {
+            let mut params = json!({});
+            if let Some(version) = version {
+                params["version"] = json!(version);
+            }
+            let result = client.call("system.snapshot", params)?;
+            if json_out {
+                print_json(&result);
+            } else {
+                print_kv("Snapshot", result["snapshot"]["id"].as_str().unwrap_or("?"));
+                print_kv("Path", result["snapshot"]["path"].as_str().unwrap_or("?"));
+            }
+        }
+        SystemSubCommand::Restore { snapshot } => {
+            let result = client.call("system.restore_snapshot", json!({"snapshot": snapshot}))?;
+            if json_out {
+                print_json(&result);
+            } else {
+                print_kv("Restored", result["restored"]["version"].as_str().unwrap_or("?"));
+                print_kv("Taken at", result["restored"]["taken_at"].as_str().unwrap_or("?"));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn run_scope(cmd: ScopeCommand, json_out: bool) -> Result<()> {
     let mut client = McpClient::connect()?;
     match cmd.sub {

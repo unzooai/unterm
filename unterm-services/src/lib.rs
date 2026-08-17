@@ -10,6 +10,7 @@ pub mod brain_tools;
 pub mod bridge_registry;
 pub mod clash_api;
 pub mod cockpit;
+pub mod diagnostics;
 pub mod env_names;
 pub mod evidence;
 pub mod gateway;
@@ -73,4 +74,6 @@ pub mod window_capture;
 /// used to live for no reason other than history.
 pub const VERSION: &str = unterm_protocol::PRODUCT_VERSION;
 pub mod process_stats;
+pub mod supervisor;
+pub mod upgrade;
 pub mod system_proxy;

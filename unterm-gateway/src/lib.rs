@@ -297,6 +297,10 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         // Deleting evidence. The bytes go, and no later apology brings them
         // back.
         "artifact.forget",
+        // Puts the data back to an earlier moment. Everything since is gone
+        // from the live store — snapshotted first, but the running system
+        // has changed under everybody.
+        "system.restore_snapshot",
         // Handing an agent the identities in somebody's browser, or the
         // machine itself. Neither can be undone by taking it back afterwards:
         // what was read has been read, what was typed has been typed.
@@ -342,6 +346,8 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "capability.browser",
         "scope.create",
         "scope.archive",
+        "supervisor.reconcile",
+        "system.snapshot",
         // Writes a directory of records wherever the caller points it.
         "task.export_evidence",
         "provider.bind",
@@ -418,6 +424,11 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "artifact.verify",
         "audit.verify",
         "task.verify_evidence",
+        "supervisor.status",
+        "system.snapshots",
+        // Reads everything and reveals nothing: the bundle is built by
+        // naming what goes in.
+        "system.diagnostics",
     ];
     if READONLY_PREFIXES
         .iter()
