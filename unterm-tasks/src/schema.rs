@@ -195,6 +195,48 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX provider_calls_by_provider ON provider_calls(provider, created_at);
     CREATE INDEX provider_calls_by_lease ON provider_calls(lease_id);
     "#,
+    // v5 — where work is allowed to happen, and what it produced.
+    //
+    // A workspace is a named root. Two of them must not be able to see each
+    // other, which is a property of the *set*: checking one path against one
+    // root can never establish it, so the roots live together in one table
+    // that the check reads whole.
+    //
+    // An artifact is content, addressed by its hash. The bytes are on disk;
+    // this table is the index. A file a task produced can be a recording or a
+    // video, and a database that holds those is a database nobody can copy,
+    // back up or open.
+    r#"
+    CREATE TABLE workspaces (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        -- Canonical, absolute, resolved at creation. Storing what the user
+        -- typed would mean re-resolving on every check — and resolving a
+        -- symlink at check time is how a root moves out from under a scope.
+        root        TEXT NOT NULL UNIQUE,
+        created_at  TEXT NOT NULL,
+        archived_at TEXT
+    );
+
+    CREATE TABLE artifacts (
+        id          TEXT PRIMARY KEY,
+        -- The address. Two tasks producing identical bytes share one file;
+        -- the rows stay separate because provenance is not content.
+        sha256      TEXT NOT NULL,
+        bytes       INTEGER NOT NULL,
+        media_type  TEXT,
+        -- What it came from, so a task's evidence can be gathered without a
+        -- filesystem walk.
+        task_id     TEXT,
+        step_id     TEXT,
+        call_id     TEXT,
+        origin      TEXT NOT NULL,
+        name        TEXT,
+        created_at  TEXT NOT NULL
+    );
+    CREATE INDEX artifacts_by_hash ON artifacts(sha256);
+    CREATE INDEX artifacts_by_task ON artifacts(task_id, created_at);
+    "#,
 ];
 
 /// The version a fresh file is migrated to.

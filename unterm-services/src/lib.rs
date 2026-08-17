@@ -4,12 +4,14 @@
 //! instance registry, the agent cockpit, proxy control, command suggestion.
 //! None of them draw anything or know what a window is.
 
+pub mod artifacts;
 pub mod audit_store;
 pub mod brain_tools;
 pub mod bridge_registry;
 pub mod clash_api;
 pub mod cockpit;
 pub mod env_names;
+pub mod evidence;
 pub mod gateway;
 pub mod ghost_text;
 pub mod i18n;
@@ -17,8 +19,10 @@ pub mod interrupt;
 pub mod launch_env;
 pub mod path_scope;
 pub mod providers;
+pub mod workspace_scope;
 pub mod peer_mcp;
 pub mod recording;
+pub mod routing;
 pub mod scrollback_options;
 pub mod search_regex;
 pub mod server_info;

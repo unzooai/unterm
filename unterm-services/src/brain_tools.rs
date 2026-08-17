@@ -98,6 +98,22 @@ pub fn admit_tool(
     else {
         return None;
     };
+
+    // A way around the provider is refused here rather than classified and
+    // asked about. Approving "run this shell command" would be approving the
+    // wrong question: the user would be saying yes to a command, and what
+    // would actually happen is a browser with no lease and no trail.
+    if let Some(detour) = crate::routing::detour_in_tool(name, arguments) {
+        return Some(Passage {
+            verdict: unterm_gateway::Verdict::deny(
+                unterm_gateway::Code::PolicyBlockedPattern,
+                detour.to_string(),
+                unterm_gateway::Risk::Destructive,
+            ),
+            outcome: Outcome::Refuse,
+        });
+    }
+
     let mapped = map_tool(name, arguments);
     let mut context = ActionContext::new(mapped.method)
         // Recorded, not judged on: the verdict is the same through every
@@ -239,6 +255,38 @@ mod tests {
             assert_eq!(approval.actor.as_deref(), Some("codex"));
             assert_eq!(approval.task_id.as_deref(), Some("tsk_1"));
         }
+    }
+
+    #[test]
+    fn a_model_cannot_drive_a_browser_around_the_provider() {
+        // M6-05. Refused rather than asked about: approving the shell command
+        // would be approving the wrong question.
+        let _dir = isolate();
+        for command in [
+            "curl http://127.0.0.1:9222/json/version",
+            "npx playwright open https://example.com",
+            "chromium --headless --remote-debugging-port=9222",
+        ] {
+            let passage = admit_tool(
+                &request("Bash", json!({"command": command})),
+                &Caller::default(),
+                &SettingsPolicy::off(),
+            )
+            .expect("a tool request");
+            assert_eq!(passage.outcome, Outcome::Refuse, "{command}");
+            assert!(
+                passage.verdict.reason.contains("provider.call"),
+                "the refusal does not say what to do instead: {}",
+                passage.verdict.reason
+            );
+        }
+        // And nothing was queued for the user to approve, because there is no
+        // version of this the user should be asked to allow.
+        assert!(fleet_store::tasks()
+            .unwrap()
+            .pending_approvals()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

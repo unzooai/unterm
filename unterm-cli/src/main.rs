@@ -22,6 +22,7 @@ mod mcp_stdio;
 mod output;
 mod policy;
 mod provider;
+mod records;
 mod profile;
 mod proxy;
 mod reference;
@@ -45,6 +46,7 @@ use lang::LangCommand;
 use legacy::LegacyCommand;
 use policy::PolicyCommand;
 use provider::ProviderCommand;
+use records::{ArtifactCommand, EvidenceCommand, ScopeCommand};
 use profile::ProfileCommand;
 use proxy::ProxyCommand;
 use reference::ReferenceCommand;
@@ -145,6 +147,24 @@ enum SubCommand {
 
     #[command(name = "policy", about = "Inspect MCP write-policy decisions")]
     Policy(PolicyCommand),
+
+    #[command(
+        name = "scope",
+        about = "Workspaces: named roots that work is confined to, and blind to each other"
+    )]
+    Scope(ScopeCommand),
+
+    #[command(
+        name = "artifact",
+        about = "What tasks produced, addressed by content"
+    )]
+    Artifact(ArtifactCommand),
+
+    #[command(
+        name = "evidence",
+        about = "Export one task's whole story, verify a bundle, or check the audit chain"
+    )]
+    Evidence(EvidenceCommand),
 
     #[command(
         name = "provider",
@@ -378,6 +398,9 @@ fn main() -> Result<()> {
         SubCommand::Lang(cmd) => run_lang(cmd, opts.json),
         SubCommand::Policy(cmd) => run_policy(cmd, opts.json),
         SubCommand::Provider(cmd) => provider::run(cmd, opts.json),
+        SubCommand::Scope(cmd) => records::run_scope(cmd, opts.json),
+        SubCommand::Artifact(cmd) => records::run_artifact(cmd, opts.json),
+        SubCommand::Evidence(cmd) => records::run_evidence(cmd, opts.json),
         SubCommand::Agent(cmd) => run_agent(cmd, opts.json),
         SubCommand::Fleet(cmd) => run_fleet(cmd, opts.json),
         SubCommand::Review(cmd) => run_review(cmd, opts.json),
@@ -661,6 +684,9 @@ mod command_line_tests {
             "settings",
             "policy",
             "provider",
+            "scope",
+            "artifact",
+            "evidence",
             "proxy",
             "theme",
             "profile",

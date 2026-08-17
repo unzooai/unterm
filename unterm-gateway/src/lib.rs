@@ -294,6 +294,9 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         // handed out; neither can be undone by re-issuing them.
         "provider.unbind",
         "provider.revoke_lease",
+        // Deleting evidence. The bytes go, and no later apology brings them
+        // back.
+        "artifact.forget",
         // Handing an agent the identities in somebody's browser, or the
         // machine itself. Neither can be undone by taking it back afterwards:
         // what was read has been read, what was typed has been typed.
@@ -337,6 +340,10 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "orchestrate.broadcast",
         // Driving pages: a mutation, and one the user can watch happen.
         "capability.browser",
+        "scope.create",
+        "scope.archive",
+        // Writes a directory of records wherever the caller points it.
+        "task.export_evidence",
         "provider.bind",
         "provider.pause",
         "provider.resume",
@@ -404,6 +411,13 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "provider.leases",
         "provider.chain",
         "approval.list",
+        "scope.list",
+        "scope.check",
+        "artifact.list",
+        "artifact.usage",
+        "artifact.verify",
+        "audit.verify",
+        "task.verify_evidence",
     ];
     if READONLY_PREFIXES
         .iter()

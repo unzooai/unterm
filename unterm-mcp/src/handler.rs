@@ -156,6 +156,10 @@ fn method_is_mutating(method: &str) -> bool {
             | "provider.call"
             | "provider.revoke_lease"
             | "approval.decide"
+            | "scope.create"
+            | "scope.archive"
+            | "artifact.forget"
+            | "task.export_evidence"
     )
 }
 
@@ -208,6 +212,13 @@ fn method_is_read_only(method: &str) -> bool {
             | "provider.leases"
             | "provider.chain"
             | "approval.list"
+            | "scope.list"
+            | "scope.check"
+            | "artifact.list"
+            | "artifact.usage"
+            | "artifact.verify"
+            | "audit.verify"
+            | "task.verify_evidence"
             | "cockpit.inbox"
             | "fleet.list"
             | "review.list"
@@ -300,6 +311,7 @@ mod audit_entry_tests {
         for method in crate::providers::METHODS
             .iter()
             .chain(crate::approvals::METHODS.iter())
+            .chain(crate::records::METHODS.iter())
         {
             accepted.insert(*method);
         }
@@ -5564,6 +5576,10 @@ impl McpHandler {
             // Providers
             method if crate::providers::handles(method) => {
                 crate::providers::dispatch(method, params)
+            }
+            // Workspaces, artifacts, the audit chain, evidence bundles
+            method if crate::records::handles(method) => {
+                crate::records::dispatch(method, params)
             }
             "meta.surface" => crate::meta::surface(params),
             // Multi-instance discovery (one Unterm process = one instance,

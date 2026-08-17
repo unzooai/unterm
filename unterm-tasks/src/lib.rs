@@ -23,6 +23,7 @@ pub mod approval;
 pub mod lease;
 pub mod model;
 mod schema;
+pub mod workspace;
 
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -32,6 +33,7 @@ use std::sync::Mutex;
 pub use approval::{Approval, ApprovalState, Ask, Grant, NewGrant, Scope};
 pub use lease::{CallRecord, CallSlot, Chain, Lease, NewLease, Presented, Refusal};
 pub use model::{Event, Run, RunId, State, Step, StepId, Task, TaskId};
+pub use workspace::{Artifact, NewArtifact, Workspace};
 
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
@@ -1163,6 +1165,185 @@ impl TaskStore {
         }))
     }
 
+    // ---- workspaces ---------------------------------------------------
+
+    /// Record a root that work may happen in.
+    ///
+    /// The root must already be canonical; resolving here would hide from the
+    /// caller that what they asked for and what they got are different paths.
+    pub fn create_workspace(&self, name: &str, canonical_root: &str) -> Result<Workspace> {
+        let workspace = Workspace {
+            id: format!("wsp_{}", uuid::Uuid::new_v4().simple()),
+            name: name.to_string(),
+            root: canonical_root.to_string(),
+            created_at: now(),
+            archived_at: None,
+        };
+        self.with(|connection| {
+            connection.execute(
+                "INSERT INTO workspaces (id, name, root, created_at, archived_at)
+                 VALUES (?1, ?2, ?3, ?4, NULL)",
+                params![
+                    workspace.id,
+                    workspace.name,
+                    workspace.root,
+                    workspace.created_at
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(workspace)
+    }
+
+    /// Every workspace, archived ones included.
+    ///
+    /// Archived roots still matter: they are still somebody's files, and a
+    /// live workspace must not be able to reach into one just because nobody
+    /// is working there any more.
+    pub fn workspaces(&self) -> Result<Vec<Workspace>> {
+        self.with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, name, root, created_at, archived_at
+                 FROM workspaces ORDER BY created_at, id",
+            )?;
+            let rows = statement.query_map([], row_to_workspace)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    pub fn workspace(&self, id: &str) -> Result<Option<Workspace>> {
+        self.with(|connection| {
+            connection
+                .query_row(
+                    "SELECT id, name, root, created_at, archived_at
+                     FROM workspaces WHERE id = ?1",
+                    params![id],
+                    row_to_workspace,
+                )
+                .optional()
+                .map_err(Into::into)
+        })
+    }
+
+    /// Stop using a workspace without forgetting where it was.
+    pub fn archive_workspace(&self, id: &str) -> Result<bool> {
+        self.with(|connection| {
+            let changed = connection.execute(
+                "UPDATE workspaces SET archived_at = ?2 WHERE id = ?1 AND archived_at IS NULL",
+                params![id, now()],
+            )?;
+            Ok(changed == 1)
+        })
+    }
+
+    // ---- artifacts ----------------------------------------------------
+
+    /// Index one piece of content. The bytes are the caller's business.
+    pub fn record_artifact(&self, spec: NewArtifact) -> Result<Artifact> {
+        let artifact = Artifact {
+            id: format!("art_{}", uuid::Uuid::new_v4().simple()),
+            sha256: spec.sha256,
+            bytes: spec.bytes,
+            media_type: spec.media_type,
+            task_id: spec.task_id,
+            step_id: spec.step_id,
+            call_id: spec.call_id,
+            origin: spec.origin,
+            name: spec.name,
+            created_at: now(),
+        };
+        self.with(|connection| {
+            connection.execute(
+                "INSERT INTO artifacts
+                    (id, sha256, bytes, media_type, task_id, step_id, call_id, origin, name,
+                     created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    artifact.id,
+                    artifact.sha256,
+                    artifact.bytes,
+                    artifact.media_type,
+                    artifact.task_id,
+                    artifact.step_id,
+                    artifact.call_id,
+                    artifact.origin,
+                    artifact.name,
+                    artifact.created_at
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(artifact)
+    }
+
+    pub fn artifact(&self, id: &str) -> Result<Option<Artifact>> {
+        self.with(|connection| {
+            connection
+                .query_row(
+                    "SELECT id, sha256, bytes, media_type, task_id, step_id, call_id, origin,
+                            name, created_at
+                     FROM artifacts WHERE id = ?1",
+                    params![id],
+                    row_to_artifact,
+                )
+                .optional()
+                .map_err(Into::into)
+        })
+    }
+
+    /// Everything a task produced, oldest first.
+    pub fn artifacts_for_task(&self, task_id: &str) -> Result<Vec<Artifact>> {
+        self.with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, sha256, bytes, media_type, task_id, step_id, call_id, origin,
+                        name, created_at
+                 FROM artifacts WHERE task_id = ?1 ORDER BY created_at, id",
+            )?;
+            let rows = statement.query_map(params![task_id], row_to_artifact)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    pub fn artifacts(&self) -> Result<Vec<Artifact>> {
+        self.with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, sha256, bytes, media_type, task_id, step_id, call_id, origin,
+                        name, created_at
+                 FROM artifacts ORDER BY created_at DESC, id",
+            )?;
+            let rows = statement.query_map([], row_to_artifact)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// How many rows still point at this content.
+    ///
+    /// Deleting the file underneath a hash that another task also produced
+    /// would silently break that task's evidence, so nothing is removed from
+    /// disk while this is above zero.
+    pub fn artifact_references(&self, sha256: &str) -> Result<i64> {
+        self.with(|connection| {
+            Ok(connection.query_row(
+                "SELECT COUNT(*) FROM artifacts WHERE sha256 = ?1",
+                params![sha256],
+                |row| row.get(0),
+            )?)
+        })
+    }
+
+    /// Forget an artifact. Returns its hash, so the caller can decide whether
+    /// any bytes are now unreferenced.
+    pub fn forget_artifact(&self, id: &str) -> Result<Option<String>> {
+        let Some(artifact) = self.artifact(id)? else {
+            return Ok(None);
+        };
+        self.with(|connection| {
+            connection.execute("DELETE FROM artifacts WHERE id = ?1", params![id])?;
+            Ok(())
+        })?;
+        Ok(Some(artifact.sha256))
+    }
+
     // ---- provider calls ----------------------------------------------
 
     /// Start a call, or discover that it has already been made.
@@ -1652,6 +1833,31 @@ fn json_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<serde_
     Ok(raw
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_else(|| serde_json::json!({})))
+}
+
+fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workspace> {
+    Ok(Workspace {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        root: row.get(2)?,
+        created_at: row.get(3)?,
+        archived_at: row.get(4)?,
+    })
+}
+
+fn row_to_artifact(row: &rusqlite::Row<'_>) -> rusqlite::Result<Artifact> {
+    Ok(Artifact {
+        id: row.get(0)?,
+        sha256: row.get(1)?,
+        bytes: row.get(2)?,
+        media_type: row.get(3)?,
+        task_id: row.get(4)?,
+        step_id: row.get(5)?,
+        call_id: row.get(6)?,
+        origin: row.get(7)?,
+        name: row.get(8)?,
+        created_at: row.get(9)?,
+    })
 }
 
 fn row_to_call(row: &rusqlite::Row<'_>) -> rusqlite::Result<CallRecord> {

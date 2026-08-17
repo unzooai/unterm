@@ -6,6 +6,7 @@
 
 pub mod approvals;
 pub mod providers;
+pub mod records;
 pub mod handler;
 pub mod meta;
 mod server;

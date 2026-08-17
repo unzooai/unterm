@@ -2,6 +2,23 @@
 //!
 //! The product layer owns workspace meaning. Unterm only receives concrete
 //! path sets and answers whether a resolved filesystem path is inside them.
+//!
+//! Four things make "is this path inside that directory" harder than string
+//! work, and each one is a way a scope leaks:
+//!
+//! * **`..` and symlinks** — resolved by canonicalising both sides, including
+//!   the existing prefix of a path that has not been created yet.
+//! * **Case** — on a case-insensitive volume `/work/Secret` and
+//!   `/work/secret` are the same directory. Comparing them as different
+//!   strings is fail-*open* for a deny list, which is the direction that
+//!   matters. Whether a volume is case-insensitive is probed rather than
+//!   assumed from the platform: macOS is usually insensitive and sometimes
+//!   not, and a wrong guess breaks in the direction nobody tests.
+//! * **Verbatim and UNC prefixes on Windows** — `\\?\C:\work` and
+//!   `C:\work` are the same place, and `canonicalize` returns the first
+//!   while callers pass the second.
+//! * **Junctions** — Windows' answer to symlinks, and resolved by the same
+//!   canonicalisation.
 
 use std::path::{Path, PathBuf};
 
@@ -115,13 +132,102 @@ fn resolve_for_scope(path: &Path) -> std::io::Result<PathBuf> {
     Ok(resolved)
 }
 
+/// Whether `candidate` is `root` or inside it, with every resolution rule
+/// this module applies.
+///
+/// Exposed because the workspace layer has to ask the same question when it
+/// decides whether two roots can be isolated from each other — and a second
+/// implementation of "is this inside that" is a second set of rules.
+pub fn contains(root: &Path, candidate: &Path) -> bool {
+    match (resolve_for_scope(root), resolve_for_scope(candidate)) {
+        (Ok(root), Ok(candidate)) => path_contains(&root, &candidate),
+        _ => false,
+    }
+}
+
 fn path_contains(root: &Path, candidate: &Path) -> bool {
-    path_key(candidate).starts_with(&path_key(root))
+    let root_key = path_key(root);
+    let candidate_key = path_key(candidate);
+    if candidate_key.starts_with(&root_key) {
+        return true;
+    }
+    // Same place, spelled differently. Only asked when the exact comparison
+    // failed, and only believed when the filesystem itself says the two names
+    // refer to one directory.
+    if case_insensitive_at(root) {
+        return candidate_key
+            .to_lowercase()
+            .starts_with(&root_key.to_lowercase());
+    }
+    false
+}
+
+/// Whether names are case-insensitive where this path lives.
+///
+/// Probed, not assumed: APFS can be either, and both wrong guesses are bad —
+/// assuming sensitive lets `/work/SECRET` past a deny on `/work/secret`, and
+/// assuming insensitive lets a genuinely different directory into scope.
+///
+/// The probe reads; it never creates anything. If the flipped-case name
+/// resolves to the same inode, the volume folds case.
+#[cfg(unix)]
+fn case_insensitive_at(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Some(flipped) = flip_case(path) else {
+        return false;
+    };
+    let (Ok(here), Ok(there)) = (std::fs::metadata(path), std::fs::metadata(&flipped)) else {
+        return false;
+    };
+    here.dev() == there.dev() && here.ino() == there.ino()
+}
+
+#[cfg(windows)]
+fn case_insensitive_at(_path: &Path) -> bool {
+    // NTFS is case-insensitive by default, and the per-directory
+    // case-sensitivity flag Windows gained for WSL is off unless somebody
+    // turned it on. Treating it as insensitive is the fail-closed answer for
+    // a deny list.
+    true
+}
+
+/// The same path with the case of its last component inverted.
+#[cfg(unix)]
+fn flip_case(path: &Path) -> Option<std::path::PathBuf> {
+    let name = path.file_name()?.to_str()?;
+    let flipped: String = name
+        .chars()
+        .map(|c| {
+            if c.is_uppercase() {
+                c.to_lowercase().next().unwrap_or(c)
+            } else {
+                c.to_uppercase().next().unwrap_or(c)
+            }
+        })
+        .collect();
+    if flipped == name {
+        // Nothing to flip — digits, punctuation, CJK. Such a name cannot
+        // demonstrate case folding either way.
+        return None;
+    }
+    Some(path.with_file_name(flipped))
 }
 
 #[cfg(windows)]
 fn path_key(path: &Path) -> String {
-    let mut text = path.to_string_lossy().replace('/', "\\").to_lowercase();
+    let text = path.to_string_lossy().replace('/', "\\");
+    // `\\?\C:\work` and `C:\work` are the same directory; canonicalize
+    // returns the first and callers write the second. UNC keeps its own
+    // prefix — `\\?\UNC\server\share` becomes `\\server\share` — because
+    // dropping it would turn a network path into a local-looking one.
+    let text = match text.strip_prefix("\\\\?\\UNC\\") {
+        Some(rest) => format!("\\\\{rest}"),
+        None => text
+            .strip_prefix("\\\\?\\")
+            .map(str::to_string)
+            .unwrap_or(text),
+    };
+    let mut text = text.to_lowercase();
     while text.ends_with('\\') && text.len() > 3 {
         text.pop();
     }

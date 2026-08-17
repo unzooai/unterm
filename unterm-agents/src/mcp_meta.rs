@@ -507,6 +507,18 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod { name: "provider.call", namespace: "providers", summary: "Do one thing through a provider, under a lease. Every use needs its own `seq`.", params: &[Param { name: "lease", kind: "string", required: true, summary: "" }, Param { name: "seq", kind: "integer", required: true, summary: "Higher than the last use of this lease." }, Param { name: "capability", kind: "string", required: true, summary: "" }, Param { name: "method", kind: "string", required: true, summary: "The provider's own tool name." }, Param { name: "params", kind: "object", required: false, summary: "" }, Param { name: "idempotency_key", kind: "string", required: false, summary: "Repeating a key returns the first answer instead of acting twice." }] },
     McpMethod { name: "provider.revoke_lease", namespace: "providers", summary: "Take one lease back.", params: &[Param { name: "lease", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "provider.chain", namespace: "providers", summary: "Everything that authorised a lease, and every call made under it.", params: &[Param { name: "lease", kind: "string", required: true, summary: "" }] },
+    // ---- workspaces, artifacts, evidence ----
+    McpMethod { name: "scope.list", namespace: "records", summary: "Workspaces: named roots that work is confined to.", params: NO_PARAMS },
+    McpMethod { name: "scope.create", namespace: "records", summary: "Make a directory into a workspace. Nesting another workspace is refused.", params: &[Param { name: "name", kind: "string", required: true, summary: "" }, Param { name: "path", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "scope.check", namespace: "records", summary: "Whether a workspace may read or write a path, after resolving symlinks, case and `..`.", params: &[Param { name: "workspace", kind: "string", required: true, summary: "" }, Param { name: "path", kind: "string", required: true, summary: "" }, Param { name: "access", kind: "string", required: false, summary: "read (default) | write" }] },
+    McpMethod { name: "scope.archive", namespace: "records", summary: "Stop using a workspace without forgetting where it was.", params: &[Param { name: "workspace", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "artifact.list", namespace: "records", summary: "What tasks produced, newest first.", params: &[Param { name: "task_id", kind: "string", required: false, summary: "Only this task's." }] },
+    McpMethod { name: "artifact.usage", namespace: "records", summary: "How much the artifact store holds, and what deduplication saved.", params: NO_PARAMS },
+    McpMethod { name: "artifact.verify", namespace: "records", summary: "Whether an artifact's bytes still hash to the name they are filed under.", params: &[Param { name: "artifact", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "artifact.forget", namespace: "records", summary: "Drop an artifact, and its bytes when nothing else refers to them.", params: &[Param { name: "artifact", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "audit.verify", namespace: "records", summary: "Walk the audit hash-chain and report the first break, if any.", params: NO_PARAMS },
+    McpMethod { name: "task.export_evidence", namespace: "records", summary: "Write one task's whole story into a directory somebody else can check.", params: &[Param { name: "task_id", kind: "string", required: true, summary: "" }, Param { name: "path", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "task.verify_evidence", namespace: "records", summary: "Recompute an evidence bundle's hashes and report what does not hold.", params: &[Param { name: "path", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "approval.list", namespace: "governance", summary: "Questions the gateway is waiting on a human to answer.", params: NO_PARAMS },
     McpMethod { name: "approval.decide", namespace: "governance", summary: "Answer a question. Refused over the network: agents cannot answer their own requests.", params: &[Param { name: "approval", kind: "string", required: true, summary: "" }, Param { name: "allowed", kind: "boolean", required: true, summary: "" }, Param { name: "remember", kind: "string", required: false, summary: "once | task | resource | always" }] },
     McpMethod { name: "server.info", namespace: "governance", summary: "Server version, uptime, instance id.", params: NO_PARAMS },
@@ -593,6 +605,9 @@ pub const MCP_METHODS: &[McpMethod] = &[
 pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "start", summary: "Start the GUI, optionally running an alternative program.", subcommands: &[] },
     CliCommand { name: "cli", summary: "Legacy mux compatibility stub; use session, instance, or server commands instead.", subcommands: &[] },
+    CliCommand { name: "scope", summary: "Workspaces: named roots that work is confined to.", subcommands: &["list", "create", "check", "archive"] },
+    CliCommand { name: "artifact", summary: "What tasks produced, addressed by content.", subcommands: &["list", "usage", "verify", "forget"] },
+    CliCommand { name: "evidence", summary: "Export a task's evidence bundle, verify one, or check the audit chain.", subcommands: &["export", "verify", "audit"] },
     CliCommand { name: "provider", summary: "Bind, pause, diagnose and revoke capability providers.", subcommands: &["list", "bind", "pause", "resume", "unbind", "diagnose", "leases", "acquire", "call", "approvals", "revoke", "chain"] },
     CliCommand { name: "session", summary: "Operate on a single live pane.", subcommands: &["list", "create", "split", "focus", "resize", "destroy", "record", "export", "input", "text", "cwd", "status", "errors", "history", "audit-log", "search", "suggest"] },
     CliCommand { name: "exec", summary: "Run commands in a live pane via MCP.", subcommands: &["run", "wait", "status", "cancel", "signal"] },
@@ -647,7 +662,7 @@ mod tests {
         // that is the whole mechanism. A surface that grows without anyone
         // noticing is one where a method ships undocumented, unclassified and
         // untested, and the count is the only thing that makes a person look.
-        assert_eq!(MCP_METHODS.len(), 116);
+        assert_eq!(MCP_METHODS.len(), 127);
         let namespaces: std::collections::HashSet<_> = MCP_METHODS
             .iter()
             .filter_map(|method| method.name.split('.').next())
@@ -671,6 +686,9 @@ mod tests {
             "cockpit",
             "provider",
             "approval",
+            "scope",
+            "artifact",
+            "audit",
             "fleet",
             "review",
             "system",

@@ -365,12 +365,12 @@ mod tests {
     fn surface_reports_mcp_tool_count_contract() {
         let value = surface(&json!({})).expect("meta.surface");
 
-        assert_eq!(value["mcp_method_count"], 116);
-        assert_eq!(value["mcp_tool_count"], 115);
+        assert_eq!(value["mcp_method_count"], 127);
+        assert_eq!(value["mcp_tool_count"], 126);
         assert_eq!(value["mcp_tool_exclusions"], json!(["meta.surface"]));
         assert_eq!(
             value["mcp_methods"].as_array().expect("mcp methods").len(),
-            116
+            127
         );
     }
 }
