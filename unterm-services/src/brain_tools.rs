@@ -24,6 +24,15 @@ pub struct Caller {
     pub actor: Option<String>,
     /// The task this turn belongs to, so one approval can cover it.
     pub task_id: Option<String>,
+    /// The workspace this turn is confined to, when it has one.
+    ///
+    /// `None` means unconfined, which is the old behaviour and still the
+    /// common one: most agents are driving a terminal the user is sitting at,
+    /// not working inside a bounded root. When it *is* set, a path outside
+    /// that root is refused before the gateway is consulted — asking the user
+    /// to approve reading a file the workspace was defined to exclude would
+    /// be asking them to undo their own boundary one prompt at a time.
+    pub workspace_id: Option<String>,
 }
 
 /// The gateway method a tool maps to, and the command when there is one.
@@ -115,6 +124,44 @@ pub fn admit_tool(
     }
 
     let mapped = map_tool(name, arguments);
+
+    if let (Some(workspace), Some(path)) = (caller.workspace_id.as_deref(), mapped.resource.as_deref())
+    {
+        // Only paths. A `brain.fetch` resource is a URL, and a URL is not
+        // something a filesystem scope has an opinion about.
+        if mapped.method != "brain.fetch" {
+            match crate::workspace_scope::check(workspace, access_for(&mapped.method), path) {
+                Ok(decision) if !decision.allowed => {
+                    return Some(Passage {
+                        verdict: unterm_gateway::Verdict::deny(
+                            unterm_gateway::Code::PolicyBlockedPattern,
+                            format!(
+                                "{path} is outside this workspace ({}). {}",
+                                decision.code, decision.reason
+                            ),
+                            unterm_gateway::Risk::Destructive,
+                        ),
+                        outcome: Outcome::Refuse,
+                    });
+                }
+                Ok(_) => {}
+                // A workspace that cannot be read is not permission to ignore
+                // it. Refusing is the only safe reading of "the boundary is
+                // unavailable".
+                Err(error) => {
+                    return Some(Passage {
+                        verdict: unterm_gateway::Verdict::deny(
+                            unterm_gateway::Code::PolicyBlockedPattern,
+                            format!("this turn's workspace could not be checked: {error}"),
+                            unterm_gateway::Risk::Destructive,
+                        ),
+                        outcome: Outcome::Refuse,
+                    });
+                }
+            }
+        }
+    }
+
     let mut context = ActionContext::new(mapped.method)
         // Recorded, not judged on: the verdict is the same through every
         // door, but an audit trail that cannot say a model asked is missing
@@ -125,6 +172,14 @@ pub fn admit_tool(
     context.actor = caller.actor.clone();
     context.task_id = caller.task_id.clone();
     Some(admit(&context, policy))
+}
+
+/// Which access a mapped method needs from a workspace.
+fn access_for(method: &str) -> crate::path_scope::PathAccess {
+    match method {
+        "brain.write" => crate::path_scope::PathAccess::Write,
+        _ => crate::path_scope::PathAccess::Read,
+    }
 }
 
 /// Whether the caller may go ahead and run the tool now.
@@ -241,6 +296,7 @@ mod tests {
         let caller = Caller {
             actor: Some("codex".into()),
             task_id: Some("tsk_1".into()),
+            ..Caller::default()
         };
         let passage = admit_tool(
             &request("Bash", json!({"command": "git push"})),
@@ -255,6 +311,73 @@ mod tests {
             assert_eq!(approval.actor.as_deref(), Some("codex"));
             assert_eq!(approval.task_id.as_deref(), Some("tsk_1"));
         }
+    }
+
+    #[test]
+    fn a_confined_turn_cannot_read_outside_its_workspace() {
+        // Refused before the gateway is consulted: asking the user to approve
+        // reading a file the workspace was defined to exclude would be asking
+        // them to undo their own boundary one prompt at a time.
+        let dir = isolate();
+        std::env::set_var("UNTERM_STATE_DIR", dir.path());
+        let inside = dir.path().join("alpha");
+        let outside = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let workspace = crate::workspace_scope::create("alpha", &inside).unwrap();
+        let caller = Caller {
+            workspace_id: Some(workspace.id.clone()),
+            ..Caller::default()
+        };
+
+        let passage = admit_tool(
+            &request("Read", json!({"file_path": outside.join("secrets").display().to_string()})),
+            &caller,
+            &SettingsPolicy::off(),
+        )
+        .unwrap();
+        assert_eq!(passage.outcome, Outcome::Refuse);
+        assert!(passage.verdict.reason.contains("outside this workspace"));
+
+        // And its own root is fine, for reading and for writing.
+        for (tool, args) in [
+            ("Read", json!({"file_path": inside.join("notes.md").display().to_string()})),
+            ("Write", json!({"file_path": inside.join("out.txt").display().to_string()})),
+        ] {
+            let passage = admit_tool(&request(tool, args), &caller, &SettingsPolicy::off()).unwrap();
+            assert_ne!(passage.outcome, Outcome::Refuse, "{tool} in its own root");
+        }
+    }
+
+    #[test]
+    fn an_unconfined_turn_is_unchanged() {
+        // Most agents drive a terminal the user is sitting at. A workspace is
+        // opt-in, and turning it on for everybody would break them.
+        let _dir = isolate();
+        let passage = admit_tool(
+            &request("Read", json!({"file_path": "/etc/hosts"})),
+            &Caller::default(),
+            &SettingsPolicy::off(),
+        )
+        .unwrap();
+        assert_ne!(passage.outcome, Outcome::Refuse);
+    }
+
+    #[test]
+    fn a_workspace_that_cannot_be_checked_refuses_rather_than_waves_through() {
+        let _dir = isolate();
+        let caller = Caller {
+            workspace_id: Some("wsp_never_created".into()),
+            ..Caller::default()
+        };
+        let passage = admit_tool(
+            &request("Read", json!({"file_path": "/tmp/x"})),
+            &caller,
+            &SettingsPolicy::off(),
+        )
+        .unwrap();
+        assert_eq!(passage.outcome, Outcome::Refuse);
+        assert!(passage.verdict.reason.contains("could not be checked"));
     }
 
     #[test]

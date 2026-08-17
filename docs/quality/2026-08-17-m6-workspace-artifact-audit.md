@@ -77,4 +77,4 @@ Error: an entry no longer matches its own hash    exit=1
 - 审计脱敏仍在调用方(写入前 redact),这一版没有把脱敏规则收进 `audit_store`;链和关联 ID 是这次补的。
 - 证据包是目录,不是单文件压缩包 —— 打包/加密留给需要它的场景。
 - 路由检查只看命令文本;真正不可绕过的强制要靠 OS 级隔离。
-- `scope.*` 尚未强制接进 brain 的文件工具路径(`brain.read/write` 目前只判风险,不判 workspace 归属)。那是把两者接起来的一步,留在 M7 与 Supervisor 一起做。
+- ~~`scope.*` 尚未接进 brain 的文件工具路径~~ —— **已补上**:`Caller.workspace_id` 一旦设置,`brain.read/list/write` 的路径先过 workspace 检查,越界**直接拒、不走审批**(让用户逐条批准读一个 workspace 明确排除的文件,等于让他一次一个提示地拆掉自己的边界);workspace 读不出来也拒(边界不可用不等于可以忽略边界);不设 workspace 的回合行为不变 —— 多数 agent 驱动的是用户正坐在前面的终端,默认开会打断他们。
