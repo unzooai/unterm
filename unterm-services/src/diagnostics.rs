@@ -125,7 +125,7 @@ pub fn collect() -> Value {
     json!({
         "format": "unterm-diagnostics/1",
         "collected_at": chrono::Utc::now().to_rfc3339(),
-        "unterm_version": env!("CARGO_PKG_VERSION"),
+        "unterm_version": unterm_protocol::PRODUCT_VERSION,
         "platform": {
             "os": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
@@ -217,7 +217,7 @@ mod tests {
         let _dir = isolate();
         let bundle = collect();
         assert_eq!(bundle["format"], "unterm-diagnostics/1");
-        assert_eq!(bundle["unterm_version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(bundle["unterm_version"], unterm_protocol::PRODUCT_VERSION);
         assert_eq!(bundle["processes"].as_array().unwrap().len(), 3);
         assert!(bundle["platform"]["os"].is_string());
     }

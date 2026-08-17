@@ -297,6 +297,12 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         // Deleting evidence. The bytes go, and no later apology brings them
         // back.
         "artifact.forget",
+        // Replaces the program on this machine. It rolls back when the new
+        // one does not answer, but it is still a swap under a running system.
+        "system.upgrade",
+        // Removes the program, and the history if asked. The most
+        // destructive thing this surface can do.
+        "system.uninstall",
         // Puts the data back to an earlier moment. Everything since is gone
         // from the live store — snapshotted first, but the running system
         // has changed under everybody.
@@ -346,6 +352,12 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "capability.browser",
         "scope.create",
         "scope.archive",
+        // Hosting an agent runs a program. What that agent then asks for goes
+        // through this same gateway, one tool request at a time.
+        "agent_session.start",
+        "agent_session.submit_input",
+        "agent_session.interrupt",
+        "agent_session.close",
         "supervisor.reconcile",
         "system.snapshot",
         // Writes a directory of records wherever the caller points it.
@@ -429,6 +441,8 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         // Reads everything and reveals nothing: the bundle is built by
         // naming what goes in.
         "system.diagnostics",
+        "agent_session.events",
+        "agent_session.status",
         "system.installs",
         // A plan, not an uninstall. Nothing is removed by asking.
         "system.uninstall_plan",

@@ -163,6 +163,12 @@ fn method_is_mutating(method: &str) -> bool {
             | "supervisor.reconcile"
             | "system.snapshot"
             | "system.restore_snapshot"
+            | "system.uninstall"
+            | "system.upgrade"
+            | "agent_session.start"
+            | "agent_session.submit_input"
+            | "agent_session.interrupt"
+            | "agent_session.close"
     )
 }
 
@@ -227,6 +233,8 @@ fn method_is_read_only(method: &str) -> bool {
             | "system.diagnostics"
             | "system.installs"
             | "system.uninstall_plan"
+            | "agent_session.events"
+            | "agent_session.status"
             | "cockpit.inbox"
             | "fleet.list"
             | "review.list"

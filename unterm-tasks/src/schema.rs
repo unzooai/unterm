@@ -237,6 +237,37 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX artifacts_by_hash ON artifacts(sha256);
     CREATE INDEX artifacts_by_task ON artifacts(task_id, created_at);
     "#,
+    // v6 — agent sessions, so a session's *final* state outlives the process
+    // that ran it.
+    //
+    // The events are in memory: a caller streams them while it is watching.
+    // The ending is not — "what happened to the agent I started before the
+    // Core restarted" is a question with an answer, and without this row the
+    // answer is silence, which reads exactly like success.
+    r#"
+    CREATE TABLE agent_sessions (
+        id             TEXT PRIMARY KEY,
+        adapter        TEXT NOT NULL,
+        command        TEXT NOT NULL,
+        cwd            TEXT,
+        -- Supplied by whoever asked for the session and carried through every
+        -- event and log line. Never allocated here: an id this process made
+        -- up correlates with nothing upstream.
+        task_id        TEXT,
+        run_id         TEXT,
+        step_id        TEXT,
+        idempotency_key TEXT,
+        lease_id       TEXT,
+        -- started | exited | interrupted | failed
+        state          TEXT NOT NULL,
+        exit_code      INTEGER,
+        signal         TEXT,
+        reason         TEXT,
+        started_at     TEXT NOT NULL,
+        ended_at       TEXT
+    );
+    CREATE INDEX agent_sessions_by_task ON agent_sessions(task_id, started_at);
+    "#,
 ];
 
 /// The version a fresh file is migrated to.

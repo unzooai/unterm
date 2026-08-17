@@ -36,10 +36,39 @@ pub const METHODS: &[&str] = &[
     "system.restore_snapshot",
     "system.installs",
     "system.uninstall_plan",
+    "system.uninstall",
+    "system.upgrade",
+    "agent_session.start",
+    "agent_session.events",
+    "agent_session.submit_input",
+    "agent_session.interrupt",
+    "agent_session.status",
+    "agent_session.close",
 ];
 
 pub fn handles(method: &str) -> bool {
     METHODS.contains(&method)
+}
+
+/// The caller's identifiers, taken as given.
+///
+/// Never generated here: an id this process invented would correlate with
+/// nothing upstream, which is worse than no id because it looks like
+/// correlation.
+fn task_context(params: &Value) -> unterm_services::agent_session::TaskContext {
+    let field = |name: &str| {
+        params
+            .get(name)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    unterm_services::agent_session::TaskContext {
+        task_id: field("task_id"),
+        run_id: field("run_id"),
+        step_id: field("step_id"),
+        idempotency_key: field("idempotency_key"),
+        lease_id: field("lease_id"),
+    }
 }
 
 fn text(params: &Value, key: &str) -> Result<String> {
@@ -180,13 +209,13 @@ pub fn dispatch(method: &str, params: &Value) -> Result<Value> {
             let version = params
                 .get("version")
                 .and_then(Value::as_str)
-                .unwrap_or(env!("CARGO_PKG_VERSION"));
+                .unwrap_or(unterm_protocol::PRODUCT_VERSION);
             Ok(json!({"snapshot": unterm_services::upgrade::snapshot(version)?}))
         }
 
         "system.restore_snapshot" => {
             let id = text(params, "snapshot")?;
-            let snapshot = unterm_services::upgrade::restore(&id, env!("CARGO_PKG_VERSION"))?;
+            let snapshot = unterm_services::upgrade::restore(&id, unterm_protocol::PRODUCT_VERSION)?;
             Ok(json!({"restored": snapshot}))
         }
 
@@ -204,6 +233,144 @@ pub fn dispatch(method: &str, params: &Value) -> Result<Value> {
                 .and_then(Value::as_bool)
                 .unwrap_or(true);
             Ok(serde_json::to_value(unterm_services::install::uninstall_plan(keep))?)
+        }
+
+        // The act, kept apart from the plan and made awkward on purpose: it
+        // takes the plan's own confirmation string, so a caller cannot reach
+        // it by guessing an argument.
+        "system.uninstall" => {
+            let keep = params
+                .get("keep_data")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let confirm = text(params, "confirm")?;
+            if confirm != "remove unterm" {
+                return Err(anyhow!(
+                    "this removes Unterm from this machine. Pass confirm: \"remove unterm\" if that is what you mean."
+                ));
+            }
+            let plan = unterm_services::install::uninstall_plan(keep);
+            let removed = unterm_services::install::uninstall(&plan);
+            Ok(json!({"planned": plan, "removed": removed}))
+        }
+
+        // The real thing, with real binaries: swap, run the new one, and put
+        // both the program and the data back if it does not answer.
+        "system.upgrade" => {
+            let live = std::path::PathBuf::from(text(params, "live")?);
+            let staged = std::path::PathBuf::from(text(params, "staged")?);
+            let to = text(params, "to_version")?;
+            let from = params
+                .get("from_version")
+                .and_then(Value::as_str)
+                // The *product* version, not this crate's. `CARGO_PKG_VERSION`
+                // here is unterm-mcp's own 0.1.0, and an upgrade report that
+                // names the wrong version is a report nobody can act on —
+                // found by running a real rollback and reading what it said.
+                .unwrap_or(unterm_protocol::PRODUCT_VERSION)
+                .to_string();
+            let outcome = unterm_services::upgrade::swap_with_rollback(
+                &live,
+                &staged,
+                &from,
+                &to,
+                |path| {
+                    // The confirmation is running it. Not "does the file
+                    // exist" — a corrupt binary exists — and not a checksum,
+                    // which says the bytes arrived and nothing about whether
+                    // they run on this machine.
+                    let output = std::process::Command::new(path)
+                        .arg("--version")
+                        .output()
+                        .map_err(|error| anyhow!("{} did not start: {error}", path.display()))?;
+                    if !output.status.success() {
+                        return Err(anyhow!(
+                            "{} exited {}",
+                            path.display(),
+                            output.status
+                        ));
+                    }
+                    let said = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if said.is_empty() {
+                        return Err(anyhow!("{} answered nothing", path.display()));
+                    }
+                    Ok(())
+                },
+            )?;
+            Ok(serde_json::to_value(outcome)?)
+        }
+
+        // ---- hosted agent sessions ------------------------------------
+        "agent_session.start" => {
+            let command: Vec<String> = match params.get("command") {
+                Some(Value::Array(parts)) => parts
+                    .iter()
+                    .filter_map(|part| part.as_str().map(str::to_string))
+                    .collect(),
+                // A string is split the way a shell would not: naively, on
+                // spaces. Accepted because callers send it, and documented as
+                // the lesser form — an array says exactly what runs.
+                Some(Value::String(line)) => {
+                    line.split_whitespace().map(str::to_string).collect()
+                }
+                _ => return Err(anyhow!("Missing 'command'")),
+            };
+            let env: Vec<(String, String)> = params
+                .get("env")
+                .and_then(Value::as_object)
+                .map(|map| {
+                    map.iter()
+                        .filter_map(|(key, value)| {
+                            value.as_str().map(|value| (key.clone(), value.to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let context = task_context(params);
+            let id = unterm_services::agent_session::start(
+                &command,
+                params.get("cwd").and_then(Value::as_str),
+                &env,
+                params.get("prompt").and_then(Value::as_str),
+                context,
+            )?;
+            Ok(json!({"session_id": id}))
+        }
+
+        "agent_session.events" => {
+            let id = text(params, "session_id")?;
+            let cursor = params
+                .get("cursor")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as usize;
+            let (events, next) = unterm_services::agent_session::events(&id, cursor)?;
+            // The cursor comes back so a caller that reconnects asks from
+            // where it left off rather than from the beginning.
+            Ok(json!({"events": events, "cursor": next}))
+        }
+
+        "agent_session.submit_input" => {
+            let id = text(params, "session_id")?;
+            unterm_services::agent_session::submit_input(&id, &text(params, "text")?)?;
+            Ok(json!({"session_id": id, "submitted": true}))
+        }
+
+        "agent_session.interrupt" => {
+            let id = text(params, "session_id")?;
+            let grace = params
+                .get("grace_ms")
+                .and_then(Value::as_u64)
+                .unwrap_or(2_000);
+            unterm_services::agent_session::interrupt(&id, grace)?;
+            Ok(json!({"session_id": id, "interrupted": true}))
+        }
+
+        "agent_session.status" => {
+            unterm_services::agent_session::status(&text(params, "session_id")?)
+        }
+
+        "agent_session.close" => {
+            unterm_services::agent_session::close(&text(params, "session_id")?)
         }
 
         other => Err(anyhow!("records dispatch reached {other}")),

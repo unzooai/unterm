@@ -103,6 +103,26 @@ pub enum SystemSubCommand {
     Restore { snapshot: String },
     /// Every copy of Unterm on this machine, and which ones will fight.
     Installs,
+    /// Swap in a staged binary; put everything back if it does not answer.
+    Upgrade {
+        /// The binary in use.
+        #[arg(long)]
+        live: String,
+        /// The new one, already downloaded.
+        #[arg(long)]
+        staged: String,
+        #[arg(long)]
+        to: String,
+    },
+    /// Remove Unterm from this machine. Asks first.
+    Uninstall {
+        /// Take the task history, artifacts and audit trail too.
+        #[arg(long)]
+        remove_data: bool,
+        /// Skip the question. For scripts that already asked.
+        #[arg(long)]
+        yes: bool,
+    },
     /// What removing Unterm would take away. Describes; never removes.
     UninstallPlan {
         /// Also list the data. Without this the plan keeps your history.
@@ -261,6 +281,76 @@ pub fn run_system(cmd: SystemCommand, json_out: bool) -> Result<()> {
             // Said last, because it is the sentence somebody needs before
             // they answer.
             println!("\n(Nothing was removed. This is a description.)");
+        }
+        SystemSubCommand::Upgrade { live, staged, to } => {
+            let result = client.call(
+                "system.upgrade",
+                json!({"live": live, "staged": staged, "to_version": to}),
+            )?;
+            if json_out {
+                print_json(&result);
+                return Ok(());
+            }
+            match result["outcome"].as_str().unwrap_or("?") {
+                "upgraded" => {
+                    print_kv("Upgraded to", result["to"].as_str().unwrap_or("?"));
+                    print_kv("Snapshot kept", result["snapshot"].as_str().unwrap_or("?"));
+                }
+                _ => {
+                    // Not an error exit: the rollback *worked*. The machine is
+                    // in the state it was in, which is the promise.
+                    print_kv("Rolled back to", result["from"].as_str().unwrap_or("?"));
+                    print_kv("Because", result["reason"].as_str().unwrap_or("?"));
+                    print_kv("Data restored from", result["snapshot"].as_str().unwrap_or("?"));
+                }
+            }
+        }
+        SystemSubCommand::Uninstall { remove_data, yes } => {
+            // The plan is printed before the question, always. "Are you sure"
+            // without a list is a question nobody can answer well.
+            let plan = client.call("system.uninstall_plan", json!({"keep_data": !remove_data}))?;
+            println!("Would remove:");
+            for path in plan["programs"].as_array().cloned().unwrap_or_default() {
+                println!("  {}", path.as_str().unwrap_or("?"));
+            }
+            for line in plan["data"].as_array().cloned().unwrap_or_default() {
+                println!("  {}", line.as_str().unwrap_or("?"));
+            }
+            if remove_data {
+                println!("\nThat data is:");
+                for line in plan["data_description"].as_array().cloned().unwrap_or_default() {
+                    println!("  {}", line.as_str().unwrap_or("?"));
+                }
+            } else {
+                println!("\nYour data stays. Pass --remove-data to take it too.");
+            }
+            if !yes {
+                return Err(anyhow!(
+                    "Nothing was removed. Re-run with --yes if this is what you want."
+                ));
+            }
+            let result = client.call(
+                "system.uninstall",
+                json!({"confirm": "remove unterm", "keep_data": !remove_data}),
+            )?;
+            if json_out {
+                print_json(&result);
+                return Ok(());
+            }
+            let removed = &result["removed"];
+            for path in removed["programs"].as_array().cloned().unwrap_or_default() {
+                println!("removed {}", path.as_str().unwrap_or("?"));
+            }
+            for path in removed["data"].as_array().cloned().unwrap_or_default() {
+                println!("removed {}", path.as_str().unwrap_or("?"));
+            }
+            let failed = removed["failed"].as_array().cloned().unwrap_or_default();
+            for line in &failed {
+                println!("FAILED {}", line.as_str().unwrap_or("?"));
+            }
+            if !failed.is_empty() {
+                return Err(anyhow!("{} path(s) could not be removed", failed.len()));
+            }
         }
         SystemSubCommand::Restore { snapshot } => {
             let result = client.call("system.restore_snapshot", json!({"snapshot": snapshot}))?;

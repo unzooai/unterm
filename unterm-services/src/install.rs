@@ -244,6 +244,64 @@ pub fn is_installed_at(path: impl AsRef<Path>) -> bool {
     path.as_ref().exists()
 }
 
+/// What actually happened when a plan was carried out.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct Removed {
+    pub programs: Vec<String>,
+    pub data: Vec<String>,
+    /// Paths that could not be removed, and why. Reported rather than
+    /// swallowed: a half-finished uninstall that claims success is how
+    /// somebody ends up with a program they cannot reinstall.
+    pub failed: Vec<String>,
+}
+
+/// Carry out a plan.
+///
+/// Separate from [`uninstall_plan`] on purpose, and it takes the plan as an
+/// argument rather than recomputing one: whoever said yes said yes to a
+/// specific list, and re-surveying here would remove whatever appeared in
+/// between.
+///
+/// The program goes first. If something interrupts this, a machine with the
+/// data and no program is recoverable — reinstall — and a machine with the
+/// program and no data is not.
+pub fn uninstall(plan: &UninstallPlan) -> Removed {
+    let mut removed = Removed::default();
+    for path in &plan.programs {
+        match remove_any(Path::new(path)) {
+            // Only what was actually there. Reporting "removed /foo" when
+            // /foo was never present is a small lie in a report people read
+            // to decide whether the uninstall worked.
+            Ok(true) => removed.programs.push(path.clone()),
+            Ok(false) => {}
+            Err(error) => removed.failed.push(format!("{path}: {error}")),
+        }
+    }
+    for path in &plan.data {
+        match remove_any(Path::new(path)) {
+            Ok(true) => removed.data.push(path.clone()),
+            Ok(false) => {}
+            Err(error) => removed.failed.push(format!("{path}: {error}")),
+        }
+    }
+    removed
+}
+
+/// Remove a file, directory or symlink. `false` means there was nothing there.
+fn remove_any(path: &Path) -> std::io::Result<bool> {
+    if !path.exists() && std::fs::symlink_metadata(path).is_err() {
+        return Ok(false);
+    }
+    // A symlink is removed as a link, never followed: deleting what
+    // `/usr/local/bin/unterm` points *at* could take the bundle with it.
+    if path.is_dir() && std::fs::read_link(path).is_err() {
+        std::fs::remove_dir_all(path)?;
+    } else {
+        std::fs::remove_file(path)?;
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,6 +418,86 @@ mod tests {
             .data_description
             .iter()
             .any(|line| line.contains("everything tasks produced")));
+    }
+
+    #[test]
+    fn carrying_out_a_plan_removes_exactly_what_it_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("program");
+        let data = dir.path().join("data");
+        let untouched = dir.path().join("something-else");
+        std::fs::write(&program, b"x").unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("inside"), b"x").unwrap();
+        std::fs::write(&untouched, b"x").unwrap();
+
+        let plan = UninstallPlan {
+            programs: vec![program.display().to_string()],
+            data: vec![data.display().to_string()],
+            data_description: Vec::new(),
+            keeps_data: false,
+        };
+        let removed = uninstall(&plan);
+        assert_eq!(removed.programs.len(), 1);
+        assert_eq!(removed.data.len(), 1);
+        assert!(removed.failed.is_empty());
+        assert!(!program.exists() && !data.exists());
+        // Only what the plan listed. Whoever said yes said yes to a list.
+        assert!(untouched.exists());
+    }
+
+    #[test]
+    fn a_plan_that_keeps_data_removes_none_of_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("tasks.db");
+        std::fs::write(&data, b"a year of history").unwrap();
+        let plan = UninstallPlan {
+            programs: Vec::new(),
+            data: Vec::new(),
+            data_description: vec!["tasks.db — everything".into()],
+            keeps_data: true,
+        };
+        uninstall(&plan);
+        assert_eq!(std::fs::read(&data).unwrap(), b"a year of history");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn what_could_not_be_removed_is_reported() {
+        // A half-finished uninstall that claims success is how somebody ends
+        // up with a program they cannot reinstall over.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let locked = dir.path().join("locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        let inside = locked.join("program");
+        std::fs::write(&inside, b"x").unwrap();
+        // Unlinking needs write permission on the *parent*.
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let removed = uninstall(&UninstallPlan {
+            programs: vec![inside.display().to_string()],
+            data: Vec::new(),
+            data_description: Vec::new(),
+            keeps_data: true,
+        });
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(removed.programs.is_empty(), "it claimed to remove a file it could not");
+        assert_eq!(removed.failed.len(), 1, "{removed:?}");
+        assert!(removed.failed[0].contains("program"));
+    }
+
+    #[test]
+    fn a_path_that_was_never_there_is_not_reported_as_removed() {
+        let removed = uninstall(&UninstallPlan {
+            programs: vec!["/nowhere/at/all".into()],
+            data: Vec::new(),
+            data_description: Vec::new(),
+            keeps_data: true,
+        });
+        assert!(removed.programs.is_empty());
+        assert!(removed.failed.is_empty());
     }
 
     #[test]

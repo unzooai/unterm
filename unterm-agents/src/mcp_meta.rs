@@ -528,6 +528,15 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod { name: "system.restore_snapshot", namespace: "records", summary: "Put the data back as a snapshot has it. The current state is snapshotted first.", params: &[Param { name: "snapshot", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "system.installs", namespace: "records", summary: "Every copy of Unterm on this machine, and which ones will fight.", params: NO_PARAMS },
     McpMethod { name: "system.uninstall_plan", namespace: "records", summary: "What removing Unterm would take away. Describes; never removes.", params: &[Param { name: "keep_data", kind: "boolean", required: false, summary: "Default true: the program goes, the history stays." }] },
+    McpMethod { name: "system.uninstall", namespace: "records", summary: "Carry out an uninstall plan. Requires confirm: \"remove unterm\".", params: &[Param { name: "confirm", kind: "string", required: true, summary: "The words \"remove unterm\"." }, Param { name: "keep_data", kind: "boolean", required: false, summary: "Default true." }] },
+    McpMethod { name: "system.upgrade", namespace: "records", summary: "Swap in a staged binary, run it, and put program and data back if it does not answer.", params: &[Param { name: "live", kind: "string", required: true, summary: "The binary in use." }, Param { name: "staged", kind: "string", required: true, summary: "The new one, already downloaded." }, Param { name: "to_version", kind: "string", required: true, summary: "" }, Param { name: "from_version", kind: "string", required: false, summary: "" }] },
+    // ---- hosted agent sessions ----
+    McpMethod { name: "agent_session.start", namespace: "records", summary: "Host a CLI agent and turn its output into structured events. Caller ids are carried, never invented.", params: &[Param { name: "command", kind: "array", required: true, summary: "argv. A string is split on spaces." }, Param { name: "cwd", kind: "string", required: false, summary: "" }, Param { name: "env", kind: "object", required: false, summary: "" }, Param { name: "prompt", kind: "string", required: false, summary: "Written to stdin, which is then closed." }, Param { name: "task_id", kind: "string", required: false, summary: "Carried onto every event and log line." }, Param { name: "run_id", kind: "string", required: false, summary: "" }, Param { name: "step_id", kind: "string", required: false, summary: "" }, Param { name: "idempotency_key", kind: "string", required: false, summary: "" }, Param { name: "lease_id", kind: "string", required: false, summary: "" }] },
+    McpMethod { name: "agent_session.events", namespace: "records", summary: "What the session has said after `cursor`; returns the next cursor.", params: &[Param { name: "session_id", kind: "string", required: true, summary: "" }, Param { name: "cursor", kind: "integer", required: false, summary: "" }] },
+    McpMethod { name: "agent_session.submit_input", namespace: "records", summary: "Put text on the agent's stdin.", params: &[Param { name: "session_id", kind: "string", required: true, summary: "" }, Param { name: "text", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "agent_session.interrupt", namespace: "records", summary: "Stop the agent and everything it started.", params: &[Param { name: "session_id", kind: "string", required: true, summary: "" }, Param { name: "grace_ms", kind: "integer", required: false, summary: "" }] },
+    McpMethod { name: "agent_session.status", namespace: "records", summary: "How it is doing, or how it ended — answerable after a restart.", params: &[Param { name: "session_id", kind: "string", required: true, summary: "" }] },
+    McpMethod { name: "agent_session.close", namespace: "records", summary: "Wait for it, record the ending, and forget it.", params: &[Param { name: "session_id", kind: "string", required: true, summary: "" }] },
     McpMethod { name: "approval.list", namespace: "governance", summary: "Questions the gateway is waiting on a human to answer.", params: NO_PARAMS },
     McpMethod { name: "approval.decide", namespace: "governance", summary: "Answer a question. Refused over the network: agents cannot answer their own requests.", params: &[Param { name: "approval", kind: "string", required: true, summary: "" }, Param { name: "allowed", kind: "boolean", required: true, summary: "" }, Param { name: "remember", kind: "string", required: false, summary: "once | task | resource | always" }] },
     McpMethod { name: "server.info", namespace: "governance", summary: "Server version, uptime, instance id.", params: NO_PARAMS },
@@ -614,7 +623,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
 pub const CLI_COMMANDS: &[CliCommand] = &[
     CliCommand { name: "start", summary: "Start the GUI, optionally running an alternative program.", subcommands: &[] },
     CliCommand { name: "cli", summary: "Legacy mux compatibility stub; use session, instance, or server commands instead.", subcommands: &[] },
-    CliCommand { name: "system", summary: "Process health, redacted diagnostics, and data snapshots.", subcommands: &["status", "reconcile", "diagnostics", "snapshots", "snapshot", "restore", "installs", "uninstall-plan"] },
+    CliCommand { name: "system", summary: "Process health, redacted diagnostics, and data snapshots.", subcommands: &["status", "reconcile", "diagnostics", "snapshots", "snapshot", "restore", "installs", "uninstall-plan", "uninstall", "upgrade"] },
     CliCommand { name: "scope", summary: "Workspaces: named roots that work is confined to.", subcommands: &["list", "create", "check", "archive"] },
     CliCommand { name: "artifact", summary: "What tasks produced, addressed by content.", subcommands: &["list", "usage", "verify", "forget"] },
     CliCommand { name: "evidence", summary: "Export a task's evidence bundle, verify one, or check the audit chain.", subcommands: &["export", "verify", "audit"] },
@@ -672,7 +681,7 @@ mod tests {
         // that is the whole mechanism. A surface that grows without anyone
         // noticing is one where a method ships undocumented, unclassified and
         // untested, and the count is the only thing that makes a person look.
-        assert_eq!(MCP_METHODS.len(), 135);
+        assert_eq!(MCP_METHODS.len(), 143);
         let namespaces: std::collections::HashSet<_> = MCP_METHODS
             .iter()
             .filter_map(|method| method.name.split('.').next())
@@ -700,6 +709,7 @@ mod tests {
             "artifact",
             "audit",
             "supervisor",
+            "agent_session",
             "fleet",
             "review",
             "system",

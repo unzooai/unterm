@@ -33,7 +33,7 @@ use std::sync::Mutex;
 pub use approval::{Approval, ApprovalState, Ask, Grant, NewGrant, Scope};
 pub use lease::{CallRecord, CallSlot, Chain, Lease, NewLease, Presented, Refusal};
 pub use model::{Event, Run, RunId, State, Step, StepId, Task, TaskId};
-pub use workspace::{Artifact, NewArtifact, Workspace};
+pub use workspace::{AgentSession, Artifact, NewArtifact, Workspace};
 
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
@@ -1344,6 +1344,102 @@ impl TaskStore {
         Ok(Some(artifact.sha256))
     }
 
+    // ---- agent sessions -----------------------------------------------
+
+    /// Write down that a session started, or how it ended.
+    ///
+    /// One upsert rather than insert-then-update: a session that ended before
+    /// anyone recorded its start still has to be answerable.
+    pub fn record_agent_session(&self, session: &AgentSession) -> Result<()> {
+        self.with(|connection| {
+            connection.execute(
+                "INSERT INTO agent_sessions
+                    (id, adapter, command, cwd, task_id, run_id, step_id, idempotency_key,
+                     lease_id, state, exit_code, signal, reason, started_at, ended_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                 ON CONFLICT(id) DO UPDATE SET
+                    state = excluded.state,
+                    exit_code = excluded.exit_code,
+                    signal = excluded.signal,
+                    reason = excluded.reason,
+                    ended_at = excluded.ended_at",
+                params![
+                    session.id,
+                    session.adapter,
+                    session.command,
+                    session.cwd,
+                    session.task_id,
+                    session.run_id,
+                    session.step_id,
+                    session.idempotency_key,
+                    session.lease_id,
+                    session.state,
+                    session.exit_code,
+                    session.signal,
+                    session.reason,
+                    session.started_at,
+                    session.ended_at
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn agent_session(&self, id: &str) -> Result<Option<AgentSession>> {
+        self.with(|connection| {
+            connection
+                .query_row(
+                    "SELECT id, adapter, command, cwd, task_id, run_id, step_id,
+                            idempotency_key, lease_id, state, exit_code, signal, reason,
+                            started_at, ended_at
+                     FROM agent_sessions WHERE id = ?1",
+                    params![id],
+                    row_to_agent_session,
+                )
+                .optional()
+                .map_err(Into::into)
+        })
+    }
+
+    pub fn agent_sessions(&self) -> Result<Vec<AgentSession>> {
+        self.with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, adapter, command, cwd, task_id, run_id, step_id,
+                        idempotency_key, lease_id, state, exit_code, signal, reason,
+                        started_at, ended_at
+                 FROM agent_sessions ORDER BY started_at DESC, id",
+            )?;
+            let rows = statement.query_map([], row_to_agent_session)?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// Sessions this process left running when it died.
+    ///
+    /// Called at startup. A session recorded as `started` whose Core is gone
+    /// did not succeed and did not fail — it was interrupted, and saying so
+    /// is the difference between a caller that retries and one that waits
+    /// forever.
+    pub fn interrupt_orphan_sessions(&self, reason: &str) -> Result<Vec<String>> {
+        self.with(|connection| {
+            let ids: Vec<String> = {
+                let mut statement =
+                    connection.prepare("SELECT id FROM agent_sessions WHERE state = 'started'")?;
+                let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            for id in &ids {
+                connection.execute(
+                    "UPDATE agent_sessions
+                        SET state = 'interrupted', reason = ?2, ended_at = ?3
+                      WHERE id = ?1",
+                    params![id, reason, now()],
+                )?;
+            }
+            Ok(ids)
+        })
+    }
+
     // ---- provider calls ----------------------------------------------
 
     /// Start a call, or discover that it has already been made.
@@ -1833,6 +1929,26 @@ fn json_column(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<serde_
     Ok(raw
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_else(|| serde_json::json!({})))
+}
+
+fn row_to_agent_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentSession> {
+    Ok(AgentSession {
+        id: row.get(0)?,
+        adapter: row.get(1)?,
+        command: row.get(2)?,
+        cwd: row.get(3)?,
+        task_id: row.get(4)?,
+        run_id: row.get(5)?,
+        step_id: row.get(6)?,
+        idempotency_key: row.get(7)?,
+        lease_id: row.get(8)?,
+        state: row.get(9)?,
+        exit_code: row.get(10)?,
+        signal: row.get(11)?,
+        reason: row.get(12)?,
+        started_at: row.get(13)?,
+        ended_at: row.get(14)?,
+    })
 }
 
 fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workspace> {

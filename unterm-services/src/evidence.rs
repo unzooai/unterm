@@ -142,7 +142,7 @@ pub fn export(task_id: &str, destination: impl AsRef<Path>) -> Result<serde_json
         // record: the manifest is what changes between two exports of the
         // same task, and the record is what stays identical.
         "exported_at": chrono::Utc::now().to_rfc3339(),
-        "unterm_version": env!("CARGO_PKG_VERSION"),
+        "unterm_version": unterm_protocol::PRODUCT_VERSION,
         "record_sha256": digest(&record_bytes),
         "counts": {
             "runs": runs.len(),

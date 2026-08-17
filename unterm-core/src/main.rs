@@ -61,6 +61,15 @@ fn main() -> Result<()> {
         Ok(count) => eprintln!("unterm-core: requested drain for {count} incompatible bridge(s)"),
     }
 
+    // Two installs share one state directory: whichever starts first owns the
+    // sessions, and two versions can migrate the same database differently.
+    // Said at startup, once, because it explains a class of failure nobody
+    // would otherwise connect to having installed Unterm twice.
+    let installs = unterm_services::install::survey();
+    for conflict in unterm_services::install::conflicts(&installs) {
+        eprintln!("unterm-core: {} — {}", conflict.reason, conflict.advice);
+    }
+
     write_discovery(&endpoint.to_string(), &token, mcp_port, server.started_at())?;
     eprintln!(
         "unterm-core ready endpoint={} mcp_port={:?} pid={}",
@@ -68,6 +77,27 @@ fn main() -> Result<()> {
         mcp_port,
         std::process::id()
     );
+    // The system will tell us before it takes this process away — SIGTERM on
+    // macOS and Linux, a console control event on Windows. The Core is where
+    // that has to be heard: it owns the sessions and the task store, so it is
+    // the process whose sudden death costs something.
+    unterm_services::power::install();
+    std::thread::Builder::new()
+        .name("core-power-watch".into())
+        .spawn(|| loop {
+            if let Some(reason) = unterm_services::power::should_stop() {
+                // Seconds, not minutes. Say why we are going, take the
+                // discovery record with us so nobody connects to a corpse,
+                // and leave. Finishing work here is how a process gets killed
+                // halfway through finishing it.
+                eprintln!("unterm-core stopping: {reason}");
+                let _ = clear_discovery();
+                std::process::exit(0);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        })
+        .ok();
+
     let result = server.run();
     let _ = clear_discovery();
     result

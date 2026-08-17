@@ -68,3 +68,24 @@ pub struct NewArtifact {
     pub origin: String,
     pub name: Option<String>,
 }
+
+/// A hosted agent session, as it survives the process that ran it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AgentSession {
+    pub id: String,
+    pub adapter: String,
+    pub command: String,
+    pub cwd: Option<String>,
+    /// The caller's own identifiers, carried through untouched.
+    pub task_id: Option<String>,
+    pub run_id: Option<String>,
+    pub step_id: Option<String>,
+    pub idempotency_key: Option<String>,
+    pub lease_id: Option<String>,
+    pub state: String,
+    pub exit_code: Option<i64>,
+    pub signal: Option<String>,
+    pub reason: Option<String>,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+}
