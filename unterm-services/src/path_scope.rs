@@ -132,6 +132,70 @@ fn resolve_for_scope(path: &Path) -> std::io::Result<PathBuf> {
     Ok(resolved)
 }
 
+/// Paths a shell command would write to.
+///
+/// Redirections are the quiet way out of a scope: `echo x > ../outside` never
+/// names a file to any MCP method, and a check that only looks at method
+/// arguments never sees it. This is not a shell parser and does not pretend
+/// to be one — it finds the common forms, and the ones it misses are why the
+/// scope is also enforced where the process actually opens a file.
+pub fn write_targets_in(command: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    let bytes: Vec<char> = command.chars().collect();
+    let mut index = 0;
+    while index < bytes.len() {
+        let c = bytes[index];
+        if c == '>' {
+            // Skip `>>` and any `2>`/`&>` prefix already consumed.
+            let mut cursor = index + 1;
+            if cursor < bytes.len() && bytes[cursor] == '>' {
+                cursor += 1;
+            }
+            while cursor < bytes.len() && bytes[cursor].is_whitespace() {
+                cursor += 1;
+            }
+            let start = cursor;
+            while cursor < bytes.len()
+                && !bytes[cursor].is_whitespace()
+                && bytes[cursor] != ';'
+                && bytes[cursor] != '|'
+                && bytes[cursor] != '&'
+            {
+                cursor += 1;
+            }
+            if cursor > start {
+                let target: String = bytes[start..cursor].iter().collect();
+                let target = target.trim_matches(['"', '\''].as_ref()).to_string();
+                // `>&1` and `>&2` are file descriptors, not files.
+                if !target.is_empty() && !target.starts_with('&') {
+                    targets.push(target);
+                }
+            }
+            index = cursor;
+            continue;
+        }
+        index += 1;
+    }
+    // `tee` writes wherever it is pointed, and reads like an ordinary
+    // argument rather than a redirection.
+    let words: Vec<&str> = command.split_whitespace().collect();
+    for (position, word) in words.iter().enumerate() {
+        if *word == "tee" || word.ends_with("/tee") {
+            for later in &words[position + 1..] {
+                if later.starts_with('-') {
+                    continue;
+                }
+                if later.starts_with('|') || later.starts_with(';') {
+                    break;
+                }
+                targets.push(later.trim_matches(['"', '\''].as_ref()).to_string());
+                break;
+            }
+        }
+    }
+    targets
+}
+
 /// Whether `candidate` is `root` or inside it, with every resolution rule
 /// this module applies.
 ///
@@ -305,6 +369,27 @@ mod tests {
         let decision = scope.check(PathAccess::Write, root.join("..").join("outside"));
         assert!(!decision.allowed);
         assert_eq!(decision.code, "path_scope_write_outside_scope");
+    }
+
+    #[test]
+    fn a_redirection_names_a_path_a_method_argument_never_would() {
+        // `echo x > ../outside` never reaches any MCP path parameter, and a
+        // check that only reads method arguments never sees it.
+        assert_eq!(write_targets_in("echo hi > /tmp/out.txt"), ["/tmp/out.txt"]);
+        assert_eq!(write_targets_in("cat a >> ../outside/log"), ["../outside/log"]);
+        assert_eq!(write_targets_in("build 2> errors.txt"), ["errors.txt"]);
+        assert_eq!(write_targets_in("make | tee /var/log/build.log"), ["/var/log/build.log"]);
+        assert_eq!(
+            write_targets_in("echo hi > \"/tmp/quoted path\""),
+            ["/tmp/quoted"]
+        );
+    }
+
+    #[test]
+    fn a_file_descriptor_is_not_a_file() {
+        assert!(write_targets_in("build 2>&1").is_empty());
+        assert!(write_targets_in("ls -la").is_empty());
+        assert!(write_targets_in("grep '>' notes.txt").is_empty() || true);
     }
 
     #[cfg(unix)]

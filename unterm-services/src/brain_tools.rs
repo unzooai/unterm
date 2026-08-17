@@ -151,6 +151,50 @@ pub fn admit_tool(
 
     let mapped = map_tool(name, arguments);
 
+    // Governed work must arrive with a scope. A turn that carries an upstream
+    // task but no workspace is a managed call that lost its boundary
+    // somewhere; refusing is the only safe reading. A turn with no task at all
+    // is the user's own terminal, which is not what this rule is about.
+    let governed = caller.task_id.is_some();
+    let changes_something = mapped.method != "brain.read" && mapped.method != "brain.list";
+    if governed && caller.workspace_id.is_none() && changes_something {
+        return Some(Passage {
+            verdict: unterm_gateway::Verdict::deny(
+                unterm_gateway::Code::PolicyBlockedPattern,
+                format!(
+                    "{} changes something and this turn has no path scope; read-only work is still allowed",
+                    mapped.method
+                ),
+                unterm_gateway::Risk::Destructive,
+            ),
+            outcome: Outcome::Refuse,
+        });
+    }
+
+    // Redirections write where no method argument ever names.
+    if let (Some(workspace), Some(command)) =
+        (caller.workspace_id.as_deref(), mapped.command.as_deref())
+    {
+        for target in crate::path_scope::write_targets_in(command) {
+            let decision =
+                crate::workspace_scope::check(workspace, crate::path_scope::PathAccess::Write, &target);
+            let refused = match decision {
+                Ok(decision) => (!decision.allowed).then(|| decision.reason),
+                Err(error) => Some(error.to_string()),
+            };
+            if let Some(reason) = refused {
+                return Some(Passage {
+                    verdict: unterm_gateway::Verdict::deny(
+                        unterm_gateway::Code::PolicyBlockedPattern,
+                        format!("this command writes to {target}, which is outside this workspace: {reason}"),
+                        unterm_gateway::Risk::Destructive,
+                    ),
+                    outcome: Outcome::Refuse,
+                });
+            }
+        }
+    }
+
     if let (Some(workspace), Some(path)) = (caller.workspace_id.as_deref(), mapped.resource.as_deref())
     {
         // Only paths. A `brain.fetch` resource is a URL, and a URL is not
@@ -376,6 +420,69 @@ mod tests {
     }
 
     #[test]
+    fn a_redirection_out_of_the_workspace_is_refused() {
+        let dir = isolate();
+        std::env::set_var("UNTERM_STATE_DIR", dir.path());
+        let inside = dir.path().join("alpha");
+        let outside = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let workspace = crate::workspace_scope::create("alpha", &inside).unwrap();
+        let caller = Caller {
+            task_id: Some("tsk_1".into()),
+            workspace_id: Some(workspace.id),
+            ..Caller::default()
+        };
+
+        let escape = format!("echo secrets > {}/leak.txt", outside.display());
+        let passage = admit_tool(
+            &request("Bash", json!({"command": escape})),
+            &caller,
+            &SettingsPolicy::off(),
+        )
+        .unwrap();
+        assert_eq!(passage.outcome, Outcome::Refuse, "{passage:?}");
+        assert!(passage.verdict.reason.contains("writes to"));
+
+        // Inside its own root, the same shape is fine.
+        let fine = format!("echo notes > {}/notes.txt", inside.display());
+        let passage = admit_tool(
+            &request("Bash", json!({"command": fine})),
+            &caller,
+            &SettingsPolicy::off(),
+        )
+        .unwrap();
+        assert_ne!(passage.outcome, Outcome::Refuse, "{passage:?}");
+    }
+
+    #[test]
+    fn governed_work_without_a_scope_may_read_but_not_change() {
+        // A turn carrying an upstream task but no workspace is a managed call
+        // that lost its boundary somewhere.
+        let _dir = isolate();
+        let caller = Caller {
+            task_id: Some("tsk_1".into()),
+            ..Caller::default()
+        };
+        let write = admit_tool(
+            &request("Write", json!({"file_path": "/tmp/x"})),
+            &caller,
+            &SettingsPolicy::off(),
+        )
+        .unwrap();
+        assert_eq!(write.outcome, Outcome::Refuse);
+        assert!(write.verdict.reason.contains("no path scope"));
+
+        let read = admit_tool(
+            &request("Read", json!({"file_path": "/tmp/x"})),
+            &caller,
+            &SettingsPolicy::off(),
+        )
+        .unwrap();
+        assert_ne!(read.outcome, Outcome::Refuse, "read-only work is still allowed");
+    }
+
+    #[test]
     fn an_unconfined_turn_is_unchanged() {
         // Most agents drive a terminal the user is sitting at. A workspace is
         // opt-in, and turning it on for everybody would break them.
@@ -408,11 +515,17 @@ mod tests {
 
     #[test]
     fn an_exception_lets_the_command_through_and_leaves_a_trace() {
-        let _dir = isolate();
+        let dir = isolate();
+        std::env::set_var("UNTERM_STATE_DIR", dir.path());
+        // A development workspace: the exception is *for* one, and governed
+        // work without a scope is refused before this rule is even reached.
+        let root = dir.path().join("dev");
+        std::fs::create_dir_all(&root).unwrap();
+        let workspace = crate::workspace_scope::create("dev", &root).unwrap();
         let caller = Caller {
             actor: Some("codex".into()),
             task_id: Some("tsk_dev".into()),
-            ..Caller::default()
+            workspace_id: Some(workspace.id),
         };
         let request = request("Bash", json!({"command": "npx playwright test"}));
 
