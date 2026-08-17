@@ -192,6 +192,27 @@ pub fn detour_in_tool(_name: &str, arguments: &Value) -> Option<Detour> {
     }
 }
 
+/// The gateway method that stands for "this workspace may use its own
+/// automation stack".
+///
+/// A grant on this is how an exception is given: it inherits the whole grant
+/// machinery — a TTL, an actor, a task, revocation — rather than growing a
+/// second permission system with its own bugs. There is no way to turn it on
+/// globally, which is the point: an exception without a scope is a setting.
+pub const EXCEPTION_METHOD: &str = "brain.automation_exception";
+
+/// Whether somebody has been allowed to go around the provider, and said so.
+///
+/// Checked *after* a detour is recognised, so the audit trail records what
+/// would have been refused and on whose authority it was not. An exception
+/// that leaves no trace is indistinguishable from a hole.
+pub fn exception_for(actor: Option<&str>, task_id: Option<&str>) -> Option<String> {
+    let mut context = unterm_gateway::ActionContext::new(EXCEPTION_METHOD);
+    context.actor = actor.map(str::to_string);
+    context.task_id = task_id.map(str::to_string);
+    crate::gateway::grant_covering(&context, unterm_gateway::Risk::Destructive)
+}
+
 /// What the browser capability must never fall back to.
 ///
 /// M6's third gate, in one sentence: when the provider is offline the work
@@ -273,6 +294,42 @@ mod tests {
         assert_eq!(detour_in_command("cd my_selenium_diary"), None);
         // But the real thing, wherever it sits in the line, is caught.
         assert!(detour_in_command("cd /tmp && npx playwright codegen").is_some());
+    }
+
+    #[test]
+    fn an_exception_is_a_grant_with_a_clock_on_it() {
+        // The compatibility escape hatch for a development workspace: given
+        // by the layer above, checked here, expiring on its own. Not a
+        // setting — an exception without a scope is a setting, and settings
+        // are never turned back off.
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("UNTERM_TASKS_DB", dir.path().join("tasks.db"));
+        crate::cockpit::fleet_store::reset_for_tests();
+
+        assert_eq!(exception_for(Some("codex"), Some("tsk_1")), None);
+
+        let store = crate::cockpit::fleet_store::tasks().unwrap();
+        let grant = store
+            .create_grant(unterm_tasks::NewGrant {
+                scope_or_once: Some(unterm_tasks::Scope::Task),
+                method: Some(EXCEPTION_METHOD.to_string()),
+                actor: Some("codex".into()),
+                task_id: Some("tsk_1".into()),
+                resource: None,
+                max_risk: Some("destructive".into()),
+                ttl_seconds: Some(300),
+            })
+            .unwrap();
+        assert_eq!(
+            exception_for(Some("codex"), Some("tsk_1")).as_deref(),
+            Some(grant.id.as_str())
+        );
+        // Scoped to that task: another one is still fenced in.
+        assert_eq!(exception_for(Some("codex"), Some("tsk_2")), None);
+
+        // And revoking it closes the hatch immediately.
+        store.revoke_grant(&grant.id).unwrap();
+        assert_eq!(exception_for(Some("codex"), Some("tsk_1")), None);
     }
 
     #[test]

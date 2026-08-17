@@ -53,6 +53,14 @@ pub struct Correlation {
     pub approval_id: Option<String>,
     pub grant_id: Option<String>,
     pub workspace_id: Option<String>,
+    /// The session the action happened in.
+    pub session_id: Option<String>,
+    /// The path as actually resolved — not what was typed.
+    ///
+    /// The resolved path is the one the decision was made about; a record
+    /// holding only the caller's string cannot answer "what did it actually
+    /// touch" after a symlink moved.
+    pub resolved_path: Option<String>,
     /// allowed | denied | needs_approval | failed — the outcome, which is the
     /// field somebody scanning a trail after an incident actually reads.
     pub state: Option<String>,
@@ -72,6 +80,8 @@ impl Correlation {
             ("approval_id", &self.approval_id),
             ("grant_id", &self.grant_id),
             ("workspace_id", &self.workspace_id),
+            ("session_id", &self.session_id),
+            ("resolved_path", &self.resolved_path),
             ("state", &self.state),
         ] {
             if let Some(value) = value {

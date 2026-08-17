@@ -113,14 +113,40 @@ pub fn admit_tool(
     // wrong question: the user would be saying yes to a command, and what
     // would actually happen is a browser with no lease and no trail.
     if let Some(detour) = crate::routing::detour_in_tool(name, arguments) {
-        return Some(Passage {
-            verdict: unterm_gateway::Verdict::deny(
-                unterm_gateway::Code::PolicyBlockedPattern,
-                detour.to_string(),
-                unterm_gateway::Risk::Destructive,
-            ),
-            outcome: Outcome::Refuse,
-        });
+        // An exception, if this workspace was given one. Checked after the
+        // detour is recognised so the trail says what would have been refused
+        // and whose authority let it through — an exception that leaves no
+        // trace is indistinguishable from a hole.
+        if let Some(grant) =
+            crate::routing::exception_for(caller.actor.as_deref(), caller.task_id.as_deref())
+        {
+            crate::audit_store::append_correlated(
+                &serde_json::json!({
+                    "at": chrono::Utc::now().to_rfc3339(),
+                    "event": "routing.exception_used",
+                    "detour": detour.kind,
+                    "matched": detour.matched,
+                }),
+                &crate::audit_store::Correlation {
+                    grant_id: Some(grant),
+                    task_id: caller.task_id.clone(),
+                    state: Some("allowed_by_exception".into()),
+                    ..Default::default()
+                },
+            );
+            // Falls through to the ordinary judgement: an exception says the
+            // command is not refused *for being automation*, not that it is
+            // exempt from everything else.
+        } else {
+            return Some(Passage {
+                verdict: unterm_gateway::Verdict::deny(
+                    unterm_gateway::Code::PolicyBlockedPattern,
+                    detour.to_string(),
+                    unterm_gateway::Risk::Destructive,
+                ),
+                outcome: Outcome::Refuse,
+            });
+        }
     }
 
     let mapped = map_tool(name, arguments);
@@ -378,6 +404,51 @@ mod tests {
         .unwrap();
         assert_eq!(passage.outcome, Outcome::Refuse);
         assert!(passage.verdict.reason.contains("could not be checked"));
+    }
+
+    #[test]
+    fn an_exception_lets_the_command_through_and_leaves_a_trace() {
+        let _dir = isolate();
+        let caller = Caller {
+            actor: Some("codex".into()),
+            task_id: Some("tsk_dev".into()),
+            ..Caller::default()
+        };
+        let request = request("Bash", json!({"command": "npx playwright test"}));
+
+        // Without one: refused.
+        assert_eq!(
+            admit_tool(&request, &caller, &SettingsPolicy::off())
+                .unwrap()
+                .outcome,
+            Outcome::Refuse
+        );
+
+        fleet_store::tasks()
+            .unwrap()
+            .create_grant(unterm_tasks::NewGrant {
+                scope_or_once: Some(unterm_tasks::Scope::Task),
+                method: Some(crate::routing::EXCEPTION_METHOD.to_string()),
+                actor: Some("codex".into()),
+                task_id: Some("tsk_dev".into()),
+                resource: None,
+                max_risk: Some("destructive".into()),
+                ttl_seconds: Some(300),
+            })
+            .unwrap();
+
+        // With one: judged like any other command rather than refused for
+        // being automation.
+        let passage = admit_tool(&request, &caller, &SettingsPolicy::off()).unwrap();
+        assert_ne!(passage.outcome, Outcome::Refuse, "{passage:?}");
+
+        // And the trail says it happened, and on whose authority.
+        let used = crate::audit_store::recent(20)
+            .into_iter()
+            .find(|entry| entry["event"] == "routing.exception_used")
+            .expect("an exception that leaves no trace is indistinguishable from a hole");
+        assert_eq!(used["state"], "allowed_by_exception");
+        assert!(used["grant_id"].is_string());
     }
 
     #[test]
