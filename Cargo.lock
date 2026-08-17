@@ -6175,8 +6175,10 @@ name = "unterm-brain"
 version = "0.67.0"
 dependencies = [
  "anyhow",
+ "libc",
  "serde",
  "serde_json",
+ "tempfile",
  "unterm-tasks",
 ]
 
@@ -6347,6 +6349,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "unterm-brain",
  "unterm-engine",
  "unterm-gateway",
  "unterm-profile",

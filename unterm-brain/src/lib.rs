@@ -21,6 +21,10 @@
 //! gateway.
 
 pub mod adapters;
+pub mod health;
+pub mod sdk;
+pub mod runtime;
+pub mod supervisor;
 
 use serde::{Deserialize, Serialize};
 use unterm_tasks::{RunId, TaskId};
@@ -229,6 +233,16 @@ pub trait BrainAdapter: Send {
     /// yields [`BrainEvent::Error`] rather than nothing, because a stream
     /// that has stopped making sense must not look like a quiet one.
     fn on_line(&mut self, line: &str) -> Vec<BrainEvent>;
+
+    /// The CLI's own id for this conversation, once the stream has named it.
+    ///
+    /// Parsed state, not I/O — the adapter stays pure. It is separate from
+    /// the event vocabulary on purpose: `--resume` is a fact about a CLI, and
+    /// putting it in [`BrainEvent`] would make every reader learn a concept
+    /// that only the launcher needs.
+    fn external_id(&self) -> Option<&str> {
+        None
+    }
 
     /// Anything held back once the stream ends.
     ///

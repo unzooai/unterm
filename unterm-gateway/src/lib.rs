@@ -287,6 +287,9 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "workspace.restore",
         "upload.file",
         "system.launch_admin",
+        // A model fetching a URL sends whatever it puts in that request off
+        // this machine, and nothing the user does afterwards calls it back.
+        "brain.fetch",
     ];
     if DESTRUCTIVE.contains(&method) {
         return Some(Risk::Destructive);
@@ -320,6 +323,10 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         // gateway must not be the place those two answers diverge.
         "orchestrate.launch",
         "orchestrate.broadcast",
+        // What a model's file-writing tools map to. Named apart from the MCP
+        // surface's own methods because they are not the same door and an
+        // audit trail should not have to guess which one wrote the file.
+        "brain.write",
     ];
     if MUTATING_PREFIXES
         .iter()
@@ -363,6 +370,11 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "system.info",
         // Waiting observes; it is the read half of orchestration.
         "orchestrate.wait",
+        // A model reading or listing files. Deliberately *not* a prefix for
+        // all of `brain.`: a tool this crate has never heard of maps to
+        // `brain.tool`, stays unclassified, and gets asked about.
+        "brain.read",
+        "brain.list",
     ];
     if READONLY_PREFIXES
         .iter()

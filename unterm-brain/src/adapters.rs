@@ -48,6 +48,7 @@ fn u64_at(value: &Value, keys: &[&str]) -> u64 {
 #[derive(Default)]
 pub struct CodexAdapter {
     turn_open: bool,
+    session: Option<String>,
 }
 
 impl CodexAdapter {
@@ -79,6 +80,12 @@ impl BrainAdapter for CodexAdapter {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
+        if let Some(session) = text_at(&value, &[&["session_id"], &["session", "id"], &["thread_id"]])
+        {
+            // Codex names the session on its first line and repeats it; the
+            // last one seen wins, which is also the one `resume` wants.
+            self.session = Some(session.to_string());
+        }
         let mut events = Vec::new();
 
         match kind.as_str() {
@@ -169,6 +176,10 @@ impl BrainAdapter for CodexAdapter {
         events
     }
 
+    fn external_id(&self) -> Option<&str> {
+        self.session.as_deref()
+    }
+
     fn on_eof(&mut self) -> Vec<BrainEvent> {
         if self.turn_open {
             // The process died mid-turn. Saying so is the difference between
@@ -186,6 +197,7 @@ impl BrainAdapter for CodexAdapter {
 #[derive(Default)]
 pub struct ClaudeAdapter {
     turn_open: bool,
+    session: Option<String>,
 }
 
 impl ClaudeAdapter {
@@ -218,6 +230,9 @@ impl BrainAdapter for ClaudeAdapter {
 
         match kind.as_str() {
             "system" => {
+                if let Some(session) = text_at(&value, &[&["session_id"]]) {
+                    self.session = Some(session.to_string());
+                }
                 // Claude opens with a system line carrying the session and
                 // the model; that is the closest thing it has to "a turn
                 // started".
@@ -341,6 +356,10 @@ impl BrainAdapter for ClaudeAdapter {
         events
     }
 
+    fn external_id(&self) -> Option<&str> {
+        self.session.as_deref()
+    }
+
     fn on_eof(&mut self) -> Vec<BrainEvent> {
         if self.turn_open {
             self.turn_open = false;
@@ -367,7 +386,7 @@ fn usage_from(value: &Value) -> Usage {
     }
 }
 
-fn truncate(line: &str) -> String {
+pub(crate) fn truncate(line: &str) -> String {
     // Enough to recognise the line, not enough to put a whole prompt — or a
     // secret pasted into one — in a log.
     let limit = 120;
@@ -630,6 +649,24 @@ mod tests {
         );
         let kinds: Vec<&str> = events.iter().map(BrainEvent::kind).collect();
         assert_eq!(kinds, ["reasoning", "text", "tool_requested"]);
+    }
+
+    #[test]
+    fn both_learn_the_session_id_the_cli_would_resume_by() {
+        let mut codex = CodexAdapter::new();
+        replay(&mut codex, r#"{"type":"turn.started","model":"m","session_id":"sess_9"}"#);
+        assert_eq!(codex.external_id(), Some("sess_9"));
+
+        let mut claude = ClaudeAdapter::new();
+        replay(
+            &mut claude,
+            r#"{"type":"system","subtype":"init","model":"m","session_id":"sess_9"}"#,
+        );
+        assert_eq!(claude.external_id(), Some("sess_9"));
+
+        // And an adapter that never saw one says so, rather than inventing an
+        // id that would resume the wrong conversation.
+        assert_eq!(CodexAdapter::new().external_id(), None);
     }
 
     #[test]
