@@ -392,6 +392,46 @@ mod tests {
         assert!(write_targets_in("grep '>' notes.txt").is_empty() || true);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_verbatim_path_and_a_plain_one_are_the_same_place() {
+        // `canonicalize` returns `\\?\C:\…` and callers write `C:\…`.
+        // Treating them as different places would deny every correct scope on
+        // Windows — the failure would look like "path scope is broken", not
+        // like a prefix.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(root.join("inner")).unwrap();
+        let verbatim = root.canonicalize().unwrap();
+        assert!(
+            verbatim.to_string_lossy().starts_with("\\\\?\\"),
+            "this test assumes canonicalize returns a verbatim path: {verbatim:?}"
+        );
+        assert!(contains(&root, &verbatim.join("inner")));
+        assert!(contains(&verbatim, &root.join("inner")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn case_cannot_be_used_to_dodge_a_deny() {
+        // NTFS folds case, so `secret` and `SECRET` are one directory. A
+        // string comparison would let the second past a deny on the first —
+        // fail-open, which is the direction that matters.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let secret = root.join("secret");
+        std::fs::create_dir_all(&secret).unwrap();
+        let scope = PathScope {
+            read_paths: vec![root.clone()],
+            write_paths: vec![root],
+            deny_paths: vec![secret.clone()],
+        };
+        let shouting = secret.parent().unwrap().join("SECRET").join("notes.txt");
+        let decision = scope.check(PathAccess::Read, shouting);
+        assert!(!decision.allowed, "{decision:?}");
+        assert_eq!(decision.code, "path_scope_denied_path");
+    }
+
     #[cfg(unix)]
     #[test]
     fn symlink_escape_is_denied_after_canonicalization() {

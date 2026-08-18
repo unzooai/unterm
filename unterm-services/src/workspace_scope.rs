@@ -120,6 +120,78 @@ pub fn check(id: &str, access: PathAccess, path: impl AsRef<Path>) -> Result<Pat
     Ok(scope_for(id)?.check(access, path))
 }
 
+/// What to do when a session's working directory has left the scope.
+///
+/// A shell can `cd` anywhere; the scope was checked when the session started
+/// and that answer stops being true the moment it does. The policy is
+/// configurable because both answers are defensible — refusing is safe and
+/// surprising, marking is honest and permissive — and a product that picks
+/// one for everybody will be wrong for half of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DriftPolicy {
+    /// Refuse side effects until the session comes back. The default: a
+    /// command run from outside the scope writes relative paths outside it,
+    /// and "it was inside when we started" is not a property anyone can rely
+    /// on.
+    Refuse,
+    /// Allow, and record that it happened outside. For workspaces that are a
+    /// starting point rather than a fence.
+    Mark,
+}
+
+impl DriftPolicy {
+    /// What the user configured, defaulting to the safe answer.
+    pub fn configured() -> Self {
+        match std::env::var("UNTERM_SCOPE_DRIFT").as_deref() {
+            Ok("mark") => DriftPolicy::Mark,
+            _ => DriftPolicy::Refuse,
+        }
+    }
+}
+
+/// What a drifted session may do.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Drift {
+    /// The working directory is still inside.
+    Inside,
+    /// It has left, and the policy says stop.
+    Refused { cwd: String, reason: String },
+    /// It has left, and the policy says carry on — but say so.
+    Marked { cwd: String },
+}
+
+/// Judge a session's current working directory, not the one it started in.
+///
+/// **The judgement is not cached.** Re-resolving on every call is the whole
+/// point: a decision made when the session started answers a question about a
+/// directory the session may have left twenty commands ago.
+pub fn check_drift(workspace: &str, cwd: &str, policy: DriftPolicy) -> Result<Drift> {
+    if cwd.trim().is_empty() {
+        // A shell that has not reported its directory is not evidence that it
+        // is somewhere allowed.
+        return Ok(match policy {
+            DriftPolicy::Refuse => Drift::Refused {
+                cwd: String::new(),
+                reason: "this session has not reported a working directory".into(),
+            },
+            DriftPolicy::Mark => Drift::Marked { cwd: String::new() },
+        });
+    }
+    let decision = check(workspace, PathAccess::Read, cwd)?;
+    if decision.allowed {
+        return Ok(Drift::Inside);
+    }
+    Ok(match policy {
+        DriftPolicy::Refuse => Drift::Refused {
+            cwd: decision.resolved_path.unwrap_or_else(|| cwd.to_string()),
+            reason: decision.reason,
+        },
+        DriftPolicy::Mark => Drift::Marked {
+            cwd: decision.resolved_path.unwrap_or_else(|| cwd.to_string()),
+        },
+    })
+}
+
 /// Which workspace a path belongs to, if any.
 ///
 /// Used to attribute work rather than to authorise it: a path can only be in
@@ -292,6 +364,55 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("cannot be resolved"), "{error}");
+    }
+
+    #[test]
+    fn a_session_that_cd_ed_out_stops_being_inside() {
+        // The answer from when the session started is about a directory it
+        // may have left twenty commands ago.
+        let store = isolate();
+        let root = dir(store.path(), "alpha");
+        let elsewhere = dir(store.path(), "elsewhere");
+        let workspace = create("alpha", &root).unwrap();
+
+        assert_eq!(
+            check_drift(&workspace.id, &root.display().to_string(), DriftPolicy::Refuse).unwrap(),
+            Drift::Inside
+        );
+
+        let drifted = check_drift(
+            &workspace.id,
+            &elsewhere.display().to_string(),
+            DriftPolicy::Refuse,
+        )
+        .unwrap();
+        assert!(matches!(drifted, Drift::Refused { .. }), "{drifted:?}");
+
+        // The other policy is permissive but not silent.
+        let marked = check_drift(
+            &workspace.id,
+            &elsewhere.display().to_string(),
+            DriftPolicy::Mark,
+        )
+        .unwrap();
+        assert!(matches!(marked, Drift::Marked { .. }), "{marked:?}");
+    }
+
+    #[test]
+    fn a_shell_that_has_not_said_where_it_is_is_not_assumed_to_be_inside() {
+        let store = isolate();
+        let workspace = create("alpha", dir(store.path(), "alpha")).unwrap();
+        let unknown = check_drift(&workspace.id, "", DriftPolicy::Refuse).unwrap();
+        assert!(matches!(unknown, Drift::Refused { .. }), "{unknown:?}");
+    }
+
+    #[test]
+    fn the_safe_policy_is_the_default() {
+        std::env::remove_var("UNTERM_SCOPE_DRIFT");
+        assert_eq!(DriftPolicy::configured(), DriftPolicy::Refuse);
+        std::env::set_var("UNTERM_SCOPE_DRIFT", "mark");
+        assert_eq!(DriftPolicy::configured(), DriftPolicy::Mark);
+        std::env::remove_var("UNTERM_SCOPE_DRIFT");
     }
 
     #[test]

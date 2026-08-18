@@ -22,6 +22,12 @@ use unterm_gateway::{ActionContext, Entry, PolicySource};
 pub struct Caller {
     /// The agent's name, for the audit trail and for actor-scoped grants.
     pub actor: Option<String>,
+    /// Where the session's shell is *now*, if the caller knows.
+    ///
+    /// Judged on every call rather than remembered: a shell can `cd`
+    /// anywhere, and the answer from when the session started is about a
+    /// directory it may have left twenty commands ago.
+    pub cwd: Option<String>,
     /// The task this turn belongs to, so one approval can cover it.
     pub task_id: Option<String>,
     /// The workspace this turn is confined to, when it has one.
@@ -169,6 +175,57 @@ pub fn admit_tool(
             ),
             outcome: Outcome::Refuse,
         });
+    }
+
+    // Where the shell is now, not where it started.
+    if let (Some(workspace), Some(cwd)) = (caller.workspace_id.as_deref(), caller.cwd.as_deref()) {
+        if changes_something {
+            match crate::workspace_scope::check_drift(
+                workspace,
+                cwd,
+                crate::workspace_scope::DriftPolicy::configured(),
+            ) {
+                Ok(crate::workspace_scope::Drift::Refused { cwd, reason }) => {
+                    return Some(Passage {
+                        verdict: unterm_gateway::Verdict::deny(
+                            unterm_gateway::Code::PolicyBlockedPattern,
+                            format!(
+                                "this session's working directory is {cwd}, outside the workspace: {reason}"
+                            ),
+                            unterm_gateway::Risk::Destructive,
+                        ),
+                        outcome: Outcome::Refuse,
+                    });
+                }
+                Ok(crate::workspace_scope::Drift::Marked { cwd }) => {
+                    // Permissive, never silent.
+                    crate::audit_store::append_correlated(
+                        &serde_json::json!({
+                            "at": chrono::Utc::now().to_rfc3339(),
+                            "event": "scope.drift_allowed",
+                            "cwd": cwd,
+                        }),
+                        &crate::audit_store::Correlation {
+                            workspace_id: Some(workspace.to_string()),
+                            task_id: caller.task_id.clone(),
+                            state: Some("marked".into()),
+                            ..Default::default()
+                        },
+                    );
+                }
+                Ok(crate::workspace_scope::Drift::Inside) => {}
+                Err(error) => {
+                    return Some(Passage {
+                        verdict: unterm_gateway::Verdict::deny(
+                            unterm_gateway::Code::PolicyBlockedPattern,
+                            format!("this turn's workspace could not be checked: {error}"),
+                            unterm_gateway::Risk::Destructive,
+                        ),
+                        outcome: Outcome::Refuse,
+                    });
+                }
+            }
+        }
     }
 
     // Redirections write where no method argument ever names.
@@ -420,6 +477,58 @@ mod tests {
     }
 
     #[test]
+    fn a_session_that_wandered_out_cannot_change_anything_there() {
+        // `cd` is how a scope stops being true without anybody calling a
+        // method. The judgement is remade every call for exactly this.
+        let dir = isolate();
+        std::env::set_var("UNTERM_STATE_DIR", dir.path());
+        std::env::remove_var("UNTERM_SCOPE_DRIFT");
+        let inside = dir.path().join("alpha");
+        let outside = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let workspace = crate::workspace_scope::create("alpha", &inside).unwrap();
+
+        let wandered = Caller {
+            task_id: Some("tsk_1".into()),
+            workspace_id: Some(workspace.id.clone()),
+            cwd: Some(outside.display().to_string()),
+            ..Caller::default()
+        };
+        let passage = admit_tool(
+            &request("Bash", json!({"command": "rm -f notes.txt"})),
+            &wandered,
+            &SettingsPolicy::off(),
+        )
+        .unwrap();
+        assert_eq!(passage.outcome, Outcome::Refuse, "{passage:?}");
+        assert!(passage.verdict.reason.contains("working directory"));
+
+        // Reading is still fine — the rule is about changing things from
+        // somewhere it should not be changing them.
+        let read = admit_tool(
+            &request("Read", json!({"file_path": inside.join("x").display().to_string()})),
+            &wandered,
+            &SettingsPolicy::off(),
+        )
+        .unwrap();
+        assert_ne!(read.outcome, Outcome::Refuse);
+
+        // And back inside, work resumes.
+        let home = Caller {
+            cwd: Some(inside.display().to_string()),
+            ..wandered
+        };
+        let passage = admit_tool(
+            &request("Bash", json!({"command": "echo hi"})),
+            &home,
+            &SettingsPolicy::off(),
+        )
+        .unwrap();
+        assert_ne!(passage.outcome, Outcome::Refuse, "{passage:?}");
+    }
+
+    #[test]
     fn a_redirection_out_of_the_workspace_is_refused() {
         let dir = isolate();
         std::env::set_var("UNTERM_STATE_DIR", dir.path());
@@ -526,6 +635,7 @@ mod tests {
             actor: Some("codex".into()),
             task_id: Some("tsk_dev".into()),
             workspace_id: Some(workspace.id),
+            ..Caller::default()
         };
         let request = request("Bash", json!({"command": "npx playwright test"}));
 
