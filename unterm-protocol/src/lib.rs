@@ -118,6 +118,31 @@ fn protocol_major(version: &str) -> Option<&str> {
 ///
 /// Returns `None` only when there is no override and no home directory, which
 /// is the same condition every caller already had to handle.
+/// Where the Core keeps its discovery record and instance lock.
+///
+/// **Not the same directory as [`state_dir`]**, and that is deliberate: the
+/// Core's record is machine state for one process, and it has lived under the
+/// platform's data directory since M1. It is here — in the crate both the
+/// Core and everything that reads it depend on — because when the two
+/// resolutions were written separately they diverged, and the symptom was
+/// `supervisor.status` reporting "absent" for a Core that was running.
+///
+/// `UNTERM_STATE_DIR` overrides both, which is exactly why the divergence
+/// stayed hidden: every test that set it saw the two agree.
+pub fn core_state_dir() -> Option<std::path::PathBuf> {
+    if let Ok(dir) = std::env::var("UNTERM_STATE_DIR") {
+        if !dir.is_empty() {
+            return Some(std::path::PathBuf::from(dir));
+        }
+    }
+    dirs_next::data_local_dir().map(|dir| dir.join("Unterm"))
+}
+
+/// The Core's discovery record: where it is listening, and who it is.
+pub fn core_discovery_path() -> Option<std::path::PathBuf> {
+    core_state_dir().map(|dir| dir.join("core.json"))
+}
+
 pub fn state_dir() -> Option<std::path::PathBuf> {
     if let Some(dir) = std::env::var_os("UNTERM_STATE_DIR") {
         if !dir.is_empty() {

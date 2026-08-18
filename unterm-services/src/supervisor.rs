@@ -100,13 +100,15 @@ pub struct Process {
     pub version: Option<String>,
 }
 
-fn state_file(name: &str) -> Option<PathBuf> {
-    unterm_protocol::state_path(name)
-}
-
 /// What the Core wrote about itself, if anything.
+///
+/// Read from `unterm-protocol`'s resolution of the Core's own directory, not
+/// from the general state dir. Those are different places on every platform,
+/// and asking the wrong one is how a running Core gets reported as absent —
+/// found on a Linux box where the two diverge and `UNTERM_STATE_DIR`, which
+/// hides the difference, was not set.
 fn core_record() -> Option<(serde_json::Value, PathBuf)> {
-    let path = state_file("core.json")?;
+    let path = unterm_protocol::core_discovery_path()?;
     let text = std::fs::read_to_string(&path).ok()?;
     serde_json::from_str(&text).ok().map(|value| (value, path))
 }
@@ -340,6 +342,26 @@ mod tests {
             serde_json::to_vec(&record).unwrap(),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn the_supervisor_reads_where_the_core_writes() {
+        // The guard for the bug this cost a release: the Core resolved its
+        // discovery record one way and the supervisor another, and with
+        // `UNTERM_STATE_DIR` set — as every test had it — the two agreed.
+        // Without it they did not, and a running Core read as absent.
+        std::env::remove_var("UNTERM_STATE_DIR");
+        assert_eq!(
+            unterm_protocol::core_discovery_path(),
+            unterm_protocol::core_state_dir().map(|dir| dir.join("core.json")),
+        );
+        // And the two directories are genuinely different, so this is not a
+        // tautology that would pass if somebody collapsed them by accident.
+        assert_ne!(
+            unterm_protocol::core_state_dir(),
+            unterm_protocol::state_dir(),
+            "if these ever become the same, this test is no longer proving anything"
+        );
     }
 
     #[test]

@@ -213,6 +213,20 @@ pub fn uninstall_plan(keep_data: bool) -> UninstallPlan {
     let state = unterm_protocol::state_dir();
     let mut data = Vec::new();
     let mut description = Vec::new();
+
+    // The Core keeps its discovery record and instance lock somewhere else —
+    // the platform data directory, not `~/.unterm`. Leaving it out of the
+    // plan would mean an "uninstall" that removes everything the user was
+    // shown and leaves a lock file behind.
+    if let Some(core_dir) = unterm_protocol::core_state_dir() {
+        if core_dir.exists() && Some(&core_dir) != state.as_ref() {
+            data.push(core_dir.display().to_string());
+            description.push(format!(
+                "{} — the Core's discovery record and instance lock",
+                core_dir.display()
+            ));
+        }
+    }
     if let Some(state) = state {
         for (name, what) in [
             ("tasks.db", "every task, run, step, approval and lease"),

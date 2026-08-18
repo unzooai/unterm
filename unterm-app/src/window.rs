@@ -670,6 +670,9 @@ pub struct App {
     /// left-button paths -- extend a selection, complete one, open a link --
     /// and make a single click both paste and act.
     swallow_left_after_secondary: bool,
+    /// One physical secondary click acts once, however many times the
+    /// platform delivers it.
+    secondary_gesture: crate::mouse::SecondaryGesture,
     /// The text of the finished selection, kept so a copy key can find it.
     selected: Option<String>,
     /// The last screen we drew, so a frame is skipped when nothing changed.
@@ -1184,6 +1187,7 @@ impl App {
             tab_id: None,
             drag: None,
             swallow_left_after_secondary: false,
+            secondary_gesture: crate::mouse::SecondaryGesture::default(),
             selected: None,
             state: None,
             drawn_revision: None,
@@ -10389,10 +10393,24 @@ impl ApplicationHandler for App {
                 let reporting = !held.shift
                     && self.mouse_modes.tracking
                         != unterm_engine::next_core::mouse_encoding::MouseTracking::None;
+                if state == ElementState::Released {
+                    // Whichever button came up, the gesture that was in
+                    // flight is over.
+                    self.secondary_gesture.released();
+                }
                 if secondary
                     && state == ElementState::Pressed
                     && crate::mouse::secondary_click_acts(reporting, self.selected.is_some())
                 {
+                    // macOS delivers one Control-click as both a right press
+                    // and a ctrl+left press. Acting twice does not merely
+                    // repeat: the first copies the selection and lets go of
+                    // it, so the second sees none and pastes — into whatever
+                    // is running in the pane, which is usually an agent's
+                    // prompt. Once per physical click.
+                    if !self.secondary_gesture.take() {
+                        return;
+                    }
                     if button == MouseButton::Left {
                         self.swallow_left_after_secondary = true;
                     }

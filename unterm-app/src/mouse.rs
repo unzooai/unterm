@@ -261,6 +261,39 @@ pub enum RightClick {
     Paste,
 }
 
+/// One physical secondary click acts once.
+///
+/// macOS can deliver a single Control-click twice: as a right press, and as
+/// a left press with Control held. Both look like a secondary click, and
+/// acting on both runs the gesture twice — which is not merely redundant,
+/// it inverts: the first press copies a selection and lets go of it, so the
+/// second sees no selection and *pastes*. One motion, and the clipboard
+/// lands in whatever program is in the pane. With an agent there, that is
+/// its prompt box.
+///
+/// A genuine second click always has a release between the presses. So:
+/// after acting, refuse further secondary presses until one arrives.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SecondaryGesture {
+    acted: bool,
+}
+
+impl SecondaryGesture {
+    /// Whether this secondary press should act. Records that it did.
+    pub fn take(&mut self) -> bool {
+        if self.acted {
+            return false;
+        }
+        self.acted = true;
+        true
+    }
+
+    /// A button came up: the gesture is over, whichever button it was.
+    pub fn released(&mut self) {
+        self.acted = false;
+    }
+}
+
 pub fn right_click(has_selection: bool) -> RightClick {
     if has_selection {
         RightClick::CopyAndClear
@@ -342,5 +375,38 @@ mod right_click_tests {
     #[test]
     fn with_nothing_selected_it_pastes() {
         assert_eq!(right_click(false), RightClick::Paste);
+    }
+}
+
+#[cfg(test)]
+mod secondary_gesture_tests {
+    use super::*;
+
+    #[test]
+    fn one_physical_click_acts_once_even_when_delivered_twice() {
+        // The macOS Control-click case: a right press and a ctrl+left press
+        // for the same motion. Acting on both copies, then pastes — and the
+        // paste lands in whatever is running in the pane.
+        let mut gesture = SecondaryGesture::default();
+        assert!(gesture.take(), "the first delivery must act");
+        assert!(!gesture.take(), "the duplicate must not");
+    }
+
+    #[test]
+    fn a_release_starts_a_new_gesture() {
+        // A genuine second click always has a release between the presses,
+        // which is what tells the two cases apart without guessing at timing.
+        let mut gesture = SecondaryGesture::default();
+        assert!(gesture.take());
+        gesture.released();
+        assert!(gesture.take(), "a second click must still work");
+    }
+
+    #[test]
+    fn releases_without_a_press_change_nothing() {
+        let mut gesture = SecondaryGesture::default();
+        gesture.released();
+        gesture.released();
+        assert!(gesture.take());
     }
 }

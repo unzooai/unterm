@@ -55,16 +55,14 @@ pub struct DiscoveryInfo {
 
 /// Where this Core keeps its discovery record and instance lock.
 ///
-/// `UNTERM_STATE_DIR` overrides the real per-user location — the same
-/// isolation contract M0-02 gave the bridge registry, so tests and
-/// headless environments never collide with the user's live Core.
+/// Delegates to `unterm-protocol` so that everything reading this record —
+/// the supervisor, diagnostics, the provider manifest — resolves it the same
+/// way. It used to be computed here as well as there, and the two drifted:
+/// on Linux the Core wrote `~/.local/share/Unterm/core.json` while the
+/// supervisor read `~/.unterm/core.json` and reported a running Core as
+/// absent.
 fn state_dir() -> Option<std::path::PathBuf> {
-    if let Ok(dir) = std::env::var("UNTERM_STATE_DIR") {
-        if !dir.is_empty() {
-            return Some(std::path::PathBuf::from(dir));
-        }
-    }
-    dirs_next::data_local_dir().map(|dir| dir.join("Unterm"))
+    unterm_protocol::core_state_dir()
 }
 
 pub fn discovery_path() -> Option<std::path::PathBuf> {

@@ -698,6 +698,19 @@ $Suites = @(
         )
     },
     @{
+        # One physical secondary click acts once. macOS delivers a
+        # Control-click twice, and acting on both copies and then pastes.
+        Name = "secondary gesture"
+        Package = "unterm-app"
+        Filter = "mouse::secondary_gesture_tests::"
+        ExpectedCount = 3
+        RequiredTests = @(
+            "mouse::secondary_gesture_tests::one_physical_click_acts_once_even_when_delivered_twice",
+            "mouse::secondary_gesture_tests::a_release_starts_a_new_gesture",
+            "mouse::secondary_gesture_tests::releases_without_a_press_change_nothing"
+        )
+    },
+    @{
         # The front end's own text -- labels, banners, bars -- was looked up by
         # code point while it was stored by glyph index, so every one of them
         # drew whichever glyph carried that number.
