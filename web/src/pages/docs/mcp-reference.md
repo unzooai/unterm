@@ -7,7 +7,7 @@ date: 2026-07-20
 ---
 
 This page explains the JSON-RPC surface exposed by a running Unterm instance.
-The current native `next-core` build exposes 103 authenticated methods plus
+The current native `next-core` build exposes 149 authenticated methods plus
 `auth.login`. The authoritative inventory lives in
 `unterm-agents/src/mcp_meta.rs`, dispatch is in
 `unterm-mcp/src/handler.rs`, and the connection handshake is in
@@ -1416,4 +1416,79 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 | `workspace.restore` | Open new tabs from a saved workspace; supports dry-run planning |
 | `workspace.save` | Snapshot the current set of panes |
 
-That's 103 authenticated methods plus `auth.login`. If you find a method in the codebase that isn't listed here, file an issue — the `MCP_METHODS` table in `unterm-agents/src/mcp_meta.rs`, exposed by `meta.surface` and dispatched in `unterm-mcp/src/handler.rs`, is the source of truth and this page should track it.
+## Governance: providers, capabilities, evidence
+
+Six namespaces added in v0.68. They exist because a terminal an agent drives
+needs answers to questions a terminal has never had to answer before: what
+may this agent reach, who said so, where is it allowed to write, and can
+somebody who was not here check what happened.
+
+### `provider.*` — capabilities in another process
+
+Unterm as a *consumer*: finding a browser (Unzoo), binding it, and using it
+under a lease.
+
+| Method | What it does |
+| --- | --- |
+| `provider.list` | What can be reached, how each stands, how it was found |
+| `provider.bind` | Contact it; the first bind pins who answered |
+| `provider.pause` / `resume` / `unbind` | Stop using it; leases go too |
+| `provider.diagnose` | Handshake, lease, evidence, idempotency, replay — reported per check |
+| `provider.acquire` | Ask for a lease on `browser`, `profile` or `computer` |
+| `provider.call` | Do one thing under a lease. Every use needs its own `seq` |
+| `provider.leases` / `revoke_lease` | The keys handed out, and taking one back |
+| `provider.chain` | Lease → grant → approval → the calls made under it |
+
+Endpoints are **read from what the provider advertised**, never hardcoded —
+a provider that is not running must not be confused with whatever process
+took the port it had last week. A lease carries an `epoch` and a `seq`: a
+repeated sequence number is refused *before* anything is performed, because
+a replay noticed afterwards has already done the thing it was replaying.
+
+### `terminal.*` — Unterm as a governable provider
+
+The mirror. `terminal.manifest` publishes who this terminal is and what it
+can do, with **risk taken from the same table the gateway refuses by** — not
+from `[MUTATION]` tags in tool descriptions, which are prose and drift from
+behaviour. `terminal.accept_lease` checks a lease and never issues one: a
+provider that could issue its own could authorise itself.
+
+`terminal.invoke` is an envelope, not a second execution path — it checks the
+lease and the task context, records the call, and dispatches through the same
+handler every other door uses.
+
+### `agent_session.*` — hosting a CLI agent
+
+`start` / `events` / `submit_input` / `interrupt` / `status` / `close`. Events
+are `session.started`, `output.delta`, `tool.requested`, `tool.completed`,
+`session.exited`. The `task_id` / `run_id` / `step_id` you pass in come back
+on every event untouched — nothing here invents one.
+
+Events are buffered behind a cursor (poll, reconnect where you left off); the
+*ending* is persisted, so "what happened to the agent I started before the
+Core restarted" has an answer.
+
+### `approval.*` — the questions waiting for a person
+
+`approval.list` is readable by anyone. **`approval.decide` refuses every
+caller that arrived over the network** — it is answerable only in Unterm's own
+Settings. This is a deliberation boundary, not a security one: an agent with a
+shell can read the token and run the CLI. What it buys is that an agent asking
+for permission has to stop, and a human has to notice.
+
+### `scope.*` — workspaces that cannot see each other
+
+`create` / `list` / `check` / `archive`. A workspace is a named root; every
+*other* root is denied explicitly, archived ones included. Symlinks, `..`,
+case on a case-folding volume, Windows verbatim and UNC prefixes all resolve
+before anything is compared, and a session that `cd`s out stops being inside.
+
+### `artifact.*`, `audit.verify`, `task.*_evidence`, `system.*`
+
+What tasks produced (content-addressed, deduplicated, reference-counted), a
+hash-chained audit trail whose edits disagree with the next line, evidence
+bundles for somebody who was not there, and the process/snapshot/uninstall
+surface. See the [CLI reference](/docs/cli-reference/) for the shell-level
+versions.
+
+That's 149 authenticated methods plus `auth.login`. If you find a method in the codebase that isn't listed here, file an issue — the `MCP_METHODS` table in `unterm-agents/src/mcp_meta.rs`, exposed by `meta.surface` and dispatched in `unterm-mcp/src/handler.rs`, is the source of truth and this page should track it.

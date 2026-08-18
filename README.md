@@ -8,9 +8,11 @@ Cross-platform terminal (macOS / Linux / Windows) built on Unterm's native
 `next-core` terminal engine, with one design bet: the terminal itself is
 controllable from the outside by any AI agent over MCP. Claude Code, Codex,
 Gemini CLI, Cursor, Aider, your own scripts — they all get the same JSON-RPC
-surface (**103 authenticated methods plus `auth.login`**) to spawn shells, run
+surface (**149 authenticated methods plus `auth.login`**) to spawn shells, run
 commands, read pane state, capture screenshots, change settings, and record
 sessions.
+
+Since v0.68 the terminal is also something an orchestrator can govern rather than merely call: it publishes what it can do and how dangerous each capability is, works under leases that expire and cannot be replayed, keeps agents inside workspaces that cannot see each other, and can hand you an evidence bundle for a task that somebody who was not there can verify.
 
 Since v0.55 the relationship runs both ways: agents drive the terminal from outside, and the terminal is an **Agent Cockpit** for the agents running inside it — live per-pane agent state, a waiting-first Inbox, fleets of N agents on one task in N isolated git worktrees, and a Review page to diff / merge / roll back what they produced.
 
@@ -104,6 +106,18 @@ Run the MSI installer; it places `unterm.exe` in `Program Files\Unterm` and crea
 
 ## What's new
 
+- **v0.68 — A terminal something else can govern.** Unterm now hosts CLI
+  agents as sessions rather than shelling out and waiting for an exit code
+  (`agent_session.*`: what it said, what it asked to run, how it ended,
+  with your own task ids carried through untouched). It can lease a browser
+  from Unzoo and be leased *from* in turn — `terminal.manifest` publishes
+  what this terminal can do and how dangerous each family is, taken from the
+  same table the gateway refuses by. Approvals can finally be answered:
+  Settings shows what an agent is waiting on, with "allow once / for this
+  task / always". Workspaces are roots that cannot see each other, and a
+  shell that `cd`s out stops being inside. The audit trail is hash-chained,
+  so an edit to it disagrees with the next line. `unterm-cli provider |
+  scope | artifact | evidence | system` — 46 new MCP methods (149 total).
 - **v0.57 — Fleet verification loop + new brand mark.** Review now verifies each fleet member automatically (Cargo / Go / npm / pnpm / yarn / Python / Maven / Gradle / .NET inferred, or your own command), ranks members by verification and change size, gates squash-merge on a passing run (audited `force` override), and retries failed members in their existing worktree without losing work — `review.verify` / `fleet.retry` over MCP + CLI. The sidebar gains repository-grouped navigation with always-on fuzzy search. Every logo surface moves to the new command-loop mark.
 - **v0.55 — Agent Cockpit.** The terminal now sees the agents inside it: live per-pane state with tab badges and a cross-window tally, the waiting-first Agent Inbox (`Ctrl+Shift+A`), fleets running one task across N agents in N isolated worktrees, and a Review page with checkpoints, diffs, rollback, and squash-merge. 12 new MCP methods, 3 new CLI families.
 - **v0.54 — 2.8× faster cold start** (~780ms → ~280ms) via five startup-path wins, and no more CPU core burned on Windows output floods (~91% → ~4%); MCP stays responsive mid-flood.
@@ -140,10 +154,17 @@ This README is the short version. The site is the long version.
 - **GPU-accelerated rendering** on all three platforms (Metal / OpenGL / DirectX via ANGLE).
 - **MCP server** on `127.0.0.1:<auto-port>` (default 19876) —
   line-delimited JSON-RPC over TCP, loopback-only and auth-token gated. It
-  exposes 103 authenticated methods plus `auth.login`; `meta.surface` (or
+  exposes 149 authenticated methods plus `auth.login`; `meta.surface` (or
   `unterm-cli reference`) returns the authoritative live inventory in one
   call.
 - **Agent Cockpit** — per-pane agent state, waiting-first Inbox, worktree fleets, checkpoint + review. See the section above.
+- **Governed agent work** — one gateway every door goes through (MCP, CLI,
+  brain, workflow, raw PTY write), capability leases with expiry and replay
+  protection, workspaces that cannot see each other, a hash-chained audit
+  trail, and evidence bundles somebody else can verify. An agent cannot drive
+  a browser around the front door: raw CDP, Playwright, Puppeteer and
+  Selenium are refused inside a managed session, with the supported path
+  named in the refusal.
 - **Web Settings UI** on `127.0.0.1:<auto-port>` (default 19877) — open in any browser via `unterm-cli settings open` or the `Settings (Web)` item in the `▼` menu. Tailwind-styled SPA, supports all 9 languages, keyboard + mouse.
 - **Proxy management** — reads macOS System Preferences / Windows registry /
   GNOME gsettings / proxy environment variables, and falls back to common
@@ -219,6 +240,35 @@ unterm-cli fleet launch --agents claude,codex "task"   # N agents × N worktrees
 unterm-cli fleet list / clean
 unterm-cli review list / diff / merge / discard / rollback
 unterm-cli review open                         # Review page in the browser
+
+# Capability providers — the browser and anything else outside this process
+unterm-cli provider list                       # what can be reached, and what conflicts
+unterm-cli provider bind unzoo                 # contact it; the first bind pins who answered
+unterm-cli provider diagnose unzoo             # handshake, lease, evidence, idempotency, replay
+unterm-cli provider acquire browser --ttl 300  # ask for a lease; answers `waiting` when it is not there
+unterm-cli provider call <lease> tab_list --seq 1 --capability browser
+unterm-cli provider chain <lease>              # lease → grant → approval → the calls made under it
+unterm-cli provider approvals                  # what is waiting on you (answer these in Settings)
+unterm-cli provider pause / resume / unbind / revoke <lease>
+
+# Workspaces — named roots that cannot see each other
+unterm-cli scope create alpha ~/code/alpha
+unterm-cli scope check <workspace> <path> [--access write]
+unterm-cli scope list / archive <workspace>
+
+# What tasks produced, and proving it to somebody who was not there
+unterm-cli artifact list [--task <id>] / usage / verify <id> / forget <id>
+unterm-cli evidence export <task> ./bundle     # the whole story as plain files + hashes
+unterm-cli evidence verify ./bundle            # recomputes; does not take your word for it
+unterm-cli evidence audit                      # walk the audit hash-chain, report the first break
+
+# The processes, and the data behind them
+unterm-cli system status                       # core / gui / mcp, and "can work without a window"
+unterm-cli system diagnostics [--out FILE]     # redacted: versions and health, no tokens or paths
+unterm-cli system snapshot / snapshots / restore <id>
+unterm-cli system upgrade --live X --staged Y --to 0.69.0   # rolls back if the new one does not answer
+unterm-cli system installs                     # every copy on this machine, and which ones fight
+unterm-cli system uninstall-plan [--remove-data]            # describes; never removes
 
 # Sessions / panes
 unterm-cli session list                        # list panes in active/latest instance

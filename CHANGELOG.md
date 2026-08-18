@@ -1,5 +1,104 @@
 # Changelog
 
+## v0.68.0 — 2026-08-18
+
+### Added
+
+- **A terminal an agent can be hosted in, rather than shouted at.**
+  `agent_session.*` runs a CLI agent — Codex, Claude — and turns what it
+  does into events: what it said, what it was thinking, which tool it
+  asked for, how it ended. Before this the only way to know what an
+  agent was doing was to parse the terminal, which meant screen-scraping
+  a program that was already printing structured JSON. The identifiers
+  you pass in come back on every event untouched; nothing here invents
+  one, because an id we made up would correlate with nothing on your
+  side and look like it did.
+
+- **Capabilities that live in another process, used under a key you can
+  take back.** Unterm can now find, bind and drive a browser — Unzoo —
+  through leases with an expiry, an epoch and a sequence number. A
+  recorded exchange cannot be replayed: a repeated number is refused
+  before anything is performed, because a replay noticed afterwards has
+  already done the thing it was replaying. Every call leaves evidence:
+  a hash of what was asked and what came back, not the payloads, which
+  can be a page of your mail.
+
+- **Approvals somebody can actually answer.** The gateway has been able
+  to ask since 0.62; nothing could answer, so a destructive request from
+  an agent sat there until it expired — a refusal with a five-minute
+  delay wearing an approval's clothes. Settings now shows what is
+  waiting, with "allow once", "allow for this task" and "always". Agents
+  can see the queue and cannot empty it.
+
+- **Workspaces that cannot see each other.** A named root, and every
+  other root explicitly denied — including archived ones, because
+  "nobody works there any more" is not a reason to let a different
+  workspace in. Symlinks, `..`, case on a case-folding volume, Windows verbatim
+  and UNC prefixes all resolve before anything is compared. A shell that
+  `cd`s out stops being inside: the judgement is remade on every call,
+  not remembered from when the session started.
+
+- **An audit trail that shows edits.** Every entry carries its own hash
+  and the previous one's, so changing a line makes the next line
+  disagree. This does not make the trail unalterable — it is a file —
+  it makes alteration visible, which is the honest property a local log
+  can offer.
+
+- **Evidence bundles.** One task's whole story as plain files with a
+  manifest of hashes, for somebody who was not there and has no reason
+  to take your word for it. `unterm-cli evidence export` and `verify`.
+
+- **Diagnostics you can send without sending your life.** Versions,
+  process health, counts. No tokens, no prompts, no commands, no paths —
+  the bundle is built by naming what goes in, so a field nobody thought
+  about is absent rather than leaked.
+
+- **`unterm-cli system`** — what is running, whether it can work without
+  a window, data snapshots, and an uninstall that describes what it
+  would remove before removing anything.
+
+### Changed
+
+- **Waking from sleep re-checks the world.** No platform API involved: a
+  monotonic clock does not advance while suspended and a wall clock
+  does, so a large gap between them is how long the machine was away.
+  Providers are re-found and leases that lapsed overnight are reported —
+  "your agent's permission ran out at 3am" is a different sentence from
+  "your agent stopped working".
+
+- **The Core hears the machine ask it to stop.** SIGTERM on macOS and
+  Linux, a console control event on Windows. It writes down that it is
+  going and why, drops its discovery record so nothing connects to a
+  corpse, and leaves. Trying to finish work in those seconds is how a
+  process gets killed halfway through finishing it.
+
+- **Upgrades can be taken back.** Snapshot the data, stage beside the
+  old binary, swap, run the new one, and put *both* back if it does not
+  answer. Verified with real binaries on Linux: a broken upgrade leaves
+  the working program and the untouched data.
+
+### Fixed
+
+- **Interrupting an agent now reaches what the agent started.** The
+  grace period was measured against the agent itself, and a shell dies
+  on SIGINT while the background job it launched ignores it — POSIX
+  requires exactly that — so the interrupt reported success at the
+  moment the survivors were orphaned. It is measured against the whole
+  process group now.
+
+- **A model can no longer drive a browser around the front door.**
+  Raw CDP, Playwright, Puppeteer, Selenium and browsers started with
+  automation flags are refused inside a managed agent session, with the
+  supported path named in the refusal. A development workspace can be
+  given an exception; it is a grant, so it has a clock on it and shows
+  up in the trail when used.
+
+- **149 methods, and every one of them classified.** A contract test now
+  fails the build if a published method has no entry in the risk
+  registry — previously only the 103 frozen at 0.66.0 were checked, so
+  anything added after that was outside the net.
+
+
 ## v0.67.0 — 2026-08-15
 
 ### Fixed

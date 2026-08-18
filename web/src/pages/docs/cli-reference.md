@@ -1456,6 +1456,146 @@ fi
 
 If you need machine-readable failure detail, use `--json` and inspect the resulting `error` field — but note that today the CLI translates JSON-RPC errors to `anyhow` errors before printing, so `--json` only formats the *success* result. For raw protocol-level errors, talk to MCP directly with the netcat / Python pattern above. That's the escape hatch when the CLI's surface isn't quite enough.
 
+## provider
+
+Capabilities that live in another process — today that means a browser
+(Unzoo). Unterm finds it, binds it, and uses it under a lease you can take
+back.
+
+```bash
+unterm-cli provider list [--rediscover]
+unterm-cli provider bind unzoo
+unterm-cli provider diagnose unzoo
+unterm-cli provider acquire browser --actor claude --ttl 300
+unterm-cli provider call <lease> tab_list --seq 1 --capability browser
+unterm-cli provider leases [--live]
+unterm-cli provider chain <lease>
+unterm-cli provider approvals
+unterm-cli provider pause|resume|unbind <provider>
+unterm-cli provider revoke <lease>
+```
+
+`list` prints how each provider was found — `unzoo:rest-port`,
+`descriptor:…`, `environment:UNTERM_PROVIDER_…` — because "why is it pointing
+there" is the question you have when it points somewhere wrong. Nothing in
+Unterm hardcodes a port; a provider that is not running is reported as
+unreachable rather than confused with whatever process took its old one.
+
+Every use of a lease needs its own `--seq`, higher than the last. A repeated
+number is refused before anything happens: a replay noticed afterwards has
+already done the thing it was replaying.
+
+`chain` is the one to reach for after the fact — it prints the lease, the
+grant that authorised it, the approval a human answered, and every call made
+under it with response hashes.
+
+`approvals` lists what is waiting. It cannot answer them: that happens in
+Settings, deliberately, because an agent that could answer its own request
+would never have to stop.
+
+## scope
+
+Workspaces: named roots that work is confined to, and that cannot see each
+other.
+
+```bash
+unterm-cli scope create alpha ~/code/alpha
+unterm-cli scope list
+unterm-cli scope check <workspace> <path> [--access read|write]
+unterm-cli scope archive <workspace>
+```
+
+`check` prints the **resolved** path as well as the verdict — that is what
+the decision was actually made about, and it is rarely what you typed.
+Symlinks, `..`, case on a case-folding volume, and Windows verbatim / UNC
+prefixes are all resolved first. Creating a workspace inside another is
+refused at creation, naming the one it would sit inside: an outer allow and
+an inner deny describe the same files.
+
+Exit status is non-zero when a path is denied, so this composes in scripts.
+
+## artifact
+
+What tasks produced, addressed by content.
+
+```bash
+unterm-cli artifact list [--task <id>]
+unterm-cli artifact usage
+unterm-cli artifact verify <id>
+unterm-cli artifact forget <id>
+```
+
+Bytes live on disk under `~/.unterm/artifacts/sha256/`, never in the
+database — a SQLite file with a screen recording in it is one nobody can
+copy, back up or open. `usage` reports what deduplication saved. `verify`
+recomputes the hash rather than trusting the index. `forget` is
+reference-counted: the bytes go only when the last row mentioning them does.
+
+## evidence
+
+One task's whole story, for somebody who was not there.
+
+```bash
+unterm-cli evidence export <task-id> ./bundle
+unterm-cli evidence verify ./bundle
+unterm-cli evidence audit
+```
+
+A bundle is plain files plus a manifest of hashes — the task, its runs and
+steps, the leases used and the authorisation behind each, every provider call
+with request/response hashes, the artifacts, and the slice of the audit trail
+that names this task. Nothing from any other task: a bundle is handed to
+somebody, and a stray row from unrelated work is a leak.
+
+`verify` recomputes. Two exports of an unchanged task carry the same record
+hash, so "has this been edited" is answerable.
+
+`audit` walks the hash-chain of the local action log and reports the first
+break. Worth being precise about what that buys: the chain makes an edit
+*visible*, not impossible. It is a file, and whoever can read it can edit it;
+somebody who rewrites everything from the edit onwards leaves a chain that
+verifies. The defence against that is a copy somewhere else.
+
+## system
+
+The processes Unterm is made of, and the data behind them.
+
+```bash
+unterm-cli system status
+unterm-cli system diagnostics [--out FILE]
+unterm-cli system snapshot [--version V] / snapshots / restore <id>
+unterm-cli system upgrade --live PATH --staged PATH --to VERSION
+unterm-cli system installs
+unterm-cli system uninstall-plan [--remove-data]
+unterm-cli system uninstall [--remove-data] [--yes]
+unterm-cli system reconcile
+```
+
+`status` distinguishes alive from usable — a Core still replaying scrollback
+is `starting`, not `ready` — and answers the question people actually have:
+*can work happen without a window?*
+
+`diagnostics` is safe to send. It is built by naming what goes in, so a field
+nobody thought about is absent rather than leaked: versions, process health,
+counts. No tokens, no prompts, no commands, and paths only as shapes
+(`<path with 7 components>`).
+
+`upgrade` swaps a staged binary in, runs it, and puts **both** the program
+and the data back if it does not answer. Rolling back is itself snapshotted,
+because somebody who rolls back by mistake has to be able to roll forward.
+
+`uninstall-plan` describes and never removes; `uninstall` requires `--yes`
+and keeps your data unless you ask otherwise. The plan says what each thing
+is — "tasks.db — every task, run, step, approval and lease" — because "delete
+my data?" is answerable only if the answer says what the data is.
+
+## agent_session (MCP only)
+
+Hosting a CLI agent as a session with structured events is currently an MCP
+surface rather than a CLI one: `agent_session.start` / `events` /
+`submit_input` / `interrupt` / `status` / `close`. See the
+[MCP reference](/docs/mcp-reference/#governance-providers-capabilities-evidence).
+
 ---
 
 Source for everything described here lives at [github.com/zhitongblog/unterm](https://github.com/zhitongblog/unterm) under `unterm-cli/src/`. Open issues / PRs there if a method exists on MCP that you'd like surfaced as a first-class CLI subcommand.
