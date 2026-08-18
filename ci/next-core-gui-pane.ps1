@@ -295,11 +295,18 @@ $Suites = @(
         Name = "app shell"
         Package = "unterm-app"
         Filter = "window::tests::"
-        ExpectedCount = 15
+        # 16 since 0.67 added the startup-sizing test below. This number is
+        # meant to be edited by whoever adds a test here — that is the whole
+        # mechanism, and it is why a test quietly disappearing is caught.
+        ExpectedCount = 16
         RequiredTests = @(
             @(
                 "window::tests::a_wide_glyph_copies_without_its_spacer_cell",
                 "window::tests::the_configured_shell_is_used",
+                # The startup path and every later measurement must size the
+                # terminal, not the window: getting this wrong drew a TUI past
+                # the right edge until the user maximised.
+                "window::tests::the_first_pane_is_measured_against_the_terminal_not_the_whole_window",
                 "window::tests::a_shell_can_carry_its_arguments",
                 "window::tests::cycling_forward_from_the_last_tab_wraps_to_the_first",
                 "window::tests::cycling_back_from_the_first_tab_wraps_to_the_last",
