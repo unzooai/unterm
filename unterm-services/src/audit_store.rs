@@ -237,18 +237,86 @@ fn verify_chain_in(dir: &Path) -> ChainReport {
 /// Read from the file rather than kept in memory: two processes appending —
 /// the Core and a GUI that has not migrated — must not both think they are
 /// entry seventeen.
+///
+/// **Only the last line.** The first version of this called `recent_in`,
+/// which reads every audit file for the day and JSON-parses every line, to
+/// then use exactly one of them. That is linear work per append and
+/// quadratic over a session: 0.36 ms at five hundred entries, 3.75 ms at four
+/// thousand, still climbing. An agent session writes an entry per event, so
+/// a couple of busy panes walked the terminal into a stall it never came out
+/// of. Seek to the end and read backwards instead.
 fn tip(dir: &Path) -> (i64, Option<String>) {
-    let entries = recent_in(dir, 1);
-    match entries.last() {
-        Some(entry) => (
-            entry.get("seq").and_then(|value| value.as_i64()).unwrap_or(-1) + 1,
-            entry
-                .get("sha256")
-                .and_then(|value| value.as_str())
-                .map(str::to_string),
-        ),
-        None => (0, None),
+    let Some(entry) = last_entry(dir) else {
+        return (0, None);
+    };
+    (
+        entry.get("seq").and_then(|value| value.as_i64()).unwrap_or(-1) + 1,
+        entry
+            .get("sha256")
+            .and_then(|value| value.as_str())
+            .map(str::to_string),
+    )
+}
+
+/// The newest entry, without reading what came before it.
+fn last_entry(dir: &Path) -> Option<serde_json::Value> {
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return None;
+    };
+    let mut files: Vec<PathBuf> = read
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| is_audit_file(path))
+        .collect();
+    files.sort();
+    // Newest first, and keep going: the newest file can be empty — a fresh
+    // day whose first entry is the one being written — and the chain
+    // continues across days.
+    for path in files.iter().rev() {
+        if let Some(entry) = last_line_of(path).and_then(|line| serde_json::from_str(&line).ok()) {
+            return Some(entry);
+        }
     }
+    None
+}
+
+/// The last non-empty line of a file, read from the end.
+fn last_line_of(path: &Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let length = file.metadata().ok()?.len();
+    if length == 0 {
+        return None;
+    }
+    // Enough for one entry in a single read; the loop handles the rest, and
+    // an entry longer than this is a command preview, not the common case.
+    const CHUNK: u64 = 8 * 1024;
+    let mut end = length;
+    let mut tail: Vec<u8> = Vec::new();
+    while end > 0 {
+        let start = end.saturating_sub(CHUNK);
+        let size = (end - start) as usize;
+        let mut buffer = vec![0u8; size];
+        file.seek(SeekFrom::Start(start)).ok()?;
+        file.read_exact(&mut buffer).ok()?;
+        buffer.extend_from_slice(&tail);
+        tail = buffer;
+        // A trailing newline belongs to the last entry, not to an empty one
+        // after it.
+        let trimmed = tail
+            .iter()
+            .rposition(|byte| *byte != b'\n')
+            .map(|last| &tail[..=last])?;
+        if let Some(position) = trimmed.iter().rposition(|byte| *byte == b'\n') {
+            return String::from_utf8(trimmed[position + 1..].to_vec()).ok();
+        }
+        if start == 0 {
+            // The whole file is one line.
+            return String::from_utf8(trimmed.to_vec()).ok();
+        }
+        end = start;
+    }
+    None
 }
 
 fn append_in(dir: &Path, date: chrono::NaiveDate, entry: &serde_json::Value) -> anyhow::Result<()> {
@@ -528,6 +596,71 @@ mod tests {
         let one: serde_json::Value = serde_json::from_str(r#"{"a":1,"b":{"c":2,"d":3}}"#).unwrap();
         let two: serde_json::Value = serde_json::from_str(r#"{"b":{"d":3,"c":2},"a":1}"#).unwrap();
         assert_eq!(entry_hash(&one), entry_hash(&two));
+    }
+
+
+    #[test]
+    fn appending_does_not_get_slower_as_the_log_grows() {
+        // The regression this exists for: `tip` used to read every entry of
+        // the day and JSON-parse it, to use one. Linear per append, quadratic
+        // over a session — and an agent session writes an entry per event, so
+        // a couple of busy panes walked the terminal into a stall.
+        //
+        // Timing in a test is usually a bad idea. Here the thing being
+        // asserted *is* a complexity class, and the ratio between two sizes
+        // is what shows it; the margin is wide enough that a loaded machine
+        // does not decide the outcome.
+        let dir = tempfile::tempdir().unwrap();
+        let day = date("2026-01-01");
+        let entry = json!({"method": "session.input", "actor": "codex"});
+
+        let mut time_for = |count: usize| {
+            let start = std::time::Instant::now();
+            for _ in 0..count {
+                append_in(dir.path(), day, &entry).unwrap();
+            }
+            start.elapsed().as_secs_f64() / count as f64
+        };
+
+        let early = time_for(200);
+        // Get well past the point where re-reading everything would hurt.
+        time_for(3_000);
+        let late = time_for(200);
+
+        assert!(
+            late < early * 5.0,
+            "appending got {:.1}x slower as the log grew — the tip is reading \
+             more than the last line again ({early:.6}s then {late:.6}s)",
+            late / early
+        );
+    }
+
+    #[test]
+    fn the_last_entry_is_found_across_an_empty_newer_file() {
+        // Midnight: today's file exists and is empty because its first entry
+        // is the one being written. The chain has to continue from
+        // yesterday's rather than restart at zero.
+        let dir = tempfile::tempdir().unwrap();
+        append_in(dir.path(), date("2026-01-01"), &json!({"n": 1})).unwrap();
+        std::fs::write(dir.path().join(file_name(date("2026-01-02"))), "").unwrap();
+
+        append_in(dir.path(), date("2026-01-02"), &json!({"n": 2})).unwrap();
+        let all = recent_in(dir.path(), 10);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[1]["seq"], 1, "the sequence restarted across a day");
+        assert_eq!(all[1]["prev_sha256"], all[0]["sha256"]);
+        assert!(verify_chain_in(dir.path()).intact);
+    }
+
+    #[test]
+    fn a_single_line_file_has_a_last_line() {
+        // The read-backwards loop has to terminate when there is no newline
+        // before the entry — the first append of a day.
+        let dir = tempfile::tempdir().unwrap();
+        append_in(dir.path(), date("2026-01-01"), &json!({"only": true})).unwrap();
+        let (seq, previous) = tip(dir.path());
+        assert_eq!(seq, 1);
+        assert!(previous.is_some());
     }
 
     #[cfg(unix)]
