@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.68.1 — 2026-08-19
+
+Two fixes for the same complaint: several agent tabs open, content stops
+appearing, then the terminal stops responding. Both are 0.68 regressions.
+
+### Fixed
+
+- **Every audit line re-read the whole day's log.** The hash chain added in
+  0.68 needs the previous entry's hash, and it got it by reading and parsing
+  every entry written that day — to use one of them. Linear per write,
+  quadratic over a session: 0.36 ms per append at five hundred entries,
+  3.75 ms at four thousand, still climbing. An agent session writes an entry
+  per event, so a couple of busy panes walk the terminal into a stall it does
+  not come out of. It now reads back one line: **0.09 ms, flat**.
+
+- **The Agent Cockpit asked every pane for its whole screen four hundred
+  milliseconds apart** — 4800 cells with colours and attributes, of which it
+  kept the characters and discarded the rest. At forty panes that poll cost
+  **8.9 seconds** against a 400 ms budget, which is not a slow window but a
+  window that never finishes a frame. It now asks for the eight lines it
+  actually reads: **67 ms**, and a pane nobody typed in costs an empty
+  envelope. 133× faster, and the worst case — every pane writing at once —
+  costs the same as idle.
+
+If you saw blank panes rather than a hang, that was the same starvation from
+the front: the main thread had no time left to paint.
+
+
 ## v0.68.0 — 2026-08-18
 
 ### Added

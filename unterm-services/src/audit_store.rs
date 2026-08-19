@@ -614,7 +614,7 @@ mod tests {
         let day = date("2026-01-01");
         let entry = json!({"method": "session.input", "actor": "codex"});
 
-        let mut time_for = |count: usize| {
+        let time_for = |count: usize| {
             let start = std::time::Instant::now();
             for _ in 0..count {
                 append_in(dir.path(), day, &entry).unwrap();

@@ -29,7 +29,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.68.0"
+version = "0.68.1"
 
 [profile.release]
 opt-level = 3

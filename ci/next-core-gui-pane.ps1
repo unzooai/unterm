@@ -379,16 +379,28 @@ $Suites = @(
         Name = "window capture"
         Package = "unterm-services"
         Filter = "window_capture::tests::"
-        ExpectedCount = 11
+        # Four of these photograph a window through an API only Windows has,
+        # and are `#[cfg(windows)]`. Gating them here as well is what lets
+        # this whole script run on a developer's machine — a gate that only
+        # CI can run is a gate nobody runs before pushing, which is how the
+        # pane-count check sat red for twenty-odd builds.
+        ExpectedCount = $(if ($env:OS -eq "Windows_NT") { 11 } else { 7 })
         RequiredTests = @(
-            "window_capture::tests::a_capture_has_to_say_which_window",
-            "window_capture::tests::a_blank_bitmap_is_not_mistaken_for_a_picture",
-            "window_capture::tests::a_process_with_no_window_is_told_so_rather_than_handed_one",
-            "window_capture::tests::a_region_is_the_same_whichever_way_it_was_dragged",
-            "window_capture::tests::a_click_is_not_a_region",
-            "window_capture::tests::a_region_on_a_monitor_left_of_the_first_keeps_its_position",
-            "window_capture::tests::cropping_keeps_the_requested_rows_and_columns",
-            "window_capture::tests::cropping_refuses_a_rectangle_past_the_source_edge"
+            @(
+                "window_capture::tests::a_capture_has_to_say_which_window",
+                "window_capture::tests::a_region_is_the_same_whichever_way_it_was_dragged",
+                "window_capture::tests::a_click_is_not_a_region",
+                "window_capture::tests::a_region_on_a_monitor_left_of_the_first_keeps_its_position",
+                "window_capture::tests::cropping_keeps_the_requested_rows_and_columns",
+                "window_capture::tests::cropping_refuses_a_rectangle_past_the_source_edge"
+            ) + $(if ($env:OS -eq "Windows_NT") {
+                @(
+                    "window_capture::tests::a_blank_bitmap_is_not_mistaken_for_a_picture",
+                    "window_capture::tests::a_process_with_no_window_is_told_so_rather_than_handed_one",
+                    "window_capture::tests::nothing_is_content_when_there_are_no_pixels",
+                    "window_capture::tests::transparency_alone_does_not_count_as_content"
+                )
+            } else { @() })
         )
     },
     @{
@@ -677,7 +689,10 @@ $Suites = @(
         Name = "directory picker"
         Package = "unterm-app"
         Filter = "directory::tests::"
-        ExpectedCount = 8
+        # Three numbers because the suite is three sizes: some tests are
+        # `cfg(not(windows))` and one more is `cfg(all(unix, not(macos)))`.
+        # Windows keeps the number CI has always passed with.
+        ExpectedCount = $(if ($env:OS -eq "Windows_NT") { 8 } elseif ($IsMacOS) { 12 } else { 13 })
         RequiredTests = @(
             "directory::tests::the_folders_are_listed_and_the_files_are_not",
             "directory::tests::a_folder_row_descends_into_it",
@@ -837,15 +852,26 @@ $Suites = @(
         Name = "interrupt"
         Package = "unterm-services"
         Filter = "interrupt::tests::"
-        ExpectedCount = 10
+        # Most of these raise a console control event, which only Windows
+        # has; the rest are the pty story and hold everywhere.
+        ExpectedCount = $(if ($env:OS -eq "Windows_NT") { 11 } else { 3 })
         RequiredTests = @(
-            "interrupt::tests::a_process_with_its_own_console_does_not_give_it_up",
-            "interrupt::tests::the_console_mode_probe_leaves_our_console_alone_too",
-            "interrupt::tests::a_shell_at_its_prompt_is_never_stopped",
-            "interrupt::tests::a_program_reading_keys_is_left_alone",
-            "interrupt::tests::the_parent_process_is_never_interrupted_by_accident",
-            "interrupt::tests::a_process_that_is_gone_is_reported_rather_than_silently_ignored",
-            "interrupt::tests::raising_an_interrupt_repeatedly_does_not_end_us"
+            @(
+                "interrupt::tests::the_interrupt_byte_is_what_a_terminal_sends",
+                "interrupt::tests::a_pty_needs_nothing_beyond_the_byte",
+                "interrupt::tests::a_shell_at_its_prompt_is_never_stopped"
+            ) + $(if ($env:OS -eq "Windows_NT") {
+                @(
+                    "interrupt::tests::a_process_that_is_gone_is_reported_rather_than_silently_ignored",
+                    "interrupt::tests::the_parent_process_is_never_interrupted_by_accident",
+                    "interrupt::tests::interrupting_a_real_child_reaches_it",
+                    "interrupt::tests::the_console_mode_probe_leaves_our_console_alone_too",
+                    "interrupt::tests::a_process_with_its_own_console_does_not_give_it_up",
+                    "interrupt::tests::raising_an_interrupt_repeatedly_does_not_end_us",
+                    "interrupt::tests::a_program_reading_keys_is_left_alone",
+                    "interrupt::tests::a_running_command_actually_stops"
+                )
+            } else { @() })
         )
     },
     @{
@@ -1226,9 +1252,12 @@ $Suites = @(
         Name = "top bar layout"
         Package = "unterm-app"
         Filter = "topbar::tests::"
-        ExpectedCount = 13
+        # macOS puts traffic lights where the other two put window
+        # buttons, so the button test is `cfg(not(macos))` — and the
+        # traffic-light test beside it is the macOS half of the pair.
+        ExpectedCount = $(if ($IsMacOS) { 12 } else { 13 })
         RequiredTests = @(
-            "topbar::tests::the_window_buttons_survive_every_width",
+            $(if (-not $IsMacOS) { "topbar::tests::the_window_buttons_survive_every_width" })
             "topbar::tests::no_two_pieces_overlap",
             "topbar::tests::the_essential_actions_are_never_dropped",
             "topbar::tests::things_drop_in_the_order_they_were_given",
@@ -1272,10 +1301,12 @@ $Suites = @(
         Name = "process stats"
         Package = "unterm-services"
         Filter = "process_stats::"
-        ExpectedCount = 10
+        ExpectedCount = $(if ($env:OS -eq "Windows_NT") { 10 } else { 9 })
         RequiredTests = @(
             "process_stats::tests::this_process_can_be_sampled",
-            "process_stats::tests::cpu_is_measured_between_two_readings",
+            # A second CPU sample comes from a Windows API; elsewhere the
+            # reading is taken a different way and this test is not built.
+            $(if ($env:OS -eq "Windows_NT") { "process_stats::tests::cpu_is_measured_between_two_readings" })
             "process_stats::tests::a_process_that_is_not_there_reports_nothing",
             "process_stats::tests::the_cached_reader_never_blocks",
             "process_stats::tests::a_duration_is_written_at_one_unit_of_precision",
