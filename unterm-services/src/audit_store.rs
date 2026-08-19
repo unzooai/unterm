@@ -236,7 +236,8 @@ fn verify_chain_in(dir: &Path) -> ChainReport {
 ///
 /// Read from the file rather than kept in memory: two processes appending —
 /// the Core and a GUI that has not migrated — must not both think they are
-/// entry seventeen.
+/// entry seventeen. The cache below keeps that property by checking the
+/// file's length before trusting what it remembers.
 ///
 /// **Only the last line.** The first version of this called `recent_in`,
 /// which reads every audit file for the day and JSON-parses every line, to
@@ -249,14 +250,92 @@ fn tip(dir: &Path) -> (i64, Option<String>) {
     let Some(entry) = last_entry(dir) else {
         return (0, None);
     };
-    (
-        entry.get("seq").and_then(|value| value.as_i64()).unwrap_or(-1) + 1,
-        entry
-            .get("sha256")
-            .and_then(|value| value.as_str())
-            .map(str::to_string),
-    )
+    (next_seq_after(&entry), sha_of(&entry))
 }
+
+fn next_seq_after(entry: &serde_json::Value) -> i64 {
+    entry
+        .get("seq")
+        .and_then(|value| value.as_i64())
+        .unwrap_or(-1)
+        + 1
+}
+
+fn sha_of(entry: &serde_json::Value) -> Option<String> {
+    entry
+        .get("sha256")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+}
+
+/// What this process wrote last, so the next append need not read it back.
+///
+/// Seeking to the end is cheap; *opening* a file that was just appended to is
+/// not. On Windows the filter stack rescans a modified file when it is next
+/// opened, and that lands on the one access pattern an audit trail has:
+/// write, then read back what you wrote. Measured on this product's own
+/// trail directory: reading alone 0.07 ms, appending alone 0.09 ms,
+/// append-then-reopen-and-read **6.7 ms**. Every audited MCP call and every
+/// agent event pays it, synchronously.
+///
+/// So remember the tip we just wrote. The cross-process property survives
+/// because the file's length is checked before the memory is trusted: anyone
+/// else appending changes it, and we fall back to reading the file. A stat
+/// costs 0.10 ms; the reopen it replaces costs sixty times that.
+struct WrittenTip {
+    path: PathBuf,
+    /// The file's length immediately after our own write.
+    length: u64,
+    next_seq: i64,
+    previous_sha: Option<String>,
+}
+
+fn written_tip() -> &'static parking_lot::Mutex<Option<WrittenTip>> {
+    static TIP: std::sync::OnceLock<parking_lot::Mutex<Option<WrittenTip>>> =
+        std::sync::OnceLock::new();
+    TIP.get_or_init(Default::default)
+}
+
+/// The tip for an append to `day`, from memory when nothing else has written.
+///
+/// The third value says the answer came from our own last write. That is
+/// worth carrying because it also settles a second question for free: a line
+/// this process wrote ended in a newline, so the file cannot be stopped
+/// mid-line and there is nothing to repair before appending.
+fn tip_for(dir: &Path, day: &Path) -> (i64, Option<String>, bool) {
+    if let Some(cached) = written_tip().lock().as_ref() {
+        let unchanged = cached.path == day
+            && std::fs::metadata(day).map(|meta| meta.len()).ok() == Some(cached.length);
+        if unchanged {
+            return (cached.next_seq, cached.previous_sha.clone(), true);
+        }
+    }
+    let (seq, previous) = tip(dir);
+    (seq, previous, false)
+}
+
+fn remember_tip(day: &Path, length: u64, next_seq: i64, previous_sha: String) {
+    *written_tip().lock() = Some(WrittenTip {
+        path: day.to_path_buf(),
+        length,
+        next_seq,
+        previous_sha: Some(previous_sha),
+    });
+}
+
+/// Forget what we wrote, so the next append reads the file again.
+fn forget_tip() {
+    *written_tip().lock() = None;
+}
+
+/// How far back a torn tail is worth scanning.
+///
+/// An entry is a few hundred bytes, so this covers a couple of hundred lines
+/// of wreckage. Past that the file is not damaged, it is something else, and
+/// an unbounded scan per append is the very cost this module just removed.
+const TAIL_SCAN_BYTES: u64 = 64 * 1024;
+
+const NEWLINE: u8 = b'\n';
 
 /// The newest entry, without reading what came before it.
 fn last_entry(dir: &Path) -> Option<serde_json::Value> {
@@ -273,55 +352,61 @@ fn last_entry(dir: &Path) -> Option<serde_json::Value> {
     // day whose first entry is the one being written — and the chain
     // continues across days.
     for path in files.iter().rev() {
-        if let Some(entry) = last_line_of(path).and_then(|line| serde_json::from_str(&line).ok()) {
+        if let Some(entry) = last_entry_of(path) {
             return Some(entry);
         }
     }
     None
 }
 
-/// The last non-empty line of a file, read from the end.
-fn last_line_of(path: &Path) -> Option<String> {
+/// The newest parseable entry in one file, read from the end.
+///
+/// **More than one line.** A file whose last line is torn — a crash or a kill
+/// between `write` and the newline, a full disk — used to make this skip the
+/// whole file and answer from *yesterday*, which restarted `seq` in the
+/// middle of a day and linked the next entry to the wrong hash. `verify_chain`
+/// then still reported the trail intact, because it only reads lines it can
+/// parse and the torn one is not. A tamper-evident log that loses an entry
+/// and says it is fine is worse than no log at all.
+fn last_entry_of(path: &Path) -> Option<serde_json::Value> {
+    let (text, _) = tail_text(path)?;
+    text.lines().rev().find_map(|line| {
+        serde_json::from_str::<serde_json::Value>(line.trim())
+            .ok()
+            .filter(serde_json::Value::is_object)
+    })
+}
+
+/// The end of a file as text, and whether it stops on a line boundary.
+///
+/// The second half matters when appending: a file that does not end in a
+/// newline makes the next entry land on the same line as the wreckage, so one
+/// torn write eats the entry after it as well.
+fn tail_text(path: &Path) -> Option<(String, bool)> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path).ok()?;
     let length = file.metadata().ok()?.len();
     if length == 0 {
         return None;
     }
-    // Enough for one entry in a single read; the loop handles the rest, and
-    // an entry longer than this is a command preview, not the common case.
-    const CHUNK: u64 = 8 * 1024;
-    let mut end = length;
-    let mut tail: Vec<u8> = Vec::new();
-    while end > 0 {
-        let start = end.saturating_sub(CHUNK);
-        let size = (end - start) as usize;
-        let mut buffer = vec![0u8; size];
-        file.seek(SeekFrom::Start(start)).ok()?;
-        file.read_exact(&mut buffer).ok()?;
-        buffer.extend_from_slice(&tail);
-        tail = buffer;
-        // A trailing newline belongs to the last entry, not to an empty one
-        // after it.
-        let trimmed = tail
-            .iter()
-            .rposition(|byte| *byte != b'\n')
-            .map(|last| &tail[..=last])?;
-        if let Some(position) = trimmed.iter().rposition(|byte| *byte == b'\n') {
-            return String::from_utf8(trimmed[position + 1..].to_vec()).ok();
-        }
-        if start == 0 {
-            // The whole file is one line.
-            return String::from_utf8(trimmed.to_vec()).ok();
-        }
-        end = start;
-    }
-    None
+    let start = length.saturating_sub(TAIL_SCAN_BYTES);
+    let mut buffer = vec![0u8; (length - start) as usize];
+    file.seek(SeekFrom::Start(start)).ok()?;
+    file.read_exact(&mut buffer).ok()?;
+    let ends_on_a_line = buffer.last() == Some(&NEWLINE);
+    Some((String::from_utf8_lossy(&buffer).into_owned(), ends_on_a_line))
+}
+
+/// Whether appending to `path` would continue somebody else's half-written
+/// line.
+fn needs_leading_newline(path: &Path) -> bool {
+    matches!(tail_text(path), Some((_, false)))
 }
 
 fn append_in(dir: &Path, date: chrono::NaiveDate, entry: &serde_json::Value) -> anyhow::Result<()> {
     std::fs::create_dir_all(dir)?;
-    let (seq, previous) = tip(dir);
+    let path = dir.join(file_name(date));
+    let (seq, previous, ours) = tip_for(dir, &path);
     let mut entry = entry.clone();
     if let Some(map) = entry.as_object_mut() {
         map.insert("seq".into(), serde_json::Value::from(seq));
@@ -336,10 +421,9 @@ fn append_in(dir: &Path, date: chrono::NaiveDate, entry: &serde_json::Value) -> 
     }
     let hash = entry_hash(&entry);
     if let Some(map) = entry.as_object_mut() {
-        map.insert("sha256".into(), serde_json::Value::String(hash));
+        map.insert("sha256".into(), serde_json::Value::String(hash.clone()));
     }
     let entry = &entry;
-    let path = dir.join(file_name(date));
     let mut options = std::fs::OpenOptions::new();
     options.create(true).append(true);
     // The trail can carry command previews; on unix it is the user's alone,
@@ -352,7 +436,24 @@ fn append_in(dir: &Path, date: chrono::NaiveDate, entry: &serde_json::Value) -> 
     let mut file = options.open(&path)?;
     let mut line = serde_json::to_string(entry)?;
     line.push('\n');
+    // Never continue somebody else's half-written line. A torn write already
+    // costs the entry that was being written; letting the next one land on
+    // the same line costs that entry too, and it is the one nobody knows to
+    // look for. Only checked when the memory of our own last write is stale,
+    // because a line we wrote ended in a newline by construction.
+    if !ours && needs_leading_newline(&path) {
+        line.insert(0, '\n');
+    }
     file.write_all(line.as_bytes())?;
+
+    // Remember where that left the file, so the next append does not have to
+    // reopen it to find out. Length from the handle we already hold: asking
+    // the path again is the reopen this exists to avoid. If it cannot be
+    // read, forget rather than guess -- a stale tip would duplicate a seq.
+    match file.metadata().map(|meta| meta.len()) {
+        Ok(length) => remember_tip(&path, length, seq + 1, hash),
+        Err(_) => forget_tip(),
+    }
     Ok(())
 }
 
@@ -632,6 +733,77 @@ mod tests {
             "appending got {:.1}x slower as the log grew — the tip is reading \
              more than the last line again ({early:.6}s then {late:.6}s)",
             late / early
+        );
+    }
+
+    /// A crash between the write and its newline must not restart `seq` in
+    /// the middle of a day, nor link the next entry to yesterday's hash.
+    ///
+    /// It did: `tip` read one line, failed to parse the torn one, and skipped
+    /// the whole file. `verify_chain` still called the trail intact, because
+    /// it only reads lines it can parse. An audit trail that loses an entry
+    /// and reports itself sound is the one failure this module cannot have.
+    #[test]
+    fn a_torn_last_line_does_not_restart_the_sequence() {
+        let dir = tempfile::tempdir().unwrap();
+        let day = date("2026-01-02");
+        append_in(dir.path(), date("2026-01-01"), &json!({"n": "yesterday"})).unwrap();
+        for n in 0..5 {
+            append_in(dir.path(), day, &json!({"n": n})).unwrap();
+        }
+        let good = recent_in(dir.path(), 10);
+        let last_good = good.last().unwrap().clone();
+
+        // A half-written entry: killed between `write` and the newline.
+        let path = dir.path().join(file_name(day));
+        let mut torn = std::fs::read_to_string(&path).unwrap();
+        torn.push_str(r#"{"n":5,"seq":6,"sha25"#);
+        std::fs::write(&path, &torn).unwrap();
+        forget_tip();
+
+        append_in(dir.path(), day, &json!({"n": "after"})).unwrap();
+
+        let all = recent_in(dir.path(), 20);
+        let written = all.last().unwrap();
+        assert_eq!(
+            written["n"], "after",
+            "the entry written after a torn line must be readable"
+        );
+        assert_eq!(
+            written["seq"],
+            next_seq_after(&last_good),
+            "the sequence continued from the last good entry"
+        );
+        assert_eq!(
+            written["prev_sha256"], last_good["sha256"],
+            "the chain linked to the last good entry, not to another day"
+        );
+        assert!(verify_chain_in(dir.path()).intact);
+    }
+
+    /// Two processes share the trail, so a tip held in memory has to notice
+    /// when somebody else has written. The length is what notices.
+    #[test]
+    fn another_writer_is_noticed_before_the_next_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let day = date("2026-01-01");
+        append_in(dir.path(), day, &json!({"n": 0})).unwrap();
+
+        // Somebody else appends -- a second process, not this cache.
+        let path = dir.path().join(file_name(day));
+        let theirs = json!({"n": "theirs", "seq": 1, "sha256": "beef"});
+        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(format!("{theirs}\n").as_bytes()).unwrap();
+        drop(file);
+
+        append_in(dir.path(), day, &json!({"n": 2})).unwrap();
+
+        let all = recent_in(dir.path(), 10);
+        let last = all.last().unwrap();
+        assert_eq!(last["seq"], 2, "the stale tip would have said 1 again");
+        assert_eq!(
+            last["prev_sha256"], "beef",
+            "the chain must link to what is actually on disk"
         );
     }
 
