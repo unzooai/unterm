@@ -243,6 +243,71 @@ pub struct DirtyRows {
 }
 
 #[allow(dead_code)]
+
+/// What a front end needs to keep an eye on a pane it is not drawing.
+///
+/// The Cockpit watches every pane at once: is anything new, did a program
+/// ring, does the tail look like an error. It needs a handful of lines of
+/// *text* and two counters — and it used to get that by asking for the whole
+/// styled screen, four thousand eight hundred cells with colours and
+/// attributes, and then throwing all of it away except the characters. At
+/// forty panes that read cost 3.8 seconds of a 400 ms poll.
+///
+/// `unchanged` is the other half. A pane nobody has typed in does not need
+/// its tail sent again, and comparing revisions server-side means an idle
+/// pane costs an empty envelope.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PanePulse {
+    pub revision: u64,
+    /// True when `since_revision` matched. `tail` is empty and means nothing.
+    pub unchanged: bool,
+    /// The last few rows, as text, oldest first.
+    pub tail: Vec<String>,
+    pub bells: u64,
+    pub notifications: u64,
+    pub last_notification: Option<String>,
+}
+
+impl PanePulse {
+    /// Build one from a full snapshot.
+    ///
+    /// The fallback for engines with nothing cheaper — the local one already
+    /// has the cells in memory, so there is nothing to save there.
+    pub fn from_snapshot(
+        snapshot: &StyledScreenSnapshot,
+        since_revision: Option<u64>,
+        tail_rows: usize,
+    ) -> Self {
+        if since_revision == Some(snapshot.revision) {
+            return Self {
+                revision: snapshot.revision,
+                unchanged: true,
+                bells: snapshot.bells,
+                notifications: snapshot.notifications,
+                last_notification: snapshot.last_notification.clone(),
+                ..Self::default()
+            };
+        }
+        let tail: Vec<String> = snapshot
+            .lines
+            .iter()
+            .rev()
+            .take(tail_rows)
+            .map(|line| line.cells.iter().map(|cell| cell.ch).collect::<String>())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        Self {
+            revision: snapshot.revision,
+            unchanged: false,
+            tail,
+            bells: snapshot.bells,
+            notifications: snapshot.notifications,
+            last_notification: snapshot.last_notification.clone(),
+        }
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StyledScreenSnapshot {
     /// Text a program asked to be put on the system clipboard.
@@ -1165,6 +1230,22 @@ pub trait ScreenEngine {
         Ok(consumer.prepare_commit(draw_plan.to_geometry_plan(metrics).to_submission_plan()))
     }
     fn read_visible_text(&self, pane_id: usize) -> Result<String>;
+
+    /// A cheap look at a pane a front end is watching but not drawing.
+    ///
+    /// Provided rather than required: every engine already has
+    /// `read_styled_screen`, and this default is correct on all of them. An
+    /// engine that pays to *serialize* that screen — the one across an IPC
+    /// socket — overrides it and sends the handful of lines instead.
+    fn read_pane_pulse(
+        &self,
+        pane_id: usize,
+        since_revision: Option<u64>,
+        tail_rows: usize,
+    ) -> Result<PanePulse> {
+        let snapshot = self.read_styled_screen(pane_id)?;
+        Ok(PanePulse::from_snapshot(&snapshot, since_revision, tail_rows))
+    }
     fn read_lines(&self, pane_id: usize, start: i64, count: usize) -> Result<Vec<ScreenLine>>;
     fn read_scrollback(&self, pane_id: usize, limit: usize) -> Result<Vec<String>>;
     fn read_scrollback_text(
@@ -2390,5 +2471,98 @@ mod host_capture_tests {
         assert_eq!(*FOCUSED.lock().unwrap(), 1);
         assert_eq!(focus.window_engine, "recorder");
         assert!(!focus.uses_host_window);
+    }
+}
+
+#[cfg(test)]
+mod pane_pulse_tests {
+    use super::*;
+
+    /// A screen with `rows` numbered lines.
+    ///
+    /// Built field by field rather than from a `Default`: these are public
+    /// wire types, and widening their derives to shorten a test is how a
+    /// half-built snapshot becomes constructible by accident somewhere that
+    /// matters.
+    fn screen(revision: u64, rows: usize) -> StyledScreenSnapshot {
+        let line = |row: i64, text: String| StyledScreenLine {
+            row,
+            cells: text
+                .chars()
+                .map(|ch| StyledCell {
+                    ch,
+                    style: CellStyle::default(),
+                    width: 1,
+                })
+                .collect(),
+            wrapped: false,
+        };
+        StyledScreenSnapshot {
+            clipboard_request: None,
+            focus_reporting: false,
+            bells: 1,
+            notifications: 3,
+            last_notification: Some("something happened".into()),
+            mouse: next_core::mouse_encoding::MouseModes::default(),
+            lines: (0..rows)
+                .map(|i| line(i as i64, format!("row {i}")))
+                .collect(),
+            cursor: CursorSnapshot {
+                x: 0,
+                y: 0,
+                visible: true,
+                shape: "Default".into(),
+            },
+            cols: 80,
+            rows,
+            scrollback_rows: 0,
+            revision,
+            dirty_rows: None,
+        }
+    }
+
+    #[test]
+    fn a_pulse_carries_the_tail_as_text_and_nothing_else() {
+        // The Cockpit wants the last few lines and two counters. It used to
+        // get the whole styled screen and keep only the characters, which at
+        // forty panes cost nine times the poll's entire budget.
+        let pulse = PanePulse::from_snapshot(&screen(7, 30), None, 3);
+        assert_eq!(pulse.revision, 7);
+        assert!(!pulse.unchanged);
+        assert_eq!(pulse.tail, vec!["row 27", "row 28", "row 29"]);
+        assert_eq!(pulse.notifications, 3);
+        assert_eq!(
+            pulse.last_notification.as_deref(),
+            Some("something happened")
+        );
+    }
+
+    #[test]
+    fn a_pane_nobody_typed_in_sends_no_tail_at_all() {
+        // The revision gate is the other half of the saving: an idle pane
+        // costs an empty envelope rather than eight lines.
+        let pulse = PanePulse::from_snapshot(&screen(7, 30), Some(7), 8);
+        assert!(pulse.unchanged);
+        assert!(pulse.tail.is_empty());
+        // The counters still come. A bell is not a screen change, and a
+        // notification raised while the screen stood still must still reach
+        // the Cockpit.
+        assert_eq!(pulse.notifications, 3);
+        assert_eq!(pulse.bells, 1);
+    }
+
+    #[test]
+    fn a_moved_revision_sends_the_tail_again() {
+        let pulse = PanePulse::from_snapshot(&screen(8, 30), Some(7), 2);
+        assert!(!pulse.unchanged);
+        assert_eq!(pulse.tail, vec!["row 28", "row 29"]);
+    }
+
+    #[test]
+    fn a_short_screen_gives_what_it_has() {
+        // Asking for eight rows of a two-row pane is what startup looks like,
+        // not an error.
+        let pulse = PanePulse::from_snapshot(&screen(1, 2), None, 8);
+        assert_eq!(pulse.tail, vec!["row 0", "row 1"]);
     }
 }

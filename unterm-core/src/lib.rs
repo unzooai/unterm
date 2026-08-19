@@ -1057,6 +1057,24 @@ fn dispatch_inner(
             };
             serde_json::to_string(&response_ok(id, body))?
         }
+        "session.pane_pulse" => {
+            let pane_id = required_pane_id(request)?;
+            let since_revision = request
+                .params
+                .get("since_revision")
+                .and_then(|v| v.as_u64());
+            let tail_rows = request
+                .params
+                .get("tail_rows")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(8) as usize;
+            // Built here rather than at the caller: the point is that the
+            // cells never cross the socket. A pane whose revision has not
+            // moved sends an empty envelope.
+            let screen = engine.read_styled_screen(pane_id)?;
+            let pulse = unterm_engine::PanePulse::from_snapshot(&screen, since_revision, tail_rows);
+            serde_json::to_string(&response_ok(id, pulse))?
+        }
         "session.visible_text" => {
             let pane_id = required_pane_id(request)?;
             serde_json::to_string(&response_ok(id, engine.read_visible_text(pane_id)?))?
@@ -2399,6 +2417,22 @@ impl ScreenEngine for CoreEngineClient {
 
     fn read_styled_screen(&self, pane_id: usize) -> Result<StyledScreenSnapshot> {
         self.call("session.styled_screen", serde_json::json!({"pane_id": pane_id}))
+    }
+
+    fn read_pane_pulse(
+        &self,
+        pane_id: usize,
+        since_revision: Option<u64>,
+        tail_rows: usize,
+    ) -> Result<unterm_engine::PanePulse> {
+        self.call(
+            "session.pane_pulse",
+            serde_json::json!({
+                "pane_id": pane_id,
+                "since_revision": since_revision,
+                "tail_rows": tail_rows,
+            }),
+        )
     }
 
     fn read_render_frame(

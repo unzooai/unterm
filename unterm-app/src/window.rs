@@ -4896,22 +4896,47 @@ impl App {
             // Schedule process/manifest detection for every pane. This is
             // non-blocking; the worker-backed cache is consumed by poll below.
             let _ = crate::statsbar::facts_for(session.id);
-            let Ok(snapshot) = self.engine.read_styled_screen(session.id) else {
+            // The pulse, not the screen. This loop runs over every pane
+            // more than twice a second; asking each one for 4800 styled cells and
+            // keeping only the characters cost 3.8 s at forty panes — nine
+            // times the poll's own budget, which is a window that never
+            // finishes a frame.
+            let since = self
+                .pane_notices
+                .get(&session.id)
+                .map(|notice| notice.revision)
+                .filter(|revision| *revision != 0);
+            let Ok(pulse) =
+                self.engine
+                    .read_pane_pulse(session.id, since, COCKPIT_TAIL_ROWS)
+            else {
                 continue;
             };
-            let tail: Vec<String> = snapshot
-                .lines
-                .iter()
-                .rev()
-                .take(COCKPIT_TAIL_ROWS)
-                .map(|line| line.cells.iter().map(|cell| cell.ch).collect::<String>())
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect();
             let notice = self.pane_notices.entry(session.id).or_default();
+            if pulse.unchanged {
+                // Nothing has been written to this pane since the last poll,
+                // so every conclusion below would be the one already drawn.
+                // Notifications still count: a bell is not a screen change.
+                if pulse.notifications != notice.notifications_seen {
+                    let fresh = pulse.notifications > notice.notifications_seen;
+                    notice.notifications_seen = pulse.notifications;
+                    if fresh {
+                        if session.id != active_pane {
+                            notice.unread = true;
+                        }
+                        if let Some(text) = pulse.last_notification.clone() {
+                            announcements.push((session.id as u64, text));
+                        }
+                    }
+                }
+                if session.id == active_pane {
+                    notice.unread = false;
+                }
+                continue;
+            }
+            let tail = pulse.tail.clone();
             if notice.revision != 0
-                && notice.revision != snapshot.revision
+                && notice.revision != pulse.revision
                 && session.id != active_pane
             {
                 notice.unread = true;
@@ -4927,19 +4952,19 @@ impl App {
             }
             // A program that asked for the user's eye gets it: the pane
             // marks itself unread, the Cockpit learns, and the bar says so.
-            if snapshot.notifications != notice.notifications_seen {
-                let fresh = snapshot.notifications > notice.notifications_seen;
-                notice.notifications_seen = snapshot.notifications;
+            if pulse.notifications != notice.notifications_seen {
+                let fresh = pulse.notifications > notice.notifications_seen;
+                notice.notifications_seen = pulse.notifications;
                 if fresh {
                     if session.id != active_pane {
                         notice.unread = true;
                     }
-                    if let Some(text) = snapshot.last_notification.clone() {
+                    if let Some(text) = pulse.last_notification.clone() {
                         announcements.push((session.id as u64, text));
                     }
                 }
             }
-            notice.revision = snapshot.revision;
+            notice.revision = pulse.revision;
             unterm_services::cockpit::status::on_screen_tail(session.id as u64, &tail);
             unterm_services::cockpit::status::on_title_change(session.id as u64, &session.title);
         }
