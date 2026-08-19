@@ -1252,12 +1252,17 @@ $Suites = @(
         Name = "top bar layout"
         Package = "unterm-app"
         Filter = "topbar::tests::"
-        # macOS puts traffic lights where the other two put window
-        # buttons, so the button test is `cfg(not(macos))` — and the
-        # traffic-light test beside it is the macOS half of the pair.
-        ExpectedCount = $(if ($IsMacOS) { 12 } else { 13 })
+        # macOS puts traffic lights where the other two put window buttons,
+        # and the two tests are a swapped pair — `cfg(not(macos))` against
+        # `cfg(macos)` — so the *count* is the same everywhere and only the
+        # name to insist on changes.
+        ExpectedCount = 13
         RequiredTests = @(
-            $(if (-not $IsMacOS) { "topbar::tests::the_window_buttons_survive_every_width" })
+            $(if ($IsMacOS) {
+                "topbar::tests::the_traffic_lights_keep_their_corner"
+            } else {
+                "topbar::tests::the_window_buttons_survive_every_width"
+            })
             "topbar::tests::no_two_pieces_overlap",
             "topbar::tests::the_essential_actions_are_never_dropped",
             "topbar::tests::things_drop_in_the_order_they_were_given",
@@ -1604,7 +1609,9 @@ $Suites = @(
         Name = "status bar segments"
         Package = "unterm-app"
         Filter = "statusbar::tests::"
-        ExpectedCount = 15
+        # WSL only exists on Windows, and so does the test that says a shell
+        # reached through it is labelled as such.
+        ExpectedCount = $(if ($env:OS -eq "Windows_NT") { 15 } else { 14 })
         RequiredTests = @(
             "statusbar::tests::the_segments_come_in_the_order_they_did_before",
             "statusbar::tests::segments_appear_as_the_window_widens",
