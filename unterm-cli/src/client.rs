@@ -312,6 +312,16 @@ impl ServerEndpoint {
         }
 
         // Prefer server.json as the legacy fallback for older builds.
+        //
+        // Only when its process is still alive. A window that did not get to
+        // unregister -- force quit, a crash, an installer closing it -- leaves
+        // this file naming a pid that is gone, and answering from it hands
+        // back that build's version. Every later command then fails the
+        // identity check with `product_version_mismatch`, telling the user to
+        // drain a bridge that has nothing to do with it, and nothing clears
+        // the record: the CLI stays broken until somebody deletes the file by
+        // hand. The other two paths have checked liveness all along; this one
+        // was missed.
         let server_json = dir.join("server.json");
         if let Ok(raw) = fs::read_to_string(&server_json) {
             if let Ok(info) = serde_json::from_str::<Value>(&raw) {
@@ -325,7 +335,18 @@ impl ServerEndpoint {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(LEGACY_MCP_PORT as u64) as u16;
                 let http_port = info.get("http_port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
-                if !token.is_empty() && port != 0 {
+                // Only a record that names a pid can be known to be stale.
+                // The builds this fallback exists for did not write one, and
+                // refusing those would break the compatibility it is here to
+                // provide.
+                let pid = info.get("pid").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let known_dead = pid != 0 && !pid_alive(pid);
+                if known_dead {
+                    // Take it out of the way rather than skipping it. Left
+                    // behind it keeps being read -- by an older CLI on the
+                    // same machine, and by anything else that trusts it.
+                    let _ = fs::remove_file(&server_json);
+                } else if !token.is_empty() && port != 0 {
                     return Ok(Self {
                         token,
                         port,
@@ -909,6 +930,57 @@ mod compatibility_tests {
         assert_eq!(endpoint.http_port, 0);
         assert_eq!(endpoint.token, "old-token");
         assert!(endpoint.identity.is_none());
+    }
+
+    /// A window that never got to unregister must not lock the CLI out.
+    ///
+    /// `server.json` naming a dead pid used to be answered from anyway. Its
+    /// version then failed the identity check, so every command reported
+    /// `product_version_mismatch` and told the user to drain a bridge that
+    /// was not involved — with no way back except deleting the file by hand.
+    #[test]
+    fn a_server_record_whose_process_is_gone_is_not_believed() {
+        let _lock = env_lock();
+        let root = tempfile::tempdir().unwrap();
+        let _guard = StateDirGuard::set(root.path());
+        // A pid that certainly no longer exists: run something trivial and
+        // wait for it to finish. Inventing a number could collide with a
+        // live process and make this test pass for the wrong reason.
+        let mut spawned = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" })
+            .args(if cfg!(windows) { ["/C", "exit"] } else { ["-c", "exit"] })
+            .spawn()
+            .expect("a process to spawn");
+        let dead_pid = spawned.id();
+        spawned.wait().expect("it to exit");
+
+        let server_json = root.path().join("server.json");
+        fs::write(
+            &server_json,
+            serde_json::to_string(&serde_json::json!({
+                "auth_token": "dead-token",
+                "mcp_port": 27001,
+                "http_port": 27002,
+                "pid": dead_pid,
+                "product_version": "0.57.4",
+                "protocol_version": "1.0.0",
+                "data_schema_version": 1,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(root.path().join("auth_token"), "old-token
+").unwrap();
+
+        let endpoint = ServerEndpoint::resolve().unwrap();
+
+        assert_eq!(
+            endpoint.token, "old-token",
+            "a dead record must not be answered from"
+        );
+        assert!(
+            !server_json.exists(),
+            "a dead record must not be left for the next reader"
+        );
     }
 
     #[test]
