@@ -1342,8 +1342,40 @@ pub enum ViewportScrollResult {
 /// Not every front end has windows in the same sense -- a headless one has
 /// none -- so this is separate from the session and screen traits rather than
 /// folded into them.
+/// Somebody has asked this front end for another window.
+///
+/// Set from whichever thread took the request -- an MCP call, a second launch
+/// handing over -- and read by the event loop, which is the only place a
+/// window can actually be made. A flag rather than a channel because the
+/// answer is the same however many ask at once: open one.
+pub static WINDOW_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Ask the front end for another window.
+pub fn request_window() {
+    WINDOW_REQUESTED.store(true, std::sync::atomic::Ordering::Release);
+}
+
+/// Whether a window was asked for since this was last called.
+pub fn take_window_request() -> bool {
+    WINDOW_REQUESTED.swap(false, std::sync::atomic::Ordering::AcqRel)
+}
+
 pub trait WindowEngine {
     fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult>;
+
+    /// Open another window on this front end.
+    ///
+    /// Exists so a second launch does not have to become a second process.
+    /// Starting one costs a GPU adapter -- ~200 ms, paid again every time --
+    /// while a window on a front end that already has one costs 31 ms.
+    ///
+    /// Defaults to refusing: a headless engine has no window to add one
+    /// beside, and saying so is better than reporting a window that is not
+    /// there.
+    fn open_window(&self) -> anyhow::Result<()> {
+        anyhow::bail!("this engine has no windows to open one beside")
+    }
     fn active_pane_id(&self) -> anyhow::Result<Option<u64>>;
     fn pane_locations(&self) -> anyhow::Result<std::collections::HashMap<u64, PaneLocation>>;
     fn scroll_viewport_to(

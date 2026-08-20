@@ -5612,6 +5612,7 @@ impl McpHandler {
             "instance.close" => self.instance_close(params),
             "instance.set_title" => self.instance_set_title(params),
             "instance.focus" => self.instance_focus(params),
+            "instance.new_window" => self.instance_new_window(),
             // Identity profiles: read-only surface for agents. Writes
             // (create / set-secret / delete) and `profile.spawn` (which
             // would have to open a new GUI window) are intentionally
@@ -6039,6 +6040,16 @@ impl McpHandler {
             "window_engine": focus.window_engine,
             "uses_host_window": focus.uses_host_window,
         }))
+    }
+
+    /// `instance.new_window` — another window on this front end.
+    ///
+    /// The point is that it is not another process. Starting one costs a GPU
+    /// adapter, ~200 ms, and it is not a first-call cost -- a process pays it
+    /// every time. A window on a front end that already has one costs 31 ms.
+    fn instance_new_window(&self) -> Result<Value> {
+        self.engine().open_window()?;
+        Ok(json!({ "ok": true }))
     }
 
     /// `profile.list` — every identity profile on disk plus a hint at

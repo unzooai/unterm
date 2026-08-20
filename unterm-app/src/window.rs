@@ -11085,6 +11085,11 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Asked for from outside -- an MCP call, or a second launch that
+        // handed over rather than becoming another process.
+        if unterm_engine::take_window_request() {
+            self.open_another_window = true;
+        }
         if std::mem::take(&mut self.open_another_window) {
             crate::startup_trace::mark("window.second.start");
             self.open_window(event_loop);

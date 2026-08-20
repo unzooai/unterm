@@ -421,11 +421,30 @@ fn main() -> Result<()> {
     }
 }
 
+/// Ask a running front end for another window. False if none would take it.
+fn hand_over_window() -> bool {
+    let Ok(mut client) = crate::client::McpClient::connect() else {
+        return false;
+    };
+    client.call("instance.new_window", serde_json::json!({})).is_ok()
+}
+
 fn run_start(
     cwd: Option<std::path::PathBuf>,
     profile: Option<String>,
     command: Vec<String>,
 ) -> Result<()> {
+    // A front end that is already up can open the window itself, and that is
+    // worth asking for: starting a second process costs a GPU adapter --
+    // ~200 ms, paid again by every process -- while a window on a front end
+    // that already has one costs 31 ms.
+    //
+    // Only for a plain `start`. `--cwd`, `--profile` and a program are asks
+    // about *this* window, and handing them to a front end that would ignore
+    // them is worse than the process it saves.
+    if cwd.is_none() && profile.is_none() && command.is_empty() && hand_over_window() {
+        return Ok(());
+    }
     let current = std::env::current_exe().context("locating unterm-cli executable")?;
     let sibling = current.with_file_name(if cfg!(windows) {
         "unterm.exe"

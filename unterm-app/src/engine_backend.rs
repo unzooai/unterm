@@ -630,6 +630,16 @@ impl WindowEngine for CoreHostEngine {
     fn scroll_viewport_to(&self, pane_id: usize, target: isize) -> Result<ViewportScrollResult> {
         WindowEngine::scroll_viewport_to(&NextCoreEngine, pane_id, target)
     }
+
+    /// This process has a window, so it can have another.
+    ///
+    /// The request is left for the event loop rather than served here: a
+    /// window can only be made where winit hands out an `ActiveEventLoop`,
+    /// and this call arrives on an MCP thread.
+    fn open_window(&self) -> Result<()> {
+        unterm_engine::request_window();
+        Ok(())
+    }
 }
 
 impl CaptureEngine for CoreHostEngine {
