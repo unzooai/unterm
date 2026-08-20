@@ -778,12 +778,134 @@ pub struct App {
     window: WindowState,
     /// The GPU this process found, kept so later windows need not look.
     gpu: Option<SharedGpu>,
+    /// What a second window is built from: the same settings the first was.
+    ///
+    /// Kept whole rather than as the dozen values `WindowState::fresh` reads
+    /// out of it, because a window opened now must be the window the config
+    /// describes, not the subset somebody remembered to copy.
+    config: config::Config,
+    configured_pixel_size: f64,
+    /// Set by the new-window command, acted on where an `ActiveEventLoop`
+    /// exists. Winit only hands one to its own callbacks, and threading it
+    /// down through every key action to reach one of them would touch far
+    /// more than this.
+    open_another_window: bool,
     /// The windows that are not being acted on.
     ///
     /// Swapping one into `window` is how this process changes which window an
     /// event means. A swap moves a struct of fields, not a frame or a
     /// surface, and it happens once per event rather than once per frame.
     parked: Vec<ParkedWindow>,
+}
+
+impl WindowState {
+    /// A window that has not been shown yet.
+    ///
+    /// Lifted out of `App::new` so a second window can be made the same way
+    /// the first one is. Everything here is either empty or a setting; what
+    /// makes a window *live* -- its surface, its renderer, its pane -- is
+    /// `App::start`.
+    fn fresh(
+        config: &config::Config,
+        pixel_size: f64,
+        shape: crate::terminal::Shape,
+        font: TerminalFont,
+        chrome_font: TerminalFont,
+        picture: Option<crate::background::Image>,
+    ) -> Self {
+        Self {
+            picture,
+            font,
+            chrome_font,
+            drawn_confirmation: None,
+            drawn_suggestions: 0,
+            startup_first_frame_marked: false,
+            startup_terminal_content_marked: false,
+            preedit: crate::ime::Preedit::default(),
+            last_ime_event: None,
+            search: None,
+            bells_seen: 0,
+            bell_at: None,
+            dragging_scrollbar: false,
+            palette: None,
+            quick_menu: None,
+            copy_mode: None,
+            quick_select: None,
+            pane_select: None,
+            followed_active: None,
+            occluded: false,
+            clipboard_honoured: None,
+            inbox_open: false,
+            inbox_selected: 0,
+            sidebar_open: true,
+            cursor_icon: winit::window::CursorIcon::Default,
+            bar_title: String::new(),
+            top_bar_quiet: config
+            .str_of("top_bar")
+            .ok()
+            .flatten()
+            .map(|mode| mode != "full")
+            .unwrap_or(true),
+            sidebar_scroll: 0,
+            sidebar_points: None,
+            dragging_sidebar_width: false,
+            dragging_tab: None,
+            sidebar_collapsed: Default::default(),
+            last_sidebar_click: None,
+            last_topbar_click: None,
+            terminal_click: None,
+            last_tree_click: None,
+            select_anchor: None,
+            select_granularity: SelectGranularity::Cell,
+            close_confirmed: false,
+            unmaximized_rect: None,
+            tab_titles: Default::default(),
+            pane_notices: Default::default(),
+            tree: None,
+            closing: false,
+            tray: None,
+            tray_refreshed: std::time::Instant::now(),
+            notice: None,
+            proxy_error_until: None,
+            git_panel: None,
+            composer: None,
+            cockpit_fed_at: std::time::Instant::now(),
+            mouse_modes: Default::default(),
+            held_mouse_button: None,
+            alt_held: false,
+            window_title: None,
+            quiet_since: None,
+            startup_session: None,
+            startup_input: String::new(),
+            restore_extra_tabs_pending: false,
+            pane_sizes: Default::default(),
+            focused: true,
+            kept_house_at: std::time::Instant::now(),
+            seen_session_epoch: 0,
+            core_replaced_at: None,
+            font_shape: shape,
+            font_points: pixel_size as f32,
+            scale: 1.0,
+            atlas: GlyphAtlas::new(1024, 1024),
+            colors: colors_from(config),
+            shift_held: false,
+            ctrl_held: false,
+            pointer: (0.0, 0.0),
+            tabs: unterm_engine::next_core::tabs::TabRegistry::new(),
+            tab_id: None,
+            drag: None,
+            swallow_left_after_secondary: false,
+            secondary_gesture: crate::mouse::SecondaryGesture::default(),
+            selected: None,
+            state: None,
+            drawn_revision: None,
+            presented_at: None,
+            drawn_cursor_solid: None,
+            drawn_blink: None,
+            screen_blink: (false, false),
+            drawn_breath_step: None,
+        }
+    }
 }
 
 /// A window this process owns but is not currently acting on.
@@ -1258,99 +1380,11 @@ impl App {
             chrome_overrides: ChromeOverrides::from_config(config),
             shell,
             gpu: None,
+            config: config.clone(),
+            configured_pixel_size: pixel_size,
+            open_another_window: false,
             parked: Vec::new(),
-            window: WindowState {
-                picture,
-                font,
-                chrome_font,
-            drawn_confirmation: None,
-            drawn_suggestions: 0,
-            startup_first_frame_marked: false,
-            startup_terminal_content_marked: false,
-            preedit: crate::ime::Preedit::default(),
-            last_ime_event: None,
-            search: None,
-            bells_seen: 0,
-            bell_at: None,
-            dragging_scrollbar: false,
-            palette: None,
-            quick_menu: None,
-            copy_mode: None,
-            quick_select: None,
-            pane_select: None,
-            followed_active: None,
-            occluded: false,
-            clipboard_honoured: None,
-            inbox_open: false,
-            inbox_selected: 0,
-            sidebar_open: true,
-            cursor_icon: winit::window::CursorIcon::Default,
-            bar_title: String::new(),
-            top_bar_quiet: config
-                .str_of("top_bar")
-                .ok()
-                .flatten()
-                .map(|mode| mode != "full")
-                .unwrap_or(true),
-            sidebar_scroll: 0,
-            sidebar_points: None,
-            dragging_sidebar_width: false,
-            dragging_tab: None,
-            sidebar_collapsed: Default::default(),
-            last_sidebar_click: None,
-            last_topbar_click: None,
-            terminal_click: None,
-            last_tree_click: None,
-            select_anchor: None,
-            select_granularity: SelectGranularity::Cell,
-            close_confirmed: false,
-            unmaximized_rect: None,
-            tab_titles: Default::default(),
-            pane_notices: Default::default(),
-            tree: None,
-            closing: false,
-            tray: None,
-            tray_refreshed: std::time::Instant::now(),
-            notice: None,
-            proxy_error_until: None,
-            git_panel: None,
-            composer: None,
-            cockpit_fed_at: std::time::Instant::now(),
-            mouse_modes: Default::default(),
-            held_mouse_button: None,
-            alt_held: false,
-            window_title: None,
-            quiet_since: None,
-            startup_session: None,
-            startup_input: String::new(),
-            restore_extra_tabs_pending: false,
-            pane_sizes: Default::default(),
-            focused: true,
-            kept_house_at: std::time::Instant::now(),
-            seen_session_epoch: 0,
-            core_replaced_at: None,
-            font_shape: shape,
-            font_points: pixel_size as f32,
-            scale: 1.0,
-            atlas: GlyphAtlas::new(1024, 1024),
-            colors: colors_from(config),
-            shift_held: false,
-            ctrl_held: false,
-            pointer: (0.0, 0.0),
-            tabs: unterm_engine::next_core::tabs::TabRegistry::new(),
-            tab_id: None,
-            drag: None,
-            swallow_left_after_secondary: false,
-            secondary_gesture: crate::mouse::SecondaryGesture::default(),
-            selected: None,
-            state: None,
-            drawn_revision: None,
-            presented_at: None,
-            drawn_cursor_solid: None,
-            drawn_blink: None,
-            screen_blink: (false, false),
-            drawn_breath_step: None,
-            },
+            window: WindowState::fresh(config, pixel_size, shape, font, chrome_font, picture),
         })
     }
 
@@ -4569,24 +4603,73 @@ impl App {
     /// `instance.list` able to name them and an agent able to drive one
     /// without touching another -- so a new window is a new instance, started
     /// where this one is looking.
+    /// Open another window -- in this process.
+    ///
+    /// It used to spawn a second copy of the executable, which is why every
+    /// window cost a fresh GPU: choosing an adapter is ~200 ms and a new
+    /// process has to choose again. Windows Terminal opens its second window
+    /// in 172 ms for exactly this reason. Here the work is deferred to
+    /// `about_to_wait`, which is where winit hands out the event loop a
+    /// window has to be created from.
     fn new_window(&mut self) {
-        let Ok(program) = std::env::current_exe() else {
-            log::warn!("cannot find this executable to open another window");
+        self.open_another_window = true;
+    }
+
+    /// Park the window being shown and start a fresh one beside it.
+    fn open_window(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(parked_id) = self.active_window_id() else {
             return;
         };
-        let mut command = std::process::Command::new(program);
-        command.arg("start");
-        if let Some(directory) = self.current_directory() {
-            command.arg("--cwd").arg(directory);
-        }
-        // Detached: the new window outlives this one, and inheriting our
-        // handles would keep a pipe open that nobody is reading.
-        command
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        if let Err(err) = command.spawn() {
-            log::warn!("could not open another window: {err}");
+        let font = match TerminalFont::open_named(
+            self.font_family.as_deref(),
+            crate::terminal::pixels_for_points(self.configured_pixel_size as f32, 1.0),
+            &self.font_fallbacks,
+            self.window.font_shape,
+        ) {
+            Ok(font) => font,
+            Err(err) => {
+                log::warn!("could not open a font for the new window: {err:#}");
+                return;
+            }
+        };
+        let chrome_font = match crate::chrome_font::open(&self.font_fallbacks, 1.0) {
+            Ok(font) => font,
+            Err(err) => {
+                log::warn!("could not open the chrome font for the new window: {err:#}");
+                return;
+            }
+        };
+        let picture = crate::background::configured(&self.config);
+        let fresh = WindowState::fresh(
+            &self.config,
+            self.configured_pixel_size,
+            self.window.font_shape,
+            font,
+            chrome_font,
+            picture,
+        );
+        // A new window is a new shell. Adopting is for the first window of a
+        // process, which has to show what the Core was already running.
+        let previous = std::mem::replace(&mut self.window, fresh);
+        self.parked.push(ParkedWindow {
+            id: parked_id,
+            state: previous,
+        });
+        let explicit = std::mem::replace(&mut self.explicit_launch, true);
+        let started = self.start(event_loop);
+        self.explicit_launch = explicit;
+        match started {
+            Ok(live) => {
+                live.window.request_redraw();
+                self.window.state = Some(live);
+            }
+            Err(err) => {
+                log::warn!("could not open another window: {err:#}");
+                // Put the one that was working back in front.
+                if let Some(parked) = self.parked.pop() {
+                    self.window = parked.state;
+                }
+            }
         }
     }
 
@@ -10917,6 +11000,11 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if std::mem::take(&mut self.open_another_window) {
+            crate::startup_trace::mark("window.second.start");
+            self.open_window(event_loop);
+            crate::startup_trace::mark("window.second.ready");
+        }
         if self.window.closing {
             // The close button was pressed. There is no native title bar to
             // do this for us any more.
