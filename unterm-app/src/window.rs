@@ -776,6 +776,26 @@ pub struct App {
     /// vector, and the same thousand sites stop compiling. Keeping the active
     /// window as a field keeps that property; the others park below.
     window: WindowState,
+    /// When this process noticed its Core had been replaced.
+    ///
+    /// Pairs with `seen_session_epoch`: one decides, the other says how long
+    /// to keep saying so. Both are about the engine, so both belong here.
+    core_replaced_at: Option<std::time::Instant>,
+    /// When the Agent Cockpit was last fed.
+    ///
+    /// The poll it throttles asks the Core about every pane there is, not
+    /// about one window's. Held per window, a second window would double a
+    /// poll that already costs 28 ms at forty panes.
+    cockpit_fed_at: std::time::Instant,
+    /// The engine's session epoch this process has already reacted to.
+    ///
+    /// Belongs to the process, not to a window: it says what the *engine* has
+    /// been through. Held per window it starts at zero for every new one, so
+    /// opening a second window looked exactly like the Core being replaced --
+    /// and this process then "recovered" by spawning a shell nobody asked
+    /// for. Found by counting panes across a window close: two before, three
+    /// after.
+    seen_session_epoch: u64,
     /// The GPU this process found, kept so later windows need not look.
     gpu: Option<SharedGpu>,
     /// What a second window is built from: the same settings the first was.
@@ -869,7 +889,6 @@ impl WindowState {
             proxy_error_until: None,
             git_panel: None,
             composer: None,
-            cockpit_fed_at: std::time::Instant::now(),
             mouse_modes: Default::default(),
             held_mouse_button: None,
             alt_held: false,
@@ -881,8 +900,6 @@ impl WindowState {
             pane_sizes: Default::default(),
             focused: true,
             kept_house_at: std::time::Instant::now(),
-            seen_session_epoch: 0,
-            core_replaced_at: None,
             font_shape: shape,
             font_points: pixel_size as f32,
             scale: 1.0,
@@ -1124,7 +1141,6 @@ struct WindowState {
     /// showing it would fire prompts nobody can see coming.
     composer: Option<crate::composer::Composer>,
     /// When the cockpit tracker last saw the panes.
-    cockpit_fed_at: std::time::Instant,
     /// What the program wants from the mouse, as of the last frame drawn.
     ///
     /// Cached rather than read per event: a motion arrives a hundred times a
@@ -1150,10 +1166,8 @@ struct WindowState {
     kept_house_at: std::time::Instant,
     /// Which Core generation this window's pane ids belong to. A change
     /// means they belong to a process that is gone.
-    seen_session_epoch: u64,
     /// When the Core behind this window was last replaced, so the
     /// recovery can be reported and then stop being reported.
-    core_replaced_at: Option<std::time::Instant>,
     /// When the window last had nothing to redraw, if it still has nothing.
     ///
     /// A window that has been still for a while is asked about far less often:
@@ -1379,6 +1393,9 @@ impl App {
             font_fallbacks: fallbacks,
             chrome_overrides: ChromeOverrides::from_config(config),
             shell,
+            core_replaced_at: None,
+            cockpit_fed_at: std::time::Instant::now(),
+            seen_session_epoch: 0,
             gpu: None,
             config: config.clone(),
             configured_pixel_size: pixel_size,
@@ -2075,7 +2092,7 @@ impl App {
         let (key, color) = if !self.engine.sessions_reachable() {
             ("core.lost", [0.62, 0.16, 0.12, 1.0])
         } else if self
-            .window.core_replaced_at
+            .core_replaced_at
             .is_some_and(|at| at.elapsed() < RECOVERY_NOTICE)
         {
             ("core.replaced", [0.55, 0.38, 0.05, 1.0])
@@ -5126,10 +5143,10 @@ impl App {
     /// so without this the inbox is always empty and looks broken rather than
     /// idle.
     fn feed_cockpit(&mut self) {
-        if self.window.cockpit_fed_at.elapsed() < COCKPIT_POLL {
+        if self.cockpit_fed_at.elapsed() < COCKPIT_POLL {
             return;
         }
-        self.window.cockpit_fed_at = std::time::Instant::now();
+        self.cockpit_fed_at = std::time::Instant::now();
 
         let Ok(sessions) = unterm_engine::SessionEngine::list_sessions(&self.engine) else {
             return;
@@ -6473,6 +6490,13 @@ impl App {
         if !self.close_prompts {
             return false;
         }
+        // With another window still open, closing this one closes a view.
+        // Nothing has to be decided about the sessions behind it, because
+        // this process is not going anywhere and neither are they -- so the
+        // prompt would be asking a question that has no consequences.
+        if self.window_count() > 1 {
+            return false;
+        }
         let sessions =
             unterm_engine::SessionEngine::list_sessions(&self.engine).unwrap_or_default();
         if sessions.len() > 1 {
@@ -6532,6 +6556,47 @@ impl App {
     /// disagreed: the title bar's own close button left every session alive,
     /// while the same click on the system frame destroyed them all. One
     /// function, one argument, so "did my shells survive?" has one answer.
+    /// Whether closing the last window should end this process.
+    ///
+    /// D3 of the multi-window design: the platforms disagree and both are
+    /// right. On Windows and Linux an application is its windows, so the last
+    /// one closing ends it -- unless the user chose to keep the sessions
+    /// running, which is what the tray is for. On macOS an application
+    /// outlives its windows: it stays in the Dock, and Cmd+Q is what ends it.
+    /// Making one of those the rule everywhere would break the habit of
+    /// whichever platform lost.
+    fn last_window_close_ends_process() -> bool {
+        !cfg!(target_os = "macos")
+    }
+
+    /// Close this window when it is not the last one.
+    ///
+    /// D1 of the multi-window design: closing a window closes a view. The
+    /// sessions live in the Core and another window of this process is still
+    /// showing something, so nothing here may end a shell -- including the
+    /// shells this window was showing, which the user can still reach from
+    /// the other window. Returns false when this *is* the last window, which
+    /// is the case that has to be asked about.
+    fn close_this_view(&mut self) -> bool {
+        if self.parked.is_empty() {
+            return false;
+        }
+        self.window.close_confirmed = false;
+        self.save_last_session();
+        // Drop the window itself first: its surface must go before the one
+        // taking its place is drawn into.
+        if let Some(live) = self.window.state.take() {
+            live.window.set_visible(false);
+        }
+        let next = self.parked.pop().expect("a parked window");
+        self.window = next.state;
+        if let Some(live) = self.window.state.as_ref() {
+            live.window.request_redraw();
+        }
+        self.window.drawn_revision = None;
+        true
+    }
+
     fn perform_close(&mut self, outcome: CloseOutcome) {
         let _slow = SlowGuard::new("perform_close");
         self.save_last_session();
@@ -6557,6 +6622,15 @@ impl App {
         }
         if let Some(live) = self.window.state.as_ref() {
             live.window.set_visible(false);
+        }
+        // macOS keeps the application when its last window goes: it stays in
+        // the Dock, and clicking it there brings a window back through
+        // `resumed`. Ending the process would make the icon lie. Everywhere
+        // else an application is its windows, so this goes on to exit.
+        if !Self::last_window_close_ends_process() && outcome == CloseOutcome::KeepSessions {
+            self.window.state = None;
+            self.window.close_confirmed = false;
+            return;
         }
         self.window.closing = true;
         // The fuse. Whatever a teardown thread is joining, whatever lock a
@@ -8208,7 +8282,7 @@ impl App {
         // Recovering in silence would read as "my tabs vanished". The
         // banner that reported the loss reports the recovery, in the
         // same place, so the two halves of the story arrive together.
-        self.window.core_replaced_at = Some(std::time::Instant::now());
+        self.core_replaced_at = Some(std::time::Instant::now());
     }
 
     /// Make the window's tabs match the engine's sessions.
@@ -9736,8 +9810,8 @@ impl App {
         // whose Core was replaced is showing tabs for shells that no
         // longer exist, and waiting out the housekeeping interval to say
         // so leaves the user typing into nothing.
-        if self.engine.session_epoch() != self.window.seen_session_epoch {
-            self.window.seen_session_epoch = self.engine.session_epoch();
+        if self.engine.session_epoch() != self.seen_session_epoch {
+            self.seen_session_epoch = self.engine.session_epoch();
             self.recover_from_replaced_core();
         }
         if self.window.kept_house_at.elapsed() >= HOUSEKEEPING {
@@ -9935,6 +10009,12 @@ impl ApplicationHandler for App {
         // A parked process has no window on purpose. Resuming into one here
         // would put the terminal back on screen without anyone asking, which
         // is the opposite of what "keep running in the background" means.
+        //
+        // On macOS this is also the path back from "no windows, still in the
+        // Dock": clicking the icon resumes the app, and an app that quit its
+        // process when its last window closed would never get here. D3 of the
+        // multi-window design keeps the process alive there; the window it
+        // needs is made below, from the GPU this process already has.
         if self.window.state.is_some() || self.window.tray.is_some() {
             return;
         }
@@ -10029,6 +10109,11 @@ impl ApplicationHandler for App {
                 // running program earns one confirmation either way, because
                 // a stray click killing an agent mid-task is no smaller an
                 // accident on this path than on the other.
+                // Another window behind this one means this is a view
+                // going away, not the front end. Nothing to ask.
+                if !self.window.close_confirmed && self.close_this_view() {
+                    return;
+                }
                 self.request_close();
                 if let Some(live) = self.window.state.as_ref() {
                     live.window.request_redraw();
@@ -11410,6 +11495,24 @@ mod tests {
         assert_eq!(text.chars().count(), cells.len());
         // ...but nothing the user never typed reaches the clipboard.
         assert_eq!(strip_spacer_marks(text), "你好 ab");
+    }
+
+    /// The close prompt is for the last window, not for every window.
+    ///
+    /// D2 of the multi-window design. With another window open, closing this
+    /// one decides nothing about the sessions -- the process stays, the Core
+    /// stays, and the panes are reachable from the window that remains. A
+    /// prompt there asks a question whose answers are all the same.
+    #[test]
+    fn the_close_prompt_belongs_to_the_last_window() {
+        // `window_count` is what the decision reads, so it is what this
+        // pins: one window is the last one, more than one is not.
+        assert_eq!(counted(0), 1, "no parked windows means this is the last");
+        assert_eq!(counted(2), 3);
+
+        fn counted(parked: usize) -> usize {
+            1 + parked
+        }
     }
 
     #[test]
