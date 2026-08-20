@@ -1821,6 +1821,15 @@ impl unterm_engine::McpHost for RemoteMcpHost {
         host_channel().notify("request_repaint", serde_json::Value::Null);
     }
 
+    /// Forward to the attached front end, which is where windows live.
+    fn open_window(&self) -> bool {
+        if !self.can_prompt() {
+            return false;
+        }
+        host_channel().notify("open_window", serde_json::Value::Null);
+        true
+    }
+
     fn ask_confirmation(
         &self,
         request: &serde_json::Value,

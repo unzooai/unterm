@@ -609,6 +609,13 @@ impl unterm_core::HostResponder for AppHostResponder {
                 AppMcpHost.request_repaint();
                 Ok(Value::Null)
             }
+            // A Core has no windows; this process does. The request is left
+            // for the event loop, which is the only place one can be made.
+            "open_window" => {
+                unterm_engine::request_window();
+                AppMcpHost.request_repaint();
+                Ok(Value::Null)
+            }
             "set_window_title" => Ok(json!(AppMcpHost.set_window_title(text("title")))),
             "focus_window" => AppMcpHost.focus_window().map(|_| Value::Null),
             // Same call the in-process host makes, so a question from a

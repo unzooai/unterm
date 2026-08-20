@@ -343,6 +343,7 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "agent.signal",
         "instance.set_title",
         "instance.focus",
+        "instance.new_window",
         // Launching a crew and broadcasting to one both write; the handler's
         // own mutating list has said so since orchestration shipped, and the
         // gateway must not be the place those two answers diverge.

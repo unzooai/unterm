@@ -7,7 +7,7 @@ date: 2026-07-20
 ---
 
 This page explains the JSON-RPC surface exposed by a running Unterm instance.
-The current native `next-core` build exposes 149 authenticated methods plus
+The current native `next-core` build exposes 150 authenticated methods plus
 `auth.login`. The authoritative inventory lives in
 `unterm-agents/src/mcp_meta.rs`, dispatch is in
 `unterm-mcp/src/handler.rs`, and the connection handshake is in

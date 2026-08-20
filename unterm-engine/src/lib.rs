@@ -1374,7 +1374,11 @@ pub trait WindowEngine {
     /// beside, and saying so is better than reporting a window that is not
     /// there.
     fn open_window(&self) -> anyhow::Result<()> {
-        anyhow::bail!("this engine has no windows to open one beside")
+        // A Core has no window of its own; the front end attached to it does.
+        if mcp_host().is_some_and(|host| host.open_window()) {
+            return Ok(());
+        }
+        anyhow::bail!("no front end is attached to open a window on")
     }
     fn active_pane_id(&self) -> anyhow::Result<Option<u64>>;
     fn pane_locations(&self) -> anyhow::Result<std::collections::HashMap<u64, PaneLocation>>;
@@ -1596,6 +1600,16 @@ pub trait McpHost: Send + Sync {
     /// How this front end's window relates to the surface.
     fn window_identity(&self) -> WindowIdentity {
         WindowIdentity::HEADLESS
+    }
+
+    /// Ask the attached front end for another window.
+    ///
+    /// The Core has no windows of its own -- it forwards to whichever front
+    /// end is attached, which is the whole point of this trait. False when
+    /// nothing is attached to ask, so the caller can fall back to starting a
+    /// front end rather than reporting a window that was never opened.
+    fn open_window(&self) -> bool {
+        false
     }
 
     /// Whether there is a front end that can actually put a question on

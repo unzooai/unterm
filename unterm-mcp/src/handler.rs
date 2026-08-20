@@ -142,6 +142,7 @@ fn method_is_mutating(method: &str) -> bool {
             | "instance.close"
             | "instance.set_title"
             | "instance.focus"
+            | "instance.new_window"
             | "selftest.run"
             | "session.recording_start"
             | "session.recording_stop"
