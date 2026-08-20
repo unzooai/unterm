@@ -682,14 +682,37 @@ pub struct App {
     /// mailbox, so one window applying a request does not consume it for the
     /// others.
     theme_request_seen: u64,
-    /// This process's window, and everything that is true of it alone.
+    /// The window being acted on, and everything true of it alone.
     ///
-    /// Split out from the fields above so the two lifetimes stop being the
-    /// same object: the settings, the engine and the shell belong to the
-    /// process, while a tab strip, a selection and a dirty-frame marker
-    /// belong to one window. Still exactly one of them -- making it many is
-    /// the next slice, and it is the reason this one exists.
+    /// The settings, the engine and the shell belong to the process; a tab
+    /// strip, a selection and a dirty-frame marker belong to one window.
+    /// Keeping both on the same `self` is what made "one window" mean "one
+    /// process", and one process per window is what makes every window pay
+    /// for its own GPU adapter -- 293 ms of it, measured.
+    ///
+    /// **Why a field and not `windows[active]`.** That was tried first and
+    /// reverted. A thousand call sites here take two fields of this struct at
+    /// once -- `&mut self.window.font` beside `&mut self.window.atlas` --
+    /// which the borrow checker allows because the fields are disjoint. Reach
+    /// them through an index and they stop being disjoint: both borrow the
+    /// vector, and the same thousand sites stop compiling. Keeping the active
+    /// window as a field keeps that property; the others park below.
     window: WindowState,
+    /// The windows that are not being acted on.
+    ///
+    /// Swapping one into `window` is how this process changes which window an
+    /// event means. A swap moves a struct of fields, not a frame or a
+    /// surface, and it happens once per event rather than once per frame.
+    parked: Vec<ParkedWindow>,
+}
+
+/// A window this process owns but is not currently acting on.
+///
+/// Held beside its id because winit delivers events per window, and the id is
+/// what says which of these an event means.
+struct ParkedWindow {
+    id: winit::window::WindowId,
+    state: WindowState,
 }
 
 /// Everything that belongs to one window rather than to the process.
@@ -975,6 +998,42 @@ struct Live {
 }
 
 impl App {
+    /// How many windows this process is showing.
+    ///
+    /// The count the close prompt asks about: with another window still open,
+    /// closing this one is closing a view, and nothing has to be decided
+    /// about the sessions behind it.
+    fn window_count(&self) -> usize {
+        1 + self.parked.len()
+    }
+
+    /// The id of the window currently being acted on, if it has one yet.
+    fn active_window_id(&self) -> Option<winit::window::WindowId> {
+        self.window.state.as_ref().map(|live| live.window.id())
+    }
+
+    /// Make `id` the window this process is acting on.
+    ///
+    /// Returns false when no window here has that id. Swapping rather than
+    /// indexing is what lets every method below keep taking two fields of
+    /// `self.window` at once; see the field's own note.
+    fn focus_window(&mut self, id: winit::window::WindowId) -> bool {
+        if self.active_window_id() == Some(id) {
+            return true;
+        }
+        let Some(at) = self.parked.iter().position(|parked| parked.id == id) else {
+            return false;
+        };
+        // The active one has to keep its id on the way out, or the window it
+        // becomes could never be found again.
+        let Some(active_id) = self.active_window_id() else {
+            return false;
+        };
+        std::mem::swap(&mut self.window, &mut self.parked[at].state);
+        self.parked[at].id = active_id;
+        true
+    }
+
     pub fn new(config: &config::Config) -> anyhow::Result<Self> {
         // The config's own fallback list comes first: someone who named a font
         // meant it, and the built-in list is only what to try after.
@@ -1118,6 +1177,7 @@ impl App {
             font_fallbacks: fallbacks,
             chrome_overrides: ChromeOverrides::from_config(config),
             shell,
+            parked: Vec::new(),
             window: WindowState {
                 picture,
                 font,
@@ -9731,9 +9791,16 @@ impl ApplicationHandler for App {
         // sets -- one exit path, whether the press was on our chrome or the
         // system's.
         _event_loop: &ActiveEventLoop,
-        _window_id: WindowId,
+        window_id: WindowId,
         event: WindowEvent,
     ) {
+        // Which window this is about. winit says so per event; everything
+        // below reads `self.window`, so the named one has to be there first.
+        // A miss means the event outlived its window -- there is nothing to
+        // act on and nothing to report.
+        if !self.focus_window(window_id) {
+            return;
+        }
         match event {
             WindowEvent::Occluded(occluded) => {
                 self.window.occluded = occluded;
