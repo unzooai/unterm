@@ -25,6 +25,31 @@ fn version_is_fast_and_does_not_register_an_instance() {
         .expect("run unterm --version");
 
     assert!(output.status.success());
+    // KNOWN FLAKE, cause established 2026-08-20 -- read this before touching
+    // the number below.
+    //
+    // These two fail in roughly half of `cargo test --workspace` runs, and the
+    // clock is not why. `CARGO_BIN_EXE_unterm` names
+    // `target/debug/unterm.exe`, and during a workspace test run that path
+    // holds **the libtest harness for this crate's own unit tests**, not the
+    // terminal: same target name, same uplift destination. Watched during one
+    // run, the file stayed 37 MB and answered `--version` with getopts'
+    // `error: Unrecognized option: 'version'` for sixty seconds; a plain
+    // `cargo build` puts the real 75 MB binary back. Nothing in `deps/`
+    // answers as the terminal either, because `cargo test` builds the harness
+    // rather than the bin. The runs that pass are passing on a binary some
+    // earlier `cargo build` left behind.
+    //
+    // Two wrong diagnoses were tried first and are recorded so they are not
+    // tried again: "it is slow under load" (measured: 0.31 s idle, 1.48 s
+    // loaded, both inside any threshold) and "the uplift is momentarily
+    // racing" (measured: five spawns 200 ms apart, all five reached the
+    // harness).
+    //
+    // The fix belongs in the build layout, not here -- the bin's unit tests
+    // and the bin cannot keep sharing an uplift path -- so this is left
+    // failing honestly rather than papered over with a retry that hides it.
+    //
     // Three seconds, not one. What this test is for is the line below it:
     // a version probe must not start the product. The clock is only here to
     // catch "it initialised everything and then printed a version", and for
