@@ -50,7 +50,9 @@ config.font = wezterm.font_with_fallback({
 config.font_size = 13
 config.line_height = 1.15
 config.enable_scroll_bar = true
-config.scrollback_lines = 100000
+-- 回滚是常驻内存的：40 个 pane 各写满 10 万行，Core 实测封顶 10.1 GB。
+-- 5 万行仍远多于任何人向上翻的距离，代价减半。
+config.scrollback_lines = 50000
 config.window_close_confirmation = 'NeverPrompt'
 config.window_background_opacity = 1.0
 config.win32_system_backdrop = 'Disable'
