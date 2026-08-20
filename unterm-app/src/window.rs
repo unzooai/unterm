@@ -117,6 +117,26 @@ struct Graphics {
     device: wgpu::Device,
     queue: wgpu::Queue,
     format: wgpu::TextureFormat,
+    /// Kept so a second window does not have to find a GPU again.
+    shared: SharedGpu,
+}
+
+/// The parts of the graphics stack that belong to the process, not a window.
+///
+/// Choosing an adapter costs about 200 ms and it is not a first-call cost:
+/// measured three times in one process, `request_adapter` took 327, 197 and
+/// 202 ms. A window that reuses this one pays for its surface instead --
+/// `create_surface` is immediate and configuring it takes 3 ms. That is the
+/// whole difference between Unterm's 587 ms for a new window and Windows
+/// Terminal's 172 ms: WT's second window is served by a process that already
+/// has these.
+#[derive(Clone)]
+struct SharedGpu {
+    instance: wgpu::Instance,
+    adapter: wgpu::Adapter,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    format: wgpu::TextureFormat,
 }
 
 fn request_graphics(window: Arc<Window>, width: u32, height: u32) -> anyhow::Result<Graphics> {
@@ -140,6 +160,57 @@ fn request_graphics(window: Arc<Window>, width: u32, height: u32) -> anyhow::Res
         }
     }
     anyhow::bail!("no working GPU path ({})", failures.join("; "))
+}
+
+/// Put a window on a GPU this process has already chosen.
+///
+/// Everything expensive -- loading the driver, enumerating adapters, opening
+/// a device -- happened for the first window. What is left is this window's
+/// own surface, which costs nothing to make and 3 ms to configure.
+///
+/// If the surface will not configure, say so rather than falling back: the
+/// fallback exists for "this machine's GPU stack does not work", and this
+/// process has already proved that it does.
+fn surface_on(
+    shared: SharedGpu,
+    window: Arc<Window>,
+    width: u32,
+    height: u32,
+) -> anyhow::Result<Graphics> {
+    let surface = shared
+        .instance
+        .create_surface(window)
+        .map_err(|error| anyhow::anyhow!("surface: {error}"))?;
+    let capabilities = surface.get_capabilities(&shared.adapter);
+    let format = if capabilities.formats.contains(&shared.format) {
+        shared.format
+    } else {
+        // A second monitor can want a format the first one did not offer.
+        *capabilities
+            .formats
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("surface offers no format"))?
+    };
+    surface.configure(
+        &shared.device,
+        &wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: width.max(1),
+            height: height.max(1),
+            present_mode: wgpu::PresentMode::AutoVsync,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: capabilities.alpha_modes[0],
+            view_formats: vec![],
+        },
+    );
+    Ok(Graphics {
+        surface,
+        device: shared.device.clone(),
+        queue: shared.queue.clone(),
+        format,
+        shared,
+    })
 }
 
 /// Bring one backend all the way up, or say why it cannot come up.
@@ -248,6 +319,13 @@ fn try_backend(
     crate::startup_trace::mark("graphics.surface.probed");
 
     Ok(Graphics {
+        shared: SharedGpu {
+            instance,
+            adapter,
+            device: device.clone(),
+            queue: queue.clone(),
+            format,
+        },
         surface,
         device,
         queue,
@@ -698,6 +776,8 @@ pub struct App {
     /// vector, and the same thousand sites stop compiling. Keeping the active
     /// window as a field keeps that property; the others park below.
     window: WindowState,
+    /// The GPU this process found, kept so later windows need not look.
+    gpu: Option<SharedGpu>,
     /// The windows that are not being acted on.
     ///
     /// Swapping one into `window` is how this process changes which window an
@@ -1177,6 +1257,7 @@ impl App {
             font_fallbacks: fallbacks,
             chrome_overrides: ChromeOverrides::from_config(config),
             shell,
+            gpu: None,
             parked: Vec::new(),
             window: WindowState {
                 picture,
@@ -1445,12 +1526,19 @@ impl App {
             }
         };
 
+        // A second window does not go looking for a GPU. The first one
+        // already found it, and finding it is the 250 ms.
         let Graphics {
             surface,
             device,
             queue,
             format,
-        } = request_graphics(window.clone(), size.width, size.height)?;
+            shared,
+        } = match self.gpu.clone() {
+            Some(shared) => surface_on(shared, window.clone(), size.width, size.height)?,
+            None => request_graphics(window.clone(), size.width, size.height)?,
+        };
+        self.gpu = Some(shared.clone());
         crate::startup_trace::mark("graphics.ready");
 
         let renderer = Renderer::new(device, queue, format);
