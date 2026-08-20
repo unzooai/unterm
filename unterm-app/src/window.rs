@@ -6291,14 +6291,23 @@ impl App {
         let _slow = SlowGuard::new("perform_close");
         self.save_last_session();
         if outcome == CloseOutcome::EndSessions {
-            // Every session, not only the front one: a shell left running
-            // with nothing attached to it is a leak.
-            let sessions =
-                unterm_engine::SessionEngine::list_sessions(&self.engine).unwrap_or_default();
-            for session in sessions {
-                crate::statsbar::forget(session.id);
-                unterm_services::ghost_text::forget(session.id as u64);
-                let _ = self.engine.destroy_session(session.id);
+            // Every session *this window* holds, not every session there is.
+            //
+            // Asking the engine for the list gives the Core's, which is every
+            // window's: two windows open, close one, and the other is left
+            // running with no panes at all. Verified on the machine before
+            // this line changed. The tab registry is this window's own, and
+            // "the shells I was showing" is what closing a window ends.
+            let mine: Vec<usize> = self
+                .tabs
+                .tab_ids()
+                .into_iter()
+                .flat_map(|tab| self.tabs.pane_ids(tab))
+                .collect();
+            for pane in mine {
+                crate::statsbar::forget(pane);
+                unterm_services::ghost_text::forget(pane as u64);
+                let _ = self.engine.destroy_session(pane);
             }
         }
         if let Some(live) = self.state.as_ref() {
@@ -11151,6 +11160,43 @@ mod tests {
         assert_eq!(App::font_scale_for(1.0), 1.0);
         assert_eq!(App::font_scale_for(1.5), 1.5);
         assert_eq!(App::font_scale_for(2.0), 2.0);
+    }
+
+    /// Closing a window ends the shells it was showing -- and only those.
+    ///
+    /// The list came from the engine, which in Core mode is every window's:
+    /// two windows open, close one, and the other was left running with no
+    /// panes at all. The tab registry is this window's own, so it is what
+    /// "the shells I was showing" means.
+    #[test]
+    fn a_window_closes_only_the_panes_it_holds() {
+        let mut mine = unterm_engine::next_core::tabs::TabRegistry::new();
+        mine.create_tab(1).expect("a tab");
+        mine.split(
+            1,
+            2,
+            unterm_engine::next_core::layout::SplitAxis::Horizontal,
+            0.5,
+            unterm_engine::next_core::layout::SplitSide::Second,
+        )
+        .expect("a split");
+        mine.create_tab(3).expect("a second tab");
+
+        // What `perform_close(EndSessions)` now destroys.
+        let mut closing: Vec<usize> = mine
+            .tab_ids()
+            .into_iter()
+            .flat_map(|tab| mine.pane_ids(tab))
+            .collect();
+        closing.sort();
+
+        assert_eq!(closing, vec![1, 2, 3], "every pane this window holds");
+        // Pane 4 belongs to another window on the same Core. Nothing here
+        // may reach it.
+        assert!(
+            !closing.contains(&4),
+            "another window's pane must survive this close"
+        );
     }
 
     #[test]
