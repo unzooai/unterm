@@ -1,5 +1,61 @@
 # Changelog
 
+## v0.68.2 — 2026-08-23
+
+Windows are no longer processes. Opening a second one used to launch a
+second Unterm — a second GPU adapter, a second Core connection, 587 ms of
+waiting. It now opens in the process that is already running, in 31 ms, and
+an agent can tell one window from another.
+
+### Added
+
+- **Windows have ids.** `instance.new_window` answers with the id of the
+  window it opened, `instance.focus` takes one, and `instance.windows` lists
+  every window this front end is showing — with its title, whether it has
+  the focus, and which sessions are in it. Naming a window that is not there
+  is an error rather than a silent redirect to whichever window was most
+  recent. `instance.list` carries the same list for the current instance.
+
+- **`session.focus` raises the window holding the session.** It used to set
+  the active session and stop, and the front end only follows the active
+  session in the window that is in front — so an agent saying "look at this"
+  about a session in the other window changed a flag and the user saw
+  nothing. When the platform refuses the foreground, the taskbar is asked
+  for attention instead of the request vanishing.
+
+### Changed
+
+- **A second launch hands over to the running front end** instead of
+  becoming a second process, and the whole multi-window exit story follows
+  the platform: the last window closing ends the process on Windows and
+  Linux, while on macOS the application outlives its windows.
+
+- **The default scrollback is 50,000 lines**, down from 100,000.
+
+### Fixed
+
+- **A session belongs to one window.** Every window mirrored the Core's
+  whole session list into its own tab bar, so a second window showed the
+  first one's shells as well as its own — its title bar said `[1/2]` before
+  anything had been run in it — and the two drifted towards the same set.
+  A pane now belongs to the window that adopted it; a split belongs beside
+  its source, in that source's window, even when the user is looking at a
+  different one; and a session no window holds is taken by the window the
+  user is in, which is where a session created over MCP lands and where the
+  shells of a closed window resurface.
+
+- **A background window keeps up.** Only the window being drawn mirrored the
+  Core, so a pane an agent split or closed in a background window did not
+  appear or disappear until the user happened to go back to it.
+
+- **Closing one window ends only its own panes.**
+
+- **A dead instance record no longer locks up the CLI.**
+
+- **Audit appends re-read the whole day's log.** The 0.68 hash chain needed
+  the previous entry's hash and got it by parsing every entry written that
+  day. 0.09 ms and flat, rather than climbing past 3.75 ms.
+
 ## v0.68.1 — 2026-08-19
 
 Two fixes for the same complaint: several agent tabs open, content stops
