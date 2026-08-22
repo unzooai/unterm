@@ -6352,7 +6352,26 @@ impl McpHandler {
             PaneResolutionOptions::REQUIRED_EXISTING,
         )?;
         engine.focus_session(pane_id)?;
-        Ok(json!({ "ok": true, "id": pane_id }))
+        // A session lives in one window, and the front end only follows the
+        // active session in the window that is in front. Without this the
+        // call succeeded and the user saw nothing: an agent saying "look at
+        // this" while the session was in the other window changed which
+        // session was active and left both windows showing what they already
+        // were. Raising it is best-effort -- a front end with one window, or
+        // none, has nothing to do here.
+        let window_id = engine
+            .list_windows()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|window| window.panes.contains(&pane_id))
+            .filter(|window| !window.focused)
+            .map(|window| window.id);
+        if let Some(window_id) = window_id {
+            if let Err(err) = engine.focus_current_instance_window(Some(window_id)) {
+                log::debug!("session.focus could not raise window {window_id}: {err:#}");
+            }
+        }
+        Ok(json!({ "ok": true, "id": pane_id, "window_id": window_id }))
     }
 
     fn session_create(&self, params: &Value) -> Result<Value> {

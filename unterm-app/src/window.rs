@@ -1266,6 +1266,17 @@ impl App {
         true
     }
 
+    /// Tell the MCP surface what one window is showing.
+    fn note_window_view(state: &WindowState) {
+        let panes: Vec<usize> = state
+            .tabs
+            .tab_ids()
+            .into_iter()
+            .flat_map(|tab| state.tabs.pane_ids(tab))
+            .collect();
+        crate::mcp_host::note_window_view(state.id, state.tabs.tab_count(), &panes);
+    }
+
     pub fn new(config: &config::Config) -> anyhow::Result<Self> {
         // The config's own fallback list comes first: someone who named a font
         // meant it, and the built-in list is only what to try after.
@@ -8341,63 +8352,49 @@ impl App {
         };
         let live_ids: std::collections::HashSet<usize> =
             sessions.iter().map(|session| session.id).collect();
-        self.window.pane_notices
-            .retain(|pane_id, _| live_ids.contains(pane_id));
+
+        // Every window of this process, the front one first.
+        //
+        // All of them, not just the one being drawn. A background window
+        // still owns its shells: an agent that split a pane there, or closed
+        // one, changed that window's arrangement, and leaving the mirror
+        // until the user happened to come back means `instance.windows`
+        // reports an arrangement that is not the one that exists.
+        //
+        // Front first because an orphan -- a session no window has, which is
+        // what a session created over MCP is, and what D1 leaves behind when
+        // a window closes -- belongs to the window the user is in, and
+        // whichever runs first takes it. A split is the exception and settles
+        // itself: every window skips it except the one holding its source.
+        let mut shown: Vec<std::collections::HashSet<usize>> = std::iter::once(&self.window)
+            .chain(self.parked.iter().map(|parked| &parked.state))
+            .map(pane_set)
+            .collect();
         let mut changed = false;
-
-        // Sessions may be closed through MCP as well as through this window.
-        // Remove each missing pane from the mirrored layout, not only tabs
-        // whose every pane vanished: otherwise destroying one half of a split
-        // leaves the survivor permanently laid out at half width.
-        for pane in missing_mirrored_panes(&self.window.tabs, &live_ids) {
-            self.window.tabs.close_pane(pane);
-            self.window.pane_sizes.remove(&pane);
-            changed = true;
-        }
-
-        for session in &sessions {
-            if self.window.tabs.tab_of_pane(session.id).is_some() {
-                continue;
-            }
-            // A pane split off another belongs beside it, not in a tab of its
-            // own: an agent asking for a split and getting a new tab got
-            // something else than it asked for.
-            let split = session
-                .split_from
-                .filter(|source| self.window.tabs.tab_of_pane(*source).is_some());
-            // Which way, at what size, and on which side -- from the
-            // engine, which resolved all three when the split was made.
-            // That is what lets an arrangement survive a restart: this
-            // window may never have seen the split it is rebuilding.
-            // Falling back to horizontal-half-second is for panes made
-            // before the engine recorded any of this.
-            let outcome = match split {
-                Some(source) => self
-                    .window.tabs
-                    .split(
-                        source,
-                        session.id,
-                        session
-                            .split_axis
-                            .unwrap_or(unterm_engine::next_core::layout::SplitAxis::Horizontal),
-                        session.split_ratio.unwrap_or(0.5),
-                        session
-                            .split_side
-                            .unwrap_or(unterm_engine::next_core::layout::SplitSide::Second),
-                    )
-                    .map(|_| ()),
-                None => self.window.tabs.create_tab(session.id).map(|_| ()),
+        for index in 0..shown.len() {
+            let elsewhere: std::collections::HashSet<usize> = shown
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != index)
+                .flat_map(|(_, panes)| panes.iter().copied())
+                .collect();
+            let state = match index {
+                0 => &mut self.window,
+                other => &mut self.parked[other - 1].state,
             };
-            match outcome {
-                Ok(()) => {
-                    #[cfg(target_os = "macos")]
-                    crate::macos_open::trace(&format!(
-                        "adopt session {} (split of {:?})",
-                        session.id, split
-                    ));
-                    changed = true;
+            let moved = adopt_sessions_into(state, &sessions, &live_ids, &elsewhere);
+            if moved {
+                shown[index] = pane_set(state);
+                // The front window's is settled at the end of this method,
+                // where the pane it is showing is settled with it. A
+                // background one gets no such pass, and one left pointing at
+                // a tab that has gone would come back showing nothing.
+                if index > 0 {
+                    settle_active_tab(state);
                 }
-                Err(err) => log::warn!("could not adopt session {}: {err:#}", session.id),
+            }
+            if index == 0 {
+                changed = moved;
             }
         }
 
@@ -8438,22 +8435,7 @@ impl App {
         }
         // The window may have been left pointing at a tab that no longer
         // exists, or at none at all.
-        let ids = self.window.tabs.tab_ids();
-        let still_there = self.window.tab_id.map(|id| ids.contains(&id)).unwrap_or(false);
-        if !still_there {
-            if let Some(first) = ids.first().copied() {
-                self.window.tabs.set_active_tab(first);
-                self.window.tab_id = Some(first);
-                if let Some(pane) = self.window.tabs.active_pane(first) {
-                    self.window.tabs.set_active_pane(pane);
-                    if let Some(live) = self.window.state.as_mut() {
-                        live.session_id = pane;
-                    }
-                }
-            } else {
-                self.window.tab_id = None;
-            }
-        }
+        settle_active_tab(&mut self.window);
         // Only when the arrangement actually moved. This used to run on every
         // pass: a PTY resize per pane, four times a second, forever -- which
         // is a system call and a reflow each time, and was most of what an
@@ -11137,14 +11119,16 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // Cheap, and the only place that sees every way a tab can appear or
-        // go: `instance.windows` reports this. Parked windows are counted
-        // too -- a window keeps its tabs while another one is in front, so
-        // reporting the number it happened to have when it was parked would
-        // be wrong the first time anything changed behind it.
-        crate::mcp_host::note_window_tabs(self.window.id, self.window.tabs.tab_count());
+        // Cheap, and the only place that sees every way a tab or a session
+        // can appear or go: `instance.windows` reports this, and
+        // `session.focus` uses it to find the window a session is in. Parked
+        // windows are pushed too -- a window keeps running its tabs while
+        // another one is in front, so what it happened to be showing when it
+        // was parked would be wrong the first time anything changed behind
+        // it, and `session.focus` would raise the wrong window.
+        Self::note_window_view(&self.window);
         for parked in &self.parked {
-            crate::mcp_host::note_window_tabs(parked.state.id, parked.state.tabs.tab_count());
+            Self::note_window_view(&parked.state);
         }
         // Asked for from outside -- an MCP call, a keystroke, or a second
         // launch that handed over rather than becoming another process. Each
@@ -11420,6 +11404,156 @@ fn split_lineage_root(
     current
 }
 
+/// Whether one window should take a session into its tabs.
+///
+/// The whole of who-owns-what, in one place because every part of it was
+/// learned from a way multi-window went wrong:
+///
+/// - A window keeps what it already has.
+/// - A pane another window holds is that window's. Every window used to
+///   mirror the Core's whole session list, so a second window showed the
+///   first one's shells as well as its own and the two drifted towards the
+///   same set.
+/// - A pane split off another belongs in that one's window, even when the
+///   user is looking at a different one. An agent splitting a pane in a
+///   background window and getting a new tab in the foreground one got
+///   something else than it asked for, and the split it did ask for was
+///   nowhere to be seen.
+/// - Anything else is an orphan and is taken. That is not a leak: it is a
+///   session created over MCP, which nothing named a window for, and it is
+///   what D1 leaves behind when a window closes and its shells keep running.
+///   Windows are offered sessions front one first, so an orphan lands in the
+///   window the user is in.
+fn window_should_adopt(
+    pane_id: usize,
+    split_from: Option<usize>,
+    already_here: bool,
+    shown_elsewhere: &std::collections::HashSet<usize>,
+) -> bool {
+    if already_here {
+        return false;
+    }
+    if shown_elsewhere.contains(&pane_id) {
+        return false;
+    }
+    if split_from.is_some_and(|source| shown_elsewhere.contains(&source)) {
+        return false;
+    }
+    true
+}
+
+/// Every pane one window is showing, across all of its tabs.
+fn pane_set(state: &WindowState) -> std::collections::HashSet<usize> {
+    state
+        .tabs
+        .tab_ids()
+        .into_iter()
+        .flat_map(|tab| state.tabs.pane_ids(tab))
+        .collect()
+}
+
+/// Mirror the Core's session list into one window's tabs.
+///
+/// The Core is the only place sessions exist; a window's `TabRegistry` is a
+/// picture of the ones it is showing. This keeps the picture true -- panes
+/// closed elsewhere go, panes this window should have arrive -- and it is
+/// deliberately about one window: `shown_elsewhere` is what the others
+/// already hold, and nothing here may take one of those.
+///
+/// Returns true when the arrangement moved.
+fn adopt_sessions_into(
+    state: &mut WindowState,
+    sessions: &[unterm_engine::SessionSnapshot],
+    live_ids: &std::collections::HashSet<usize>,
+    shown_elsewhere: &std::collections::HashSet<usize>,
+) -> bool {
+    state
+        .pane_notices
+        .retain(|pane_id, _| live_ids.contains(pane_id));
+    let mut changed = false;
+
+    // Sessions may be closed through MCP as well as through this window.
+    // Remove each missing pane from the mirrored layout, not only tabs
+    // whose every pane vanished: otherwise destroying one half of a split
+    // leaves the survivor permanently laid out at half width.
+    for pane in missing_mirrored_panes(&state.tabs, live_ids) {
+        state.tabs.close_pane(pane);
+        state.pane_sizes.remove(&pane);
+        changed = true;
+    }
+
+    for session in sessions {
+        if !window_should_adopt(
+            session.id,
+            session.split_from,
+            state.tabs.tab_of_pane(session.id).is_some(),
+            shown_elsewhere,
+        ) {
+            continue;
+        }
+        // A pane split off another belongs beside it, not in a tab of its
+        // own: an agent asking for a split and getting a new tab got
+        // something else than it asked for.
+        let split = session
+            .split_from
+            .filter(|source| state.tabs.tab_of_pane(*source).is_some());
+        // Which way, at what size, and on which side -- from the engine,
+        // which resolved all three when the split was made. That is what lets
+        // an arrangement survive a restart: this window may never have seen
+        // the split it is rebuilding. Falling back to horizontal-half-second
+        // is for panes made before the engine recorded any of this.
+        let outcome = match split {
+            Some(source) => state
+                .tabs
+                .split(
+                    source,
+                    session.id,
+                    session
+                        .split_axis
+                        .unwrap_or(unterm_engine::next_core::layout::SplitAxis::Horizontal),
+                    session.split_ratio.unwrap_or(0.5),
+                    session
+                        .split_side
+                        .unwrap_or(unterm_engine::next_core::layout::SplitSide::Second),
+                )
+                .map(|_| ()),
+            None => state.tabs.create_tab(session.id).map(|_| ()),
+        };
+        match outcome {
+            Ok(()) => {
+                #[cfg(target_os = "macos")]
+                crate::macos_open::trace(&format!(
+                    "adopt session {} (split of {:?})",
+                    session.id, split
+                ));
+                changed = true;
+            }
+            Err(err) => log::warn!("could not adopt session {}: {err:#}", session.id),
+        }
+    }
+    changed
+}
+
+/// Point a window at a tab that exists, after its arrangement moved.
+fn settle_active_tab(state: &mut WindowState) {
+    let ids = state.tabs.tab_ids();
+    if state.tab_id.map(|id| ids.contains(&id)).unwrap_or(false) {
+        return;
+    }
+    let Some(first) = ids.first().copied() else {
+        state.tab_id = None;
+        return;
+    };
+    state.tabs.set_active_tab(first);
+    state.tab_id = Some(first);
+    if let Some(pane) = state.tabs.active_pane(first) {
+        state.tabs.set_active_pane(pane);
+        if let Some(live) = state.state.as_mut() {
+            live.session_id = pane;
+        }
+    }
+}
+
 fn missing_mirrored_panes(
     tabs: &unterm_engine::next_core::tabs::TabRegistry,
     live_ids: &std::collections::HashSet<usize>,
@@ -11581,6 +11715,64 @@ mod tests {
         );
         assert_eq!(App::window_count_for(1), 2, "one parked window makes two");
         assert_eq!(App::window_count_for(2), 3);
+    }
+
+    fn elsewhere(panes: &[usize]) -> std::collections::HashSet<usize> {
+        panes.iter().copied().collect()
+    }
+
+    /// A session belongs to one window.
+    ///
+    /// Every window mirrors the Core's session list into its own tabs, and
+    /// every window sees the whole list. Without this rule a second window
+    /// showed the first one's shells as well as its own -- open one and its
+    /// title bar said `[1/2]` before anything had been run in it.
+    #[test]
+    fn a_pane_another_window_holds_is_not_taken() {
+        assert!(
+            !window_should_adopt(1, None, false, &elsewhere(&[1])),
+            "the window showing pane 1 keeps it"
+        );
+        assert!(
+            window_should_adopt(2, None, false, &elsewhere(&[1])),
+            "a pane no window holds is taken"
+        );
+        assert!(
+            !window_should_adopt(1, None, true, &elsewhere(&[])),
+            "a pane already here is not adopted twice"
+        );
+    }
+
+    /// A split belongs beside the pane it came from, in that pane's window.
+    ///
+    /// The user may well be looking at a different window when an agent asks
+    /// for the split. Adopting it here would put a new tab in the window the
+    /// user is in and leave the split that was asked for nowhere to be seen.
+    #[test]
+    fn a_split_follows_its_source_into_the_other_window() {
+        assert!(
+            !window_should_adopt(3, Some(1), false, &elsewhere(&[1])),
+            "pane 1 is in another window, so its split goes there"
+        );
+        assert!(
+            window_should_adopt(3, Some(1), false, &elsewhere(&[9])),
+            "the window holding pane 1 takes the split"
+        );
+    }
+
+    /// An orphan is taken rather than left running invisibly.
+    ///
+    /// Two things make orphans: a session created over MCP, which named no
+    /// window, and D1 -- closing a window closes a view and leaves its shells
+    /// running. Both have to resurface, and windows are offered sessions
+    /// front one first, so both land in the window the user is in.
+    #[test]
+    fn a_session_no_window_holds_is_taken() {
+        assert!(window_should_adopt(4, None, false, &elsewhere(&[1, 2])));
+        assert!(
+            window_should_adopt(4, Some(9), false, &elsewhere(&[1, 2])),
+            "a split whose source no window holds either is still an orphan"
+        );
     }
 
     #[test]

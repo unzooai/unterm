@@ -98,7 +98,7 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod {
         name: "session.focus",
         namespace: "session",
-        summary: "Bring a pane into focus.",
+        summary: "Bring a pane into focus, raising the window holding it; answers with that window's id.",
         params: &[P_PANE_ID, P_SESSION_ID],
     },
     McpMethod {

@@ -1346,6 +1346,16 @@ pub struct WindowSummary {
     /// The window this front end is drawing and sending keys to.
     pub focused: bool,
     pub tabs: usize,
+    /// The sessions this window is showing, across all of its tabs.
+    ///
+    /// A session belongs to one window, and until this was reported nothing
+    /// outside the front end could tell which. That is what `session.focus`
+    /// needs: asked to show a session, it has to raise the window holding it
+    /// -- otherwise the call succeeds, the active session changes, and the
+    /// user sees nothing at all because the window they are looking at never
+    /// had that session in it.
+    #[serde(default)]
+    pub panes: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -2540,6 +2550,7 @@ mod host_capture_tests {
                 title: "recorded".to_string(),
                 focused: true,
                 tabs: 2,
+                panes: vec![1, 2],
             }]
         }
 

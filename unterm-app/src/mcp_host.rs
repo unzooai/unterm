@@ -36,6 +36,9 @@ struct KnownWindow {
     /// the event loop rather than read from it: this is read on the MCP
     /// thread, which has no way to reach a `TabRegistry` the loop owns.
     tabs: usize,
+    /// The sessions in those tabs, in tab order. Same reason, and this is
+    /// what lets `session.focus` find the window a session is in.
+    panes: Vec<usize>,
 }
 
 /// The windows, for the threads that are not the one drawing them.
@@ -97,6 +100,7 @@ pub fn remember_window(id: u64, handle: std::sync::Arc<winit::window::Window>) {
                 id,
                 handle,
                 tabs: 1,
+                panes: Vec::new(),
             });
         }
     }
@@ -130,18 +134,19 @@ pub fn set_focused_window(id: u64) {
     FOCUSED.store(id, std::sync::atomic::Ordering::Release);
 }
 
-/// Called when a window gains or loses a tab, so `instance.windows` can say.
+/// Called when what a window is showing changes, so `instance.windows` and
+/// `session.focus` can act on it.
 ///
 /// Called from `about_to_wait`, which runs far more often than tabs change,
-/// so an unchanged count takes a read lock and stops. Taking the write lock
+/// so an unchanged view takes a read lock and stops. Taking the write lock
 /// every wakeup would put the event loop behind whichever MCP thread happened
 /// to be listing windows.
-pub fn note_window_tabs(id: u64, tabs: usize) {
+pub fn note_window_view(id: u64, tabs: usize, panes: &[usize]) {
     if let Ok(held) = WINDOWS.read() {
         if held
             .iter()
             .find(|known| known.id == id)
-            .is_none_or(|known| known.tabs == tabs)
+            .is_none_or(|known| known.tabs == tabs && known.panes == panes)
         {
             return;
         }
@@ -149,6 +154,8 @@ pub fn note_window_tabs(id: u64, tabs: usize) {
     if let Ok(mut held) = WINDOWS.write() {
         if let Some(known) = held.iter_mut().find(|known| known.id == id) {
             known.tabs = tabs;
+            known.panes.clear();
+            known.panes.extend_from_slice(panes);
         }
     }
 }
@@ -164,6 +171,7 @@ pub fn window_summaries() -> Vec<unterm_engine::WindowSummary> {
             id: known.id,
             title: known.handle.title(),
             focused: known.id == focused,
+            panes: known.panes.clone(),
             tabs: known.tabs,
         })
         .collect()
@@ -251,12 +259,19 @@ impl McpHost for AppMcpHost {
         };
         window.set_minimized(false);
         // A request, not a guarantee: Windows refuses the foreground to a
-        // process that does not already hold it and flashes the taskbar
-        // instead. Between this front end's own windows -- which is what an
-        // id names -- the user is normally already in Unterm and it goes
-        // through. `ok` therefore means the window was found and asked for,
-        // and `instance.windows` is where to read what actually happened.
+        // process that does not already hold it. Between this front end's own
+        // windows -- which is what an id names -- the user is normally
+        // already in Unterm and it goes through. `ok` therefore means the
+        // window was found and asked for, and `instance.windows` is where to
+        // read what actually happened.
         window.focus_window();
+        // And when the platform does refuse, the request must still land
+        // somewhere the user can see. This is what puts Unterm in the
+        // taskbar's attention state -- the same thing any application does
+        // when it wants the foreground and cannot have it. Without it an
+        // agent saying "look at this" while the user was in their editor
+        // produced nothing at all: no window, no hint that anything asked.
+        window.request_user_attention(Some(winit::window::UserAttentionType::Informational));
         Ok(id)
     }
 
