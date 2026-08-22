@@ -274,6 +274,16 @@ impl ServerEndpoint {
         let dir = unterm_dir()?;
 
         if let Some(instance_id) = requested_instance_id() {
+            // The Core is on `instance.list` under this name, and a name
+            // you can see is a name you will type. It does not register
+            // in `instances/` -- it publishes its own record -- so
+            // looking for it there would fail for the one instance that
+            // is reachable with no window open at all.
+            if instance_id == "core" {
+                return resolve_core_endpoint().ok_or_else(|| {
+                    anyhow!("no Unterm Core is running; start one with `unterm-core --headless`.")
+                });
+            }
             let path = dir.join("instances").join(format!("{instance_id}.json"));
             let Some(info) = read_live_record(&path)? else {
                 return Err(anyhow!(
@@ -800,6 +810,61 @@ mod compatibility_tests {
 
         assert_eq!(endpoint.port, 25001);
         assert_eq!(endpoint.token, "core-token");
+    }
+
+    /// `instance.list` names the Core `core`, so `--instance core` has to
+    /// reach it. It publishes its own record instead of registering in
+    /// `instances/`, so the by-name path would otherwise fail for the one
+    /// instance that is reachable with no window open.
+    #[test]
+    fn the_instance_named_core_resolves_to_the_core() {
+        let _lock = env_lock();
+        let root = tempfile::tempdir().unwrap();
+        let _guard = StateDirGuard::set(root.path());
+        fs::create_dir_all(root.path().join("instances")).unwrap();
+        fs::write(
+            root.path().join("core.json"),
+            serde_json::to_string(&json!({
+                "mcp_port": 25007,
+                "token": "core-token",
+                "pid": std::process::id(),
+                "product_version": unterm_protocol::PRODUCT_VERSION,
+                "build_commit": "core-build",
+                "protocol_version": unterm_protocol::PROTOCOL_VERSION,
+                "data_schema_version": unterm_protocol::DATA_SCHEMA_VERSION,
+                "process_role": "core",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        std::env::set_var("UNTERM_INSTANCE", "core");
+        let resolved = ServerEndpoint::resolve();
+        std::env::remove_var("UNTERM_INSTANCE");
+
+        let endpoint = resolved.expect("--instance core must resolve");
+        assert_eq!(endpoint.port, 25007);
+        assert_eq!(endpoint.token, "core-token");
+    }
+
+    /// And says so plainly when there is none, rather than reporting a
+    /// missing instance file for something that never had one.
+    #[test]
+    fn the_instance_named_core_says_when_no_core_is_running() {
+        let _lock = env_lock();
+        let root = tempfile::tempdir().unwrap();
+        let _guard = StateDirGuard::set(root.path());
+        fs::create_dir_all(root.path().join("instances")).unwrap();
+
+        std::env::set_var("UNTERM_INSTANCE", "core");
+        let resolved = ServerEndpoint::resolve();
+        std::env::remove_var("UNTERM_INSTANCE");
+
+        let error = match resolved {
+            Ok(_) => panic!("no core is running"),
+            Err(err) => err.to_string(),
+        };
+        assert!(error.contains("Core"), "{error}");
     }
 
     #[test]

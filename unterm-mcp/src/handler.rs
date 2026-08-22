@@ -38,8 +38,83 @@ fn default_audit_outcome() -> String {
     "executed".to_string()
 }
 
+/// The Core this surface is running in, as an instance record.
+///
+/// A front end registers itself in `~/.unterm/instances`, and for a long time
+/// that was the only way to be on this surface's map. Since 0.68 the surface
+/// lives in the Core, which registers nothing there -- so a headless Core
+/// answered `instance.list` with an empty list and `instance.info` with an
+/// empty record, `pid_alive: false` and all: an agent was told the Unterm it
+/// was talking to did not exist. The Core does publish itself, in `core.json`
+/// under its own state directory, and this is that record in the shape the
+/// rest of this file already renders.
+///
+/// Read rather than remembered, and only when asked: a Core replaced between
+/// two calls should answer as the one that is running now.
+fn core_self_instance() -> Option<unterm_services::server_info::InstanceInfo> {
+    let path = unterm_protocol::core_discovery_path()?;
+    let raw = std::fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&raw).ok()?;
+    let pid = value.get("pid").and_then(Value::as_u64).unwrap_or(0) as u32;
+    // A record whose process is gone is not an instance. The Core clears this
+    // on the way out, but a kill -9 leaves it behind, and reporting it would
+    // send the next caller at a port nobody is listening on.
+    if pid == 0 || !unterm_services::server_info::pid_alive(pid) {
+        return None;
+    }
+    let string = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let version = {
+        let v = string("product_version");
+        if v.is_empty() {
+            string("version")
+        } else {
+            v
+        }
+    };
+    Some(unterm_services::server_info::InstanceInfo {
+        // Not a NATO name: those are handed out to front ends, and this is
+        // not one. `unterm-cli --instance core` names it.
+        id: "core".to_string(),
+        mcp_port: value
+            .get("mcp_port")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u16,
+        http_port: 0,
+        auth_token: string("token"),
+        pid,
+        started_at: string("started_at"),
+        title: None,
+        cwd: None,
+        profile: None,
+        version: version.clone(),
+        product_version: version,
+        build_commit: string("build_commit"),
+        protocol_version: string("protocol_version"),
+        data_schema_version: value
+            .get("data_schema_version")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32,
+        process_role: unterm_protocol::ProcessRole::Core,
+        platform: std::env::consts::OS.to_string(),
+        agents: Vec::new(),
+    })
+}
+
 fn core_discovery_build() -> Option<unterm_protocol::BuildHandshake> {
-    let path = unterm_protocol::state_path("core.json")?;
+    // `core_discovery_path`, not `state_path`: the Core keeps its record in
+    // its own state directory (`%LOCALAPPDATA%\Unterm`, `~/.local/share`),
+    // which is not `~/.unterm`. Reading the wrong one found nothing, every
+    // time, and the miss was invisible because the caller falls back to this
+    // process's own identity -- which is right for a Core and wrong for
+    // anyone asking about a Core that is not this process. `UNTERM_STATE_DIR`
+    // overrides both, so every test that set it saw the two agree.
+    let path = unterm_protocol::core_discovery_path()?;
     let raw = std::fs::read_to_string(path).ok()?;
     let value: Value = serde_json::from_str(&raw).ok()?;
     let product_version = value
@@ -5849,6 +5924,13 @@ impl McpHandler {
             current.id
         };
         let current_id = (!current_id.is_empty()).then_some(current_id);
+        // Headless there is no front end to be, and the row that is *us* is
+        // the Core's own, added below.
+        let current_id = current_id.or_else(|| {
+            core_self_instance()
+                .filter(|core| core.pid == std::process::id())
+                .map(|core| core.id)
+        });
         let registry = unterm_services::server_info::instance_registry_snapshot();
         let registry_summary = json!({
             "owner": "server_info",
@@ -5871,8 +5953,24 @@ impl McpHandler {
         // reported as an empty list, which would read as "that instance has
         // no windows" when it means "not from here".
         let windows = self.engine().list_windows().unwrap_or_default();
-        let arr: Vec<Value> = registry
-            .live
+        let mut live = registry.live;
+        // The Core, when no front end on this machine already stands for it.
+        //
+        // A front end registers with the Core's own port and token, so with a
+        // window open the Core is already on the list under that window's
+        // name and adding it again would offer two ways to reach one process.
+        // With no window there is nothing else to find, and leaving it off is
+        // what told an agent talking to a headless Core that no Unterm was
+        // running.
+        if let Some(core) = core_self_instance() {
+            let already_listed = live
+                .iter()
+                .any(|i| i.mcp_port != 0 && i.mcp_port == core.mcp_port);
+            if !already_listed {
+                live.push(core);
+            }
+        }
+        let arr: Vec<Value> = live
             .into_iter()
             .map(|i| {
                 let is_current = current_id.as_deref() == Some(i.id.as_str());
@@ -5910,9 +6008,23 @@ impl McpHandler {
         let i = if has_current {
             current
         } else {
-            unterm_services::server_info::read()
+            let registered = unterm_services::server_info::read();
+            // Nothing registered means no front end -- and this surface still
+            // belongs to something. It used to answer with a default record:
+            // empty id, pid 0, empty version, `pid_alive: false`. "Which
+            // Unterm am I connected to" is the one question this method
+            // exists to answer, and headless it answered that the connection
+            // was to a process that is not alive.
+            if registered.id.is_empty() {
+                core_self_instance().unwrap_or(registered)
+            } else {
+                registered
+            }
         };
-        let lifecycle = instance_lifecycle_snapshot(&i, has_current);
+        // A record that names this process is current, whichever way it was
+        // found: `has_current` only knows about front-end registration.
+        let is_current = has_current || i.pid == std::process::id();
+        let lifecycle = instance_lifecycle_snapshot(&i, is_current);
         let window = unterm_engine::window_identity();
         Ok(json!({
             "id": i.id,

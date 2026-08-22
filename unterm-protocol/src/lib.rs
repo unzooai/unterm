@@ -161,6 +161,36 @@ pub fn state_path(name: impl AsRef<std::path::Path>) -> Option<std::path::PathBu
 mod tests {
     use super::*;
 
+    /// The Core's record and the user state directory are two places.
+    ///
+    /// `core_state_dir` is the platform data directory; `state_dir` is
+    /// `~/.unterm`. Code that wants the Core's record and reaches for
+    /// `state_path("core.json")` finds nothing, always -- which is how a
+    /// running Core got reported as absent, and how the MCP surface's own
+    /// reader silently missed every time. `UNTERM_STATE_DIR` collapses the
+    /// two, and every test that set it saw them agree, so nothing caught it.
+    /// This one deliberately does not set it.
+    #[test]
+    fn the_core_record_does_not_live_in_the_user_state_directory() {
+        let saved = std::env::var_os("UNTERM_STATE_DIR");
+        std::env::remove_var("UNTERM_STATE_DIR");
+
+        let core = core_discovery_path();
+        let user = state_path("core.json");
+
+        if let Some(value) = saved {
+            std::env::set_var("UNTERM_STATE_DIR", value);
+        }
+
+        // Either both resolve and differ, or the platform gave us neither.
+        if let (Some(core), Some(user)) = (core, user) {
+            assert_ne!(
+                core, user,
+                "reading the Core's record from the user state directory finds nothing"
+            );
+        }
+    }
+
     #[test]
     fn handshake_contains_every_required_identity_field() {
         let value = serde_json::to_value(BuildHandshake::current(
