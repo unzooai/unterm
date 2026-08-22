@@ -7,9 +7,22 @@ publish = false
 # The terminal without WezTerm: next-core for the engine, unterm-render for
 # the pixels, winit for the window. No wezterm-gui, no mux, no window crate.
 
+# The terminal lives in the library; the bin is a four-line shell around it.
+# Not taste -- see the module comment in src/lib.rs. A bin target's unit
+# tests and the bin share cargo's `target/debug/unterm.exe` uplift path, and
+# the loser of that race is what `CARGO_BIN_EXE_unterm` points integration
+# tests at.
+[lib]
+name = "unterm_app"
+path = "src/lib.rs"
+
 [[bin]]
 name = "unterm"
 path = "src/main.rs"
+# No harness for the shell. Four lines with nothing to test, and building one
+# recreates the very collision the split above removes: a `kind=bin,
+# name=unterm` harness uplifts to `target/debug/unterm.exe` too.
+test = false
 
 [dependencies]
 anyhow.workspace = true

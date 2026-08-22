@@ -4,7 +4,9 @@
 //! terminal: which agent is bound to this pane, which branch it is on and how
 //! dirty, what its process is costing, and what it is running.
 //!
+//! ```text
 //!     ⚡ claude    <branch> main *3 +1    8.0% cpu  1.4G  4m    ▶ cargo test
+//! ```
 //!
 //! Composed here rather than at the paint site because every rule in it is a
 //! judgement -- when it appears, what is dropped first, what an empty value

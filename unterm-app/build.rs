@@ -58,6 +58,8 @@ END
         )
         .unwrap();
         drop(rc);
-        embed_resource::compile(&rc_path);
+        // Named target, not "every artifact in this package": the package now
+        // has a lib as well, and the resource belongs to the exe.
+        embed_resource::compile_for(&rc_path, ["unterm"]);
     }
 }

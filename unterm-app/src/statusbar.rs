@@ -3,8 +3,10 @@
 //!
 //! Ported from the previous front end, segment order and thresholds included:
 //!
+//! ```text
 //!     ▼  pwsh 7   ~/   120x31   project:unterm   capture:exclude
 //!        capture:include   proxy:on   mcp:0   theme:standard
+//! ```
 //!
 //! Three spaces between segments rather than a separator character. They are
 //! already differently shaped -- a name, a path, a pair of numbers, a run of

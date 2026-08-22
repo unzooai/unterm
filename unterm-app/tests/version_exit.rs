@@ -25,44 +25,37 @@ fn version_is_fast_and_does_not_register_an_instance() {
         .expect("run unterm --version");
 
     assert!(output.status.success());
-    // KNOWN FLAKE, cause established 2026-08-20 -- read this before touching
-    // the number below.
+    // Fixed 2026-08-22; the history is here so the fix is not undone.
     //
-    // These two fail in roughly half of `cargo test --workspace` runs, and the
-    // clock is not why. `CARGO_BIN_EXE_unterm` names
-    // `target/debug/unterm.exe`, and during a workspace test run that path
-    // holds **the libtest harness for this crate's own unit tests**, not the
-    // terminal: same target name, same uplift destination. Watched during one
-    // run, the file stayed 37 MB and answered `--version` with getopts'
-    // `error: Unrecognized option: 'version'` for sixty seconds; a plain
-    // `cargo build` puts the real 75 MB binary back. Nothing in `deps/`
-    // answers as the terminal either, because `cargo test` builds the harness
-    // rather than the bin. The runs that pass are passing on a binary some
-    // earlier `cargo build` left behind.
+    // This failed in roughly half of `cargo test --workspace` runs and the
+    // clock was never why. `CARGO_BIN_EXE_unterm` names
+    // `target/debug/unterm.exe`, and cargo tagged two different artifacts
+    // `kind=bin, name=unterm` -- the terminal, and the libtest harness built
+    // from the same `main.rs` -- then uplifted both to that one path. The
+    // loser of that race was what this test ran. Watched during one run, the
+    // file sat at 37 MB and answered `--version` with getopts'
+    // `error: Unrecognized option: 'version'`.
+    //
+    // `unterm-app` is now a library with a four-line bin around it, and that
+    // bin has `test = false`. Unit tests are `kind=lib, name=unterm_app`,
+    // land in `deps/`, and are never uplifted, so exactly one artifact can
+    // claim `target/debug/unterm.exe`.
     //
     // Two wrong diagnoses were tried first and are recorded so they are not
     // tried again: "it is slow under load" (measured: 0.31 s idle, 1.48 s
     // loaded, both inside any threshold) and "the uplift is momentarily
     // racing" (measured: five spawns 200 ms apart, all five reached the
-    // harness).
+    // harness -- the race is between two linkers, not two reads).
     //
-    // The fix belongs in the build layout, not here -- the bin's unit tests
-    // and the bin cannot keep sharing an uplift path -- so this is left
-    // failing honestly rather than papered over with a retry that hides it.
-    //
-    // Three seconds, not one. What this test is for is the line below it:
-    // a version probe must not start the product. The clock is only here to
-    // catch "it initialised everything and then printed a version", and for
-    // that a wide bound works as well as a tight one.
-    //
-    // A tight one does not survive the suite it lives in. Cargo re-copies the
-    // uplifted binary on every invocation, so its file identity is new and
-    // Windows rescans it on first exec; the warm-up above exists for that, and
-    // under a full `cargo test --workspace` -- dozens of test binaries in
-    // parallel, some spawning real Cores and PTYs -- the warm-up itself can
-    // lose the race. Measured on this machine at the same commit: 0.31 s idle,
-    // 1.48 s while the suite ran. It failed once in a full run and passed on
-    // the next, which is the worst kind of red.
+    // Three seconds, not one, and that part is not about the above. What
+    // this test is for is the line below it: a version probe must not start
+    // the product. The clock only catches "it initialised everything and
+    // then printed a version", and a wide bound does that as well as a tight
+    // one. A tight one does not survive the suite it lives in -- cargo
+    // re-copies the uplifted binary on every invocation, so its file
+    // identity is new and Windows rescans it on first exec. The warm-up
+    // above exists for that, and under a full workspace run the warm-up
+    // itself can lose the race: 0.31 s idle, 1.48 s while the suite ran.
     assert!(started.elapsed() < Duration::from_secs(3));
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
