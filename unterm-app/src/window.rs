@@ -1220,7 +1220,18 @@ impl App {
     /// closing this one is closing a view, and nothing has to be decided
     /// about the sessions behind it.
     fn window_count(&self) -> usize {
-        1 + self.parked.len()
+        Self::window_count_for(self.parked.len())
+    }
+
+    /// The same count, over the number alone.
+    ///
+    /// Split out so the rule can be exercised without an `App` -- building
+    /// one needs a window, a font stack and a GPU device, so a test that
+    /// insisted on that would be testing winit. The first version of the
+    /// test below wrote `1 + parked` a second time inside itself, which
+    /// passed whatever this function did, including not existing.
+    fn window_count_for(parked: usize) -> usize {
+        1 + parked
     }
 
     /// The id of the window currently being acted on, if it has one yet.
@@ -6578,7 +6589,11 @@ impl App {
     /// the other window. Returns false when this *is* the last window, which
     /// is the case that has to be asked about.
     fn close_this_view(&mut self) -> bool {
-        if self.parked.is_empty() {
+        // The same rule the prompt uses, asked the same way. Two spellings of
+        // "is this the last window" are two things to keep in step, and the
+        // one place they must agree is here: the prompt decides whether to
+        // ask, this decides whether the answer matters.
+        if self.window_count() == 1 {
             return false;
         }
         self.window.close_confirmed = false;
@@ -11510,14 +11525,17 @@ mod tests {
     /// prompt there asks a question whose answers are all the same.
     #[test]
     fn the_close_prompt_belongs_to_the_last_window() {
-        // `window_count` is what the decision reads, so it is what this
-        // pins: one window is the last one, more than one is not.
-        assert_eq!(counted(0), 1, "no parked windows means this is the last");
-        assert_eq!(counted(2), 3);
-
-        fn counted(parked: usize) -> usize {
-            1 + parked
-        }
+        // The production rule itself, not a copy of it. `window_count` is
+        // read in exactly two places and both turn on whether it is 1:
+        // `close_needs_confirmation` returns early when it is more, and
+        // `close_this_view` refuses to close a view when it is not.
+        assert_eq!(
+            App::window_count_for(0),
+            1,
+            "no parked window means this is the last one"
+        );
+        assert_eq!(App::window_count_for(1), 2, "one parked window makes two");
+        assert_eq!(App::window_count_for(2), 3);
     }
 
     #[test]
