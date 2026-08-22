@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.68.3 — 2026-08-23
+
+### Fixed
+
+- **A headless Core could not say who it was.** `unterm-core --headless`
+  runs, listens, and creates sessions with no window in sight — but
+  `instance.list` answered with an empty list and `instance.info` with an
+  empty record, `pid_alive: false` and all. An agent was told the Unterm it
+  was talking to did not exist, and `unterm-cli instance list` said "No live
+  Unterm instances" while the same CLI's `session list` was plainly connected
+  to it. Registration is a front end's job — it writes `~/.unterm/instances`
+  — and since 0.68 this surface lives in the Core, which publishes itself
+  elsewhere. The two records are now joined: with a window open the Core is
+  already on the list under that window's name, and with no window it is
+  listed as `core`. `unterm-cli --instance core` reaches it.
+
+- **The MCP surface looked for the Core's record in the wrong directory.**
+  `state_path("core.json")` is `~/.unterm`; the Core writes to its platform
+  data directory. It had never found the record once — invisibly, because the
+  caller falls back to this process's own identity, which is right for a Core
+  and wrong for anything asking about a different one.
+
 ## v0.68.2 — 2026-08-23
 
 Windows are no longer processes. Opening a second one used to launch a
