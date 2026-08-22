@@ -15,7 +15,7 @@ Concretely, every Unterm window opens two local servers on launch:
 - **MCP server** on `127.0.0.1:<auto-port>` — line-delimited JSON-RPC over TCP, auth-token gated, exposes every product operation (create pane, send input, read screen, capture screenshot, record, manage proxy, query instances).
 - **HTTP settings server** on `127.0.0.1:<auto-port>` — REST endpoints for human-driven config (theme, font, profile) and a Tailwind+Alpine SPA at the root. Theme switching, font tweaks, and profile edits are HTTP-only — they're not on MCP because they're settings the user owns, not actions an agent should script.
 
-Both GUI ports plus the GUI auth token are written to `~/.unterm/server.json` on launch for older scripts. The headless Core writes `~/.unterm/core.json` with the MCP endpoint that owns terminal sessions across GUI restarts. Modern MCP clients should be registered through `unterm-cli mcp-stdio`: the bridge prefers Core discovery, falls back through the live GUI instance registry, authenticates to the right local TCP server, and keeps the static client config working across restarts and multiple windows.
+Both GUI ports plus the GUI auth token are written to `~/.unterm/server.json` on launch for older scripts. The headless Core writes `core.json` — in the Core's platform data directory (`%LOCALAPPDATA%\Unterm`, `~/.local/share/Unterm`, `~/Library/Application Support/Unterm`), not in `~/.unterm` — with the MCP endpoint that owns terminal sessions across GUI restarts. Modern MCP clients should be registered through `unterm-cli mcp-stdio`: the bridge prefers Core discovery, falls back through the live GUI instance registry, authenticates to the right local TCP server, and keeps the static client config working across restarts and multiple windows.
 
 For the full schema of every MCP method see the [MCP reference](/docs/mcp-reference). For the layout of `~/.unterm/` see the [configuration guide](/docs/configuration). For driving more than one window at a time see the [multi-instance guide](/docs/multi-instance). For shell scripting, see the [CLI reference](/docs/cli-reference).
 
@@ -238,7 +238,7 @@ A few things that look like they should be MCP methods aren't, on purpose:
 
 - **Theme, font, profile, keybinding edits.** These live on the HTTP settings server (`/api/theme`, `/api/font`, etc.) and the SPA at `127.0.0.1:<http_port>/`. The `unterm-cli theme list` / `unterm-cli theme switch <name>` commands hit those HTTP endpoints, not the MCP server. The split is deliberate: MCP is the action surface for agents, HTTP is the configuration surface for the user. An agent should not be retheming your terminal mid-session.
 - **Workspace save/restore is on MCP, scoped to pane layout snapshots.** `workspace.save`, `workspace.restore`, and `workspace.list` exist. `workspace.list` returns the saved workspace path, timestamp, and pane count, but workspaces are still about reopening working directories and titles rather than full settings/profile state.
-- **Cross-instance window focus.** Each Unterm window's MCP server only ever acts on _its own_ window — `instance.focus` brings _this_ window forward. To raise a peer, you connect to that peer's MCP port (discoverable via the [multi-instance registry](/docs/multi-instance)) and call `instance.focus` there. OS-level window raise is scheduled — see the multi-instance guide for the current state.
+- **Cross-instance window focus.** An instance's MCP server only ever acts on _its own_ windows. `instance.focus` raises one of them — by `window_id` since v0.68, or whichever is in front when you omit it. To raise a peer's, you connect to that peer's MCP port (discoverable via the [multi-instance registry](/docs/multi-instance)) and call `instance.focus` there. The OS-level raise itself is implemented as of v0.68; on Windows the platform may answer with a taskbar flash rather than the foreground when Unterm is not the app in front.
 
 ## MCP method reference (most-used)
 
@@ -260,7 +260,8 @@ Every method below appears in the dispatch table at `unterm-mcp/src/handler.rs`.
 | `orchestrate.broadcast` | Send the same command to many panes at once |
 | `capture.screen` / `capture.window` | PNG capture of all panes / a specific window |
 | `proxy.status` / `proxy.switch` | Read or change the active proxy node |
-| `instance.list` / `instance.focus` | Enumerate peer Unterm windows / raise this one |
+| `instance.list` / `instance.focus` | Enumerate peer instances / raise one of this instance's windows |
+| `instance.windows` / `instance.new_window` | List this front end's windows / open another and get its id |
 | `server.info` / `server.capabilities` | Server identity, ports, version, method list |
 
 The full enumeration (every method, every parameter, every return shape) is in the [MCP reference](/docs/mcp-reference). The dispatch table in `handler.rs` is the source of truth — if it's not in the dispatch, it's not a real method.

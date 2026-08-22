@@ -225,7 +225,7 @@ create/split` 经 GUI 的 MCP server 创建的 pane 全部落在 Core 进程
 测试实例会污染真实用户注册表。
 
 **Core 托管 MCP（M1-03c 第二阶段第一步）已落地**：unterm-core 进程
-启动即在临时端口起 headless MCP server（同一 token，103 方法驱动
+启动即在临时端口起 headless MCP server（同一 token，151 方法驱动
 本进程引擎），端口写入 core.json 的 `mcp_port` 字段——不碰
 server.json，GUI 的实例注册互不冲突。unterm-cli 的端点解析新增
 回退级：**活 Core 的 MCP** > 活 GUI 实例 > 旧版 server.json/token。
@@ -280,6 +280,44 @@ PTY 输出 -> Core watcher（25ms）-> core.events 推送 -> FrameCache
 scrollback 配置已打通：connect_core 时经 `core.set_scrollback_lines`
 把 GUI 的配置值回传 Core（配置文件在客户端侧；对既有 pane 不生效，
 与设置页「新 pane 生效」契约一致；多客户端后写覆盖）。
+
+## 无头 Core 的身份（2026-08-23）
+
+`unterm-core --headless` 不需要任何 GUI：它监听、建会话、跑 MCP。但在
+0.68.3 之前它答不上「你是谁」——
+
+- `instance.list` 返回空数组；
+- `instance.info` 整个是空的：id 空串、pid 0、version 空串，lifecycle 里
+  `pid_alive: false`。这个方法唯一要回答的问题就是「我连的是谁」，而它
+  回答的是「你连的进程已经死了」；
+- `unterm-cli instance list` 因此报 `No live Unterm instances`，尽管同一个
+  CLI 的 `session list` 明明连上了它。
+
+成因是两张表没接上：**注册是前端的活**（写 `~/.unterm/instances/<id>.json`），
+而 0.68 之后 MCP 接口住在 Core 里，Core 不往那儿注册——它发布自己的
+`core.json`。
+
+现在两张表接上了：
+
+- `instance.list` 在没有前端代表这个 Core 时补一条 `core`。判重按
+  **mcp_port**：前端注册时用的就是 Core 的端口和 token，所以有窗口时
+  Core 已经以那扇窗的名字在列表里，再加一条等于给同一个进程两个入口。
+- `instance.info` 在没有前端记录时回落到 Core 自己的记录，`is_current`
+  按 `pid == std::process::id()` 判定。
+- `unterm-cli --instance core` 直接解析到 Core 的端点。列表里看得见的
+  名字就得能用，而 Core 不在 `instances/` 里，按名字找会对唯一一个总是
+  可达的实例失败。
+
+**路径陷阱（同批修掉）**：`state_path("core.json")` 是 `~/.unterm`，而 Core
+写在 `core_discovery_path()`（平台数据目录）。**这两个不是一个目录。**
+`handler.rs` 里既有的 `core_discovery_build` 用错了前者，一次都没读到过——
+不可见，因为调用方会退回本进程身份，这对 Core 自己是对的、对询问别的
+Core 是错的。同一个混淆此前还让 supervisor 把活着的 Core 报成 absent，
+README 与四处产品文档也都写着错的位置。
+
+`UNTERM_STATE_DIR` 会同时覆盖两者，所以每个设了它的测试都看到两者一致——
+这正是它藏这么久的原因。`unterm-protocol` 里因此有一条**故意不设**该变量
+的测试，把「两者不是一个地方」钉住。
 
 ## 渊源
 

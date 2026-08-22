@@ -207,21 +207,25 @@ After this call, the window title becomes `Unterm — [claude-A] — <pane title
 
 ### `instance.focus`
 
-Bring this instance's window to the foreground. To focus a peer, you connect to that peer's MCP port — there's no "focus instance bravo from inside alpha" cross-call; each instance only ever acts on itself with its own token.
+Bring one of this instance's windows to the foreground. To focus a peer, you connect to that peer's MCP port — there's no "focus instance bravo from inside alpha" cross-call; each instance only ever acts on itself with its own token.
+
+Since v0.68 an instance can hold several windows, so the call takes an optional `window_id` from `instance.windows`. Omit it and it means the window in front, which is what it always meant.
 
 Request:
 
 ```json
-{"jsonrpc":"2.0","id":4,"method":"instance.focus","params":{}}
+{"jsonrpc":"2.0","id":4,"method":"instance.focus","params":{"window_id":2}}
 ```
 
 Response:
 
 ```json
-{"jsonrpc":"2.0","id":4,"result":{"ok":true,"note":"stub in v0.9..."}}
+{"jsonrpc":"2.0","id":4,"result":{"ok":true,"window_id":2,"mux_window_id":2}}
 ```
 
-The current implementation returns `ok: true` so agents can rely on the call shape, but the OS-level window-raise side effect is a stub. Scheduled for v0.14+. Workaround for now: the agent can spawn a pane via `session.create` in the target instance, which triggers the terminal's existing focus behavior, or trip the user's `Cmd-` ` shortcut. Or just rely on the user to alt-tab when the title says it's the right one.
+The window-raise is real as of v0.68 — it was a stub through v0.67, and the workarounds that used to be needed here are gone. What `ok` promises is that the window was found and the platform was asked. Windows refuses the foreground to a process that does not already hold it and flashes the taskbar instead, so between two applications the user may see the taskbar rather than the window; between two windows of the app the user is already in, it goes through. `instance.windows` reports which window actually has the focus.
+
+Naming a window this front end does not have is an error, not a redirect to whichever window is handy.
 
 ## Four orchestration patterns
 

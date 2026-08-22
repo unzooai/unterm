@@ -8,9 +8,9 @@ date: 2026-07-20
 
 ## Connection model
 
-`unterm-cli` is mostly a thin JSON-RPC client. MCP-backed subcommands open a TCP connection to the local Unterm MCP server, complete an `auth.login` handshake, and forward the call. Current builds prefer the headless Core MCP endpoint from `~/.unterm/core.json`; that endpoint owns terminal sessions and survives GUI restarts. A few user-owned settings/discovery commands (`theme`, `lang`, `reference`, and `settings open`) use local config files, compiled-in reference tables, or the GUI HTTP settings server instead.
+`unterm-cli` is mostly a thin JSON-RPC client. MCP-backed subcommands open a TCP connection to the local Unterm MCP server, complete an `auth.login` handshake, and forward the call. Current builds prefer the headless Core MCP endpoint from `core.json` in the Core's platform data directory (`%LOCALAPPDATA%\Unterm`, `~/.local/share/Unterm`, `~/Library/Application Support/Unterm`); that endpoint owns terminal sessions and survives GUI restarts. A few user-owned settings/discovery commands (`theme`, `lang`, `reference`, and `settings open`) use local config files, compiled-in reference tables, or the GUI HTTP settings server instead.
 
-When `unterm-core` starts it writes `~/.unterm/core.json` with its MCP port, token, pid, version, protocol, and schema. When a GUI starts it writes `~/.unterm/instances/<name>.json`, updates `~/.unterm/active.json`, and mirrors the active GUI endpoint to `~/.unterm/server.json` for older scripts. The compatibility file has three core fields:
+When `unterm-core` starts it writes `core.json` — in the Core's platform data directory (`%LOCALAPPDATA%\Unterm`, `~/.local/share/Unterm`, `~/Library/Application Support/Unterm`), which is *not* `~/.unterm` — with its MCP port, token, pid, version, protocol, and schema. When a GUI starts it writes `~/.unterm/instances/<name>.json`, updates `~/.unterm/active.json`, and mirrors the active GUI endpoint to `~/.unterm/server.json` for older scripts. The compatibility file has three core fields:
 
 ```json
 {

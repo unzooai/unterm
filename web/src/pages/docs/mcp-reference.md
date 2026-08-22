@@ -7,7 +7,7 @@ date: 2026-07-20
 ---
 
 This page explains the JSON-RPC surface exposed by a running Unterm instance.
-The current native `next-core` build exposes 150 authenticated methods plus
+The current native `next-core` build exposes 151 authenticated methods plus
 `auth.login`. The authoritative inventory lives in
 `unterm-agents/src/mcp_meta.rs`, dispatch is in
 `unterm-mcp/src/handler.rs`, and the connection handshake is in
@@ -21,7 +21,7 @@ For higher-level patterns (director/worker, multi-pane orchestration, recording 
 
 ### Where the port and token live
 
-Current builds write `~/.unterm/core.json` from `unterm-core`; it is the preferred MCP discovery record because it owns sessions across GUI restarts. `unterm-cli mcp-stdio` resolves `core.json` first, then falls back through live GUI instance records and legacy files. The GUI registry files below remain valid for tools that need a specific window or an older active-GUI compatibility pointer.
+Current builds write `core.json` from `unterm-core` into the Core's platform data directory (`%LOCALAPPDATA%\Unterm`, `~/.local/share/Unterm`, `~/Library/Application Support/Unterm`) — not into `~/.unterm`, where the GUI registry lives; it is the preferred MCP discovery record because it owns sessions across GUI restarts. `unterm-cli mcp-stdio` resolves `core.json` first, then falls back through live GUI instance records and legacy files. The GUI registry files below remain valid for tools that need a specific window or an older active-GUI compatibility pointer.
 
 On launch, every Unterm process writes its identity to three files under `~/.unterm/`:
 
@@ -157,11 +157,13 @@ Split an existing pane in `left`, `right`, `up`, or `down` direction.
 
 ### `session.focus`
 
-Focus a pane and bring its tab to the front.
+Focus a pane, bring its tab to the front, and raise the window holding it.
 
 **Params:** `id`/`session_id`.
 
-**Returns:** `{ ok: true, id }`.
+**Returns:** `{ ok: true, id, window_id }` — `window_id` is the window that was raised, or `null` when the session was already in the window in front (or there is no window at all).
+
+The raise matters once an instance has several windows: a front end follows the active session only in the window that is in front, so without it "look at this" about a session in the other window changed a flag and the user saw nothing at all.
 
 ### `session.input` / `exec.send`
 
@@ -797,7 +799,13 @@ If you see references to `theme.list` / `theme.switch` in older docs, those are 
 
 ## Instance
 
-Multi-instance discovery. Each Unterm process is one "instance" with a NATO-phonetic id, and each instance owns its own MCP port + auth token. To drive a peer instance, you connect to *its* MCP port directly with *its* token — there's no cross-instance forwarding through your local connection.
+Instances, and the windows inside them.
+
+An *instance* is one Unterm front end, with a NATO-phonetic id and its own MCP port + auth token. To drive a peer instance you connect to *its* MCP port directly with *its* token — there is no cross-instance forwarding through your local connection.
+
+Since v0.68 one instance can hold **several windows**, so an instance id no longer names a window. Windows have ids of their own (`1`, `2`, …), handed out by `instance.new_window` and accepted by `instance.focus`; `instance.windows` lists them. A window id belongs to the front end that issued it and means nothing to a peer.
+
+A headless Core has no windows at all: it publishes itself as the instance `core`, `instance.windows` returns `[]`, and everything session-shaped keeps working.
 
 ### `instance.list`
 
@@ -805,9 +813,11 @@ Enumerate every live Unterm instance on this machine. Stale entries (PID dead) a
 
 **Params:** none.
 
-**Returns:** `{ instances: [{ id, pid, started_at, mcp_port, http_port, title, cwd, version, platform }, ...] }`
+**Returns:** `{ instances: [{ id, pid, started_at, mcp_port, http_port, title, cwd, version, platform, lifecycle }, ...], registry }`
 
-Note that this *omits* `auth_token` — the listing tells you a peer exists and where to find it, but to actually talk to a peer you read the peer's `~/.unterm/instances/<id>.json` file directly to grab its token.
+The entry for the instance you are connected to also carries `windows` — the same list `instance.windows` returns. Peers' windows are not included: a window lives behind its own front end's port, so reporting a peer's windows from here would be reporting what this process cannot see.
+
+Note that this *omits* `auth_token` — the listing tells you a peer exists and where to find it, but to actually talk to a peer you read the peer's `~/.unterm/instances/<id>.json` file directly to grab its token. The exception is `core`, a headless Core: it publishes its own record instead of registering there, and `unterm-cli --instance core` reaches it.
 
 ### `instance.info`
 
@@ -827,13 +837,37 @@ Pin a custom display title for this instance. Overrides the auto-derived `Unterm
 
 ### `instance.focus`
 
-Bring this instance's window to the foreground. **Cross-instance focus is intentionally not supported here** — to focus a peer, connect to that peer's MCP port directly and call `instance.focus` there. Keeps the auth model simple (each instance only ever acts on itself with its own token).
+Bring one of this instance's windows to the foreground. **Cross-instance focus is intentionally not supported here** — to focus a peer, connect to that peer's MCP port directly and call `instance.focus` there. Keeps the auth model simple (each instance only ever acts on itself with its own token).
 
-**Params:** ignored.
+**Params:** `window_id` (number, optional). Omit it to mean the window in front, which is what every caller meant before an instance could have more than one. Naming a window this front end does not have is an error rather than a redirect to whichever window is handy.
 
-**Returns:** `{ ok: true, mux_window_id }`
+**Returns:** `{ ok: true, window_id, mux_window_id }`
 
-In v0.9 the actual window-raise side effect is a stub — the call returns `ok: true` so client code doesn't have to special-case it, but the OS-level raise is tracked as a v0.10 polish item.
+`ok` means the window was found and the platform was asked. Asking is not getting: Windows refuses the foreground to a process that does not already hold it, and the taskbar is asked for attention instead — so read `instance.windows` for what actually happened. Between windows of the front end the user is already in, it goes through.
+
+With every window parked in the tray there is no window to raise, and the call asks the event loop to rebuild one rather than failing. An agent's "look at this" should bring the terminal back, and that is exactly when the terminal is not on screen.
+
+### `instance.windows`
+
+Every window this front end is showing.
+
+**Params:** none.
+
+**Returns:** `{ windows: [{ id, title, focused, tabs, panes }, ...] }`
+
+`panes` is the sessions in that window, which is how you tell which window a session is in. `focused` is the one with the OS focus. A headless Core returns `[]`.
+
+### `instance.new_window`
+
+Open another window on this front end.
+
+**Params:** none.
+
+**Returns:** `{ ok: true, window_id }`
+
+The id is reserved and returned at once; the window itself is built on the next turn of the event loop, which is the only place a window can be made. The id is therefore usable before the window is on screen — but it does not appear in `instance.windows` until it is.
+
+Since v0.68 this opens a window in the process that is already running instead of launching a second one, which is the difference between 31 ms and 587 ms.
 
 ### `instance.lifecycle`
 
@@ -1340,10 +1374,12 @@ Every method, alphabetical, with one-line descriptions. Use this as a flat looku
 | `fleet.list` | All fleets with member branches, worktrees, and review states |
 | `fleet.retry` | Restart a pending fleet member in its existing worktree without losing changes |
 | `ghost.debug` | Read-only ghost-text predictor state for a pane |
-| `instance.focus` | Raise this instance's window to the foreground (stub on v0.9) |
+| `instance.focus` | Raise one of this instance's windows, by id or whichever is in front |
 | `instance.info` | This instance's own metadata, including `auth_token` |
 | `instance.list` | Enumerate every live Unterm instance on this machine |
+| `instance.new_window` | Open another window on this front end and return its id |
 | `instance.set_title` | Pin a custom display title for this instance |
+| `instance.windows` | Every window this front end is showing, with its tabs and sessions |
 | `meta.surface` | Inventory of MCP methods + CLI subcommands + keybindings |
 | `orchestrate.broadcast` | Send the same command to multiple panes |
 | `orchestrate.launch` | `session.create` + initial command |

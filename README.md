@@ -212,7 +212,13 @@ Full docs: [unterm.app/docs/profiles](https://unterm.app/docs/profiles).
 
 Every running Unterm process is one **instance** with a NATO-phonetic name: `alpha`, `bravo`, `charlie`, … `zulu`. The first window claims `alpha`, the second `bravo`, etc. When all 26 are taken at once, the next one wraps to `alpha2`. Names are easy to pronounce and AI agents handle them right — no UUIDs, no ports in your head.
 
-Each GUI instance writes its metadata (mcp_port, http_port, auth_token, pid, started_at, version, platform) to `~/.unterm/instances/<name>.json`. Agents that need to drive a specific window enumerate that directory and pick by id, cwd, or title. The headless Core writes `~/.unterm/core.json`; `unterm-cli mcp-stdio` and MCP-backed CLI commands prefer that Core record so terminal sessions keep working across GUI restarts. For old single-target agents, `~/.unterm/active.json` points at the current live GUI instance, and `~/.unterm/server.json` mirrors that same record for backward compat.
+Each GUI instance writes its metadata (mcp_port, http_port, auth_token, pid, started_at, version, platform) to `~/.unterm/instances/<name>.json`. Agents that need to drive a specific instance enumerate that directory and pick by id, cwd, or title.
+
+The headless Core writes `core.json` to its **platform data directory** — `%LOCALAPPDATA%\Unterm` on Windows, `~/.local/share/Unterm` on Linux, `~/Library/Application Support/Unterm` on macOS — not to `~/.unterm`. (`UNTERM_STATE_DIR` overrides both, which is how the two got confused: every test that set it saw them agree.) `unterm-cli mcp-stdio` and MCP-backed CLI commands prefer that Core record so terminal sessions keep working across GUI restarts, and it is on `instance.list` as the instance `core` when no window is open — `unterm-cli --instance core` reaches it.
+
+An instance is a front end, not a window: since v0.68 one process holds several windows, each with an id of its own. `instance.windows` lists them, `instance.new_window` opens one and returns its id, and `instance.focus` takes one.
+
+For old single-target agents, `~/.unterm/active.json` points at the current live GUI instance, and `~/.unterm/server.json` mirrors that same record for backward compat.
 
 The MCP `instance.*` namespace exposes this directly: `instance.list`, `instance.info`, `instance.set_title`, `instance.focus`. See [the multi-instance docs](https://unterm.app/docs/multi-instance) for examples and the discovery protocol.
 
@@ -220,7 +226,7 @@ The MCP `instance.*` namespace exposes this directly: `instance.list`, `instance
 
 ## CLI
 
-The `unterm-cli` binary exposes the full Unterm product surface, transparently routing to the local MCP server. New integrations should use `unterm-cli mcp-stdio` or `unterm-cli` directly; they resolve `core.json`, live GUI instance records, and legacy files in the right order. Scripts that bypass the CLI can read `~/.unterm/core.json` for the Core MCP endpoint, `~/.unterm/instances/<name>.json` for a specific GUI window, or `~/.unterm/server.json` for the legacy active-GUI pointer.
+The `unterm-cli` binary exposes the full Unterm product surface, transparently routing to the local MCP server. New integrations should use `unterm-cli mcp-stdio` or `unterm-cli` directly; they resolve `core.json`, live GUI instance records, and legacy files in the right order. Scripts that bypass the CLI can read `core.json` in the Core's platform data directory (`%LOCALAPPDATA%\Unterm`, `~/.local/share/Unterm`, `~/Library/Application Support/Unterm`) for the Core MCP endpoint, `~/.unterm/instances/<name>.json` for a specific GUI instance, or `~/.unterm/server.json` for the legacy active-GUI pointer. Note the two directories are different: only the Core's record lives outside `~/.unterm`.
 
 ```bash
 # Settings + Web UI
