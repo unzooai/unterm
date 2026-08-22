@@ -26,36 +26,147 @@ pub fn install() {
 /// The split arrives on the MCP server's thread and the arrangement belongs to
 /// the one drawing; this is the note left between them. Read once and removed,
 /// so a pane closed and its id reused cannot inherit an old answer.
-/// The window, for the threads that are not the one drawing it.
+/// One window this front end is showing.
+struct KnownWindow {
+    /// The id handed out by `unterm_engine::reserve_window_id`, which an
+    /// agent uses to name this window again later.
+    id: u64,
+    handle: std::sync::Arc<winit::window::Window>,
+    /// How many tabs it is showing, for `instance.windows`. Pushed here by
+    /// the event loop rather than read from it: this is read on the MCP
+    /// thread, which has no way to reach a `TabRegistry` the loop owns.
+    tabs: usize,
+}
+
+/// The windows, for the threads that are not the one drawing them.
 ///
 /// `instance.focus` arrives on the MCP server's thread and has to reach a
-/// window the event loop owns. A winit `Window` is shareable, so the handle
-/// is kept here rather than a message being posted through the event loop --
-/// one fewer moving part on a path an agent calls to say "look at this".
-/// Replaceable, not write-once: a window parked in the tray is destroyed and
-/// a later one takes its place. A `OnceLock` here would keep the dead window
-/// alive -- an `Arc` is what stops winit destroying it -- and would answer
-/// every agent's `instance.focus` by raising it.
-static WINDOW: std::sync::RwLock<Option<std::sync::Arc<winit::window::Window>>> =
-    std::sync::RwLock::new(None);
+/// window the event loop owns. A winit `Window` is shareable, so handles are
+/// kept here rather than messages being posted through the event loop -- one
+/// fewer moving part on a path an agent calls to say "look at this".
+///
+/// A list, not the single slot this was. That slot held the most recent
+/// window and was the whole reason `instance.focus` could only ever raise
+/// one: with several windows in one process, every id an agent passed
+/// reached the same place. Entries come and go -- a window parked in the
+/// tray is destroyed and a later one takes its place -- so nothing here may
+/// be write-once. An `Arc` is what stops winit destroying a window, so a
+/// stale entry would keep a dead one alive and answer `instance.focus` by
+/// raising it.
+static WINDOWS: std::sync::RwLock<Vec<KnownWindow>> = std::sync::RwLock::new(Vec::new());
 
-/// The window handle, for the calls below and nothing else.
+/// The window the front end is currently drawing, or 0 before there is one.
+static FOCUSED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The window a call means when it names none.
+///
+/// The focused one, falling back to the most recently added: a call arriving
+/// between windows -- the tray has just released one, say -- should reach the
+/// window that exists rather than fail because the focus is momentarily
+/// pointing at a window that has gone.
 fn window() -> Option<std::sync::Arc<winit::window::Window>> {
-    WINDOW.read().ok()?.clone()
+    window_with_id().map(|(_, handle)| handle)
+}
+
+fn window_with_id() -> Option<(u64, std::sync::Arc<winit::window::Window>)> {
+    let held = WINDOWS.read().ok()?;
+    let focused = FOCUSED.load(std::sync::atomic::Ordering::Acquire);
+    held.iter()
+        .find(|known| known.id == focused)
+        .or_else(|| held.last())
+        .map(|known| (known.id, known.handle.clone()))
+}
+
+/// The window with this id, if it is still open.
+fn window_by_id(id: u64) -> Option<std::sync::Arc<winit::window::Window>> {
+    let held = WINDOWS.read().ok()?;
+    held.iter()
+        .find(|known| known.id == id)
+        .map(|known| known.handle.clone())
 }
 
 /// Called when a window exists, and again for each one that follows it.
-pub fn remember_window(window: std::sync::Arc<winit::window::Window>) {
-    if let Ok(mut held) = WINDOW.write() {
-        *held = Some(window);
+pub fn remember_window(id: u64, handle: std::sync::Arc<winit::window::Window>) {
+    if let Ok(mut held) = WINDOWS.write() {
+        // Replace rather than append when the id is already known: a window
+        // rebuilt after a spell in the tray keeps the id an agent has.
+        if let Some(known) = held.iter_mut().find(|known| known.id == id) {
+            known.handle = handle;
+        } else {
+            held.push(KnownWindow {
+                id,
+                handle,
+                tabs: 1,
+            });
+        }
+    }
+    set_focused_window(id);
+}
+
+/// Called when one window goes away without the process going with it.
+pub fn forget_window(id: u64) {
+    if let Ok(mut held) = WINDOWS.write() {
+        held.retain(|known| known.id != id);
+    }
+    let _ = FOCUSED.compare_exchange(
+        id,
+        0,
+        std::sync::atomic::Ordering::AcqRel,
+        std::sync::atomic::Ordering::Acquire,
+    );
+}
+
+/// Called when every window goes at once -- parking the whole front end in
+/// the tray, which destroys them all and keeps the process.
+pub fn forget_all_windows() {
+    if let Ok(mut held) = WINDOWS.write() {
+        held.clear();
+    }
+    FOCUSED.store(0, std::sync::atomic::Ordering::Release);
+}
+
+/// Called when the front end starts drawing a different window.
+pub fn set_focused_window(id: u64) {
+    FOCUSED.store(id, std::sync::atomic::Ordering::Release);
+}
+
+/// Called when a window gains or loses a tab, so `instance.windows` can say.
+///
+/// Called from `about_to_wait`, which runs far more often than tabs change,
+/// so an unchanged count takes a read lock and stops. Taking the write lock
+/// every wakeup would put the event loop behind whichever MCP thread happened
+/// to be listing windows.
+pub fn note_window_tabs(id: u64, tabs: usize) {
+    if let Ok(held) = WINDOWS.read() {
+        if held
+            .iter()
+            .find(|known| known.id == id)
+            .is_none_or(|known| known.tabs == tabs)
+        {
+            return;
+        }
+    }
+    if let Ok(mut held) = WINDOWS.write() {
+        if let Some(known) = held.iter_mut().find(|known| known.id == id) {
+            known.tabs = tabs;
+        }
     }
 }
 
-/// Called when the window goes away without the process going with it.
-pub fn forget_window() {
-    if let Ok(mut held) = WINDOW.write() {
-        *held = None;
-    }
+/// Every window, for `instance.windows` and `instance.list`.
+pub fn window_summaries() -> Vec<unterm_engine::WindowSummary> {
+    let Ok(held) = WINDOWS.read() else {
+        return Vec::new();
+    };
+    let focused = FOCUSED.load(std::sync::atomic::Ordering::Acquire);
+    held.iter()
+        .map(|known| unterm_engine::WindowSummary {
+            id: known.id,
+            title: known.handle.title(),
+            focused: known.id == focused,
+            tabs: known.tabs,
+        })
+        .collect()
 }
 
 /// Ask the window to paint, from any thread. A no-op until the window
@@ -110,13 +221,25 @@ impl McpHost for AppMcpHost {
         true
     }
 
-    /// Bring the window to the front.
+    /// Bring a window to the front, and say which one that was.
     ///
     /// Minimised windows are restored first: an agent asking for attention
     /// means the window should be visible, and raising one that is minimised
     /// otherwise does nothing at all.
-    fn focus_window(&self) -> Result<()> {
-        let Some(window) = window() else {
+    ///
+    /// A named window that is not open is an error rather than a silent
+    /// fallback to another one. An agent that says "window 3" and gets
+    /// window 1 raised has been told its request succeeded, and will keep
+    /// pointing at a window nobody is looking at.
+    fn focus_window(&self, window_id: Option<u64>) -> Result<u64> {
+        let found = match window_id {
+            Some(id) => window_by_id(id).map(|handle| (id, handle)),
+            None => window_with_id(),
+        };
+        let Some((id, window)) = found else {
+            if let Some(id) = window_id {
+                anyhow::bail!("this front end has no window {id}");
+            }
             // Parked in the tray. "Look at this" is exactly the request that
             // should bring the terminal back, so it is answered by asking the
             // event loop to rebuild the window rather than by an error --
@@ -124,11 +247,35 @@ impl McpHost for AppMcpHost {
             // the user has left Unterm in the background, which is precisely
             // when an agent has something to show them.
             crate::tray::request_wake();
-            return Ok(());
+            return Ok(0);
         };
         window.set_minimized(false);
+        // A request, not a guarantee: Windows refuses the foreground to a
+        // process that does not already hold it and flashes the taskbar
+        // instead. Between this front end's own windows -- which is what an
+        // id names -- the user is normally already in Unterm and it goes
+        // through. `ok` therefore means the window was found and asked for,
+        // and `instance.windows` is where to read what actually happened.
         window.focus_window();
-        Ok(())
+        Ok(id)
+    }
+
+    /// Another window on this front end, and the id it will have.
+    ///
+    /// Reserved here and made later: windows can only be built where winit
+    /// hands out an `ActiveEventLoop`, and this call is on an MCP thread.
+    /// The id is the window's from this moment -- nothing else will be given
+    /// it -- so the caller can use it without waiting for a frame.
+    fn open_window(&self) -> Option<u64> {
+        let id = unterm_engine::request_window();
+        // The loop may be idle; without a nudge the window appears at
+        // whatever event happens by next.
+        request_repaint();
+        Some(id)
+    }
+
+    fn list_windows(&self) -> Vec<unterm_engine::WindowSummary> {
+        window_summaries()
     }
 
     fn request_repaint(&self) {
@@ -610,14 +757,15 @@ impl unterm_core::HostResponder for AppHostResponder {
                 Ok(Value::Null)
             }
             // A Core has no windows; this process does. The request is left
-            // for the event loop, which is the only place one can be made.
-            "open_window" => {
-                unterm_engine::request_window();
-                AppMcpHost.request_repaint();
-                Ok(Value::Null)
-            }
+            // for the event loop, which is the only place one can be made --
+            // but the id is settled here and returned, because the Core is
+            // waiting to tell an agent which window it just asked for.
+            "open_window" => Ok(json!({ "window_id": AppMcpHost.open_window() })),
+            "list_windows" => Ok(json!(AppMcpHost.list_windows())),
             "set_window_title" => Ok(json!(AppMcpHost.set_window_title(text("title")))),
-            "focus_window" => AppMcpHost.focus_window().map(|_| Value::Null),
+            "focus_window" => AppMcpHost
+                .focus_window(number("window_id").map(|id| id as u64))
+                .map(|id| json!({ "window_id": id })),
             // Same call the in-process host makes, so a question from a
             // remote Core lands on this window's queue exactly as a
             // local one does -- the UI drawing it cannot tell them apart.

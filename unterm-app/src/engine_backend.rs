@@ -615,8 +615,8 @@ impl HealthEngine for CoreHostEngine {
 // lives here, and next-core's impls of these already route to the
 // front end via `mcp_host()` without touching session state.
 impl WindowEngine for CoreHostEngine {
-    fn focus_current_instance_window(&self) -> Result<WindowFocusResult> {
-        WindowEngine::focus_current_instance_window(&NextCoreEngine)
+    fn focus_current_instance_window(&self, window_id: Option<u64>) -> Result<WindowFocusResult> {
+        WindowEngine::focus_current_instance_window(&NextCoreEngine, window_id)
     }
 
     fn active_pane_id(&self) -> Result<Option<u64>> {
@@ -635,10 +635,11 @@ impl WindowEngine for CoreHostEngine {
     ///
     /// The request is left for the event loop rather than served here: a
     /// window can only be made where winit hands out an `ActiveEventLoop`,
-    /// and this call arrives on an MCP thread.
-    fn open_window(&self) -> Result<()> {
-        unterm_engine::request_window();
-        Ok(())
+    /// and this call arrives on an MCP thread. The id is settled now
+    /// regardless, because the caller is waiting to be told which window it
+    /// just asked for.
+    fn open_window(&self) -> Result<u64> {
+        Ok(unterm_engine::request_window())
     }
 }
 

@@ -405,6 +405,7 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "session.export",
         "session.scrollback",
         "instance.list",
+        "instance.windows",
         "instance.info",
         "instance.lifecycle",
         "server.",

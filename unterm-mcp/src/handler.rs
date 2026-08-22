@@ -213,6 +213,7 @@ fn method_is_read_only(method: &str) -> bool {
             | "server.health"
             | "server.capabilities"
             | "instance.list"
+            | "instance.windows"
             | "instance.info"
             | "instance.lifecycle"
             | "profile.list"
@@ -5614,6 +5615,7 @@ impl McpHandler {
             "instance.set_title" => self.instance_set_title(params),
             "instance.focus" => self.instance_focus(params),
             "instance.new_window" => self.instance_new_window(),
+            "instance.windows" => self.instance_windows(),
             // Identity profiles: read-only surface for agents. Writes
             // (create / set-secret / delete) and `profile.spawn` (which
             // would have to open a new GUI window) are intentionally
@@ -5833,7 +5835,20 @@ impl McpHandler {
     /// instances, pick one by cwd / title / start order, then connect
     /// to that instance's `mcp_port` with its `auth_token` directly.
     fn instance_list(&self) -> Result<Value> {
-        let current_id = unterm_services::server_info::current_instance_id();
+        // Which of these rows is *us*. `read_current()` alone is not enough:
+        // it resolves through the id the calling process registered, and
+        // since 0.68 this surface lives in the Core, which registers nothing
+        // -- the front end does. Asked there it answers None, so every row
+        // came back `is_current: false` and the windows below were attached
+        // to nobody. Falling back to the active pointer is what
+        // `instance.info` next door already does for the same reason.
+        let current = unterm_services::server_info::read_current();
+        let current_id = if current.id.is_empty() {
+            unterm_services::server_info::read().id
+        } else {
+            current.id
+        };
+        let current_id = (!current_id.is_empty()).then_some(current_id);
         let registry = unterm_services::server_info::instance_registry_snapshot();
         let registry_summary = json!({
             "owner": "server_info",
@@ -5847,13 +5862,22 @@ impl McpHandler {
             "unreadable_files": registry.unreadable_files,
             "values_redacted": true,
         });
+        // The windows of the front end this surface is attached to. One
+        // record used to mean one window, because a window was a process;
+        // since the single-process design a record means a front end and the
+        // windows have ids of their own. Only *this* instance can be asked --
+        // a peer's windows live behind its own MCP port -- so the key is
+        // present on the current entry and absent elsewhere rather than
+        // reported as an empty list, which would read as "that instance has
+        // no windows" when it means "not from here".
+        let windows = self.engine().list_windows().unwrap_or_default();
         let arr: Vec<Value> = registry
             .live
             .into_iter()
             .map(|i| {
                 let is_current = current_id.as_deref() == Some(i.id.as_str());
                 let lifecycle = instance_lifecycle_snapshot(&i, is_current);
-                json!({
+                let mut entry = json!({
                     "id": i.id,
                     "pid": i.pid,
                     "started_at": i.started_at,
@@ -5864,7 +5888,11 @@ impl McpHandler {
                     "version": i.version,
                     "platform": i.platform,
                     "lifecycle": lifecycle,
-                })
+                });
+                if is_current {
+                    entry["windows"] = json!(windows);
+                }
+                entry
             })
             .collect();
         Ok(json!({
@@ -6017,26 +6045,30 @@ impl McpHandler {
         }))
     }
 
-    /// Bring this instance's window to the foreground.
+    /// Bring one of this instance's windows to the foreground.
+    ///
+    /// Takes an optional `window_id` from `instance.list`. Without one this
+    /// raises whichever window is already in front, which is what a caller
+    /// with a single window means and what every caller meant before windows
+    /// had ids.
     ///
     /// **Cross-instance focus is intentionally NOT supported here** — to
     /// focus a peer, connect to that peer's MCP port directly and call
     /// `instance.focus` there. Keeps the auth model simple (each instance
     /// only ever acts on itself with its own token).
-    ///
-    /// Runs on the GUI thread because the front-end/window registry is
-    /// thread-local there. We focus the first known OS window for this
-    /// instance; cross-instance focus is still modeled by connecting to that
-    /// peer with `--instance <id>` and calling `instance.focus` there.
-    fn instance_focus(&self, _params: &Value) -> Result<Value> {
+    fn instance_focus(&self, params: &Value) -> Result<Value> {
         // No hop onto a GUI thread. The engine that needed one is gone, and
         // the requirement outlived it: this returned "GUI scheduler is not
         // configured" to every caller, so an agent asking the user to look at
         // something was answered with an error about an engine that no longer
         // exists. Raising a window is safe from any thread.
-        let focus = self.engine().focus_current_instance_window()?;
+        let window_id = params.get("window_id").and_then(|id| id.as_u64());
+        let focus = self.engine().focus_current_instance_window(window_id)?;
         Ok(json!({
             "ok": true,
+            // Which window was raised, always -- a caller that named none
+            // still learns where its message landed.
+            "window_id": focus.mux_window_id,
             "mux_window_id": focus.mux_window_id,
             "window_engine": focus.window_engine,
             "uses_host_window": focus.uses_host_window,
@@ -6048,9 +6080,26 @@ impl McpHandler {
     /// The point is that it is not another process. Starting one costs a GPU
     /// adapter, ~200 ms, and it is not a first-call cost -- a process pays it
     /// every time. A window on a front end that already has one costs 31 ms.
+    ///
+    /// Returns the id the window will have. Reserved rather than observed:
+    /// windows are built on the event loop and this call is not on it, so
+    /// waiting would mean blocking an MCP worker on a frame. The number is
+    /// already the window's -- nothing else will be given it -- so an agent
+    /// can pass it straight to `instance.focus`.
     fn instance_new_window(&self) -> Result<Value> {
-        self.engine().open_window()?;
-        Ok(json!({ "ok": true }))
+        let window_id = self.engine().open_window()?;
+        Ok(json!({ "ok": true, "window_id": window_id }))
+    }
+
+    /// `instance.windows` — every window this front end is showing.
+    ///
+    /// Separate from `instance.list`, which is a registry of front ends on
+    /// this machine and answers a different question. An agent that has just
+    /// opened a window, or wants to put something in front of the person,
+    /// needs the windows of the instance it is talking to and nothing else.
+    fn instance_windows(&self) -> Result<Value> {
+        let windows = self.engine().list_windows()?;
+        Ok(json!({ "windows": windows }))
     }
 
     /// `profile.list` — every identity profile on disk plus a hint at

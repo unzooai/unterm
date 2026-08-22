@@ -805,11 +805,6 @@ pub struct App {
     /// describes, not the subset somebody remembered to copy.
     config: config::Config,
     configured_pixel_size: f64,
-    /// Set by the new-window command, acted on where an `ActiveEventLoop`
-    /// exists. Winit only hands one to its own callbacks, and threading it
-    /// down through every key action to reach one of them would touch far
-    /// more than this.
-    open_another_window: bool,
     /// The windows that are not being acted on.
     ///
     /// Swapping one into `window` is how this process changes which window an
@@ -826,6 +821,7 @@ impl WindowState {
     /// makes a window *live* -- its surface, its renderer, its pane -- is
     /// `App::start`.
     fn fresh(
+        id: u64,
         config: &config::Config,
         pixel_size: f64,
         shape: crate::terminal::Shape,
@@ -834,6 +830,7 @@ impl WindowState {
         picture: Option<crate::background::Image>,
     ) -> Self {
         Self {
+            id,
             picture,
             font,
             chrome_font,
@@ -936,6 +933,14 @@ struct ParkedWindow {
 
 /// Everything that belongs to one window rather than to the process.
 struct WindowState {
+    /// What an agent calls this window.
+    ///
+    /// Handed out by `unterm_engine::reserve_window_id`, and not winit's
+    /// `WindowId`: that one is an opaque platform handle, it changes when a
+    /// window is rebuilt after a spell in the tray, and it means nothing to
+    /// anybody outside this process. `instance.windows` reports this, and
+    /// `instance.focus` takes it.
+    id: u64,
     font: TerminalFont,
     /// The font the chrome is drawn in.
     ///
@@ -1410,9 +1415,16 @@ impl App {
             gpu: None,
             config: config.clone(),
             configured_pixel_size: pixel_size,
-            open_another_window: false,
             parked: Vec::new(),
-            window: WindowState::fresh(config, pixel_size, shape, font, chrome_font, picture),
+            window: WindowState::fresh(
+                unterm_engine::reserve_window_id(),
+                config,
+                pixel_size,
+                shape,
+                font,
+                chrome_font,
+                picture,
+            ),
         })
     }
 
@@ -1487,7 +1499,7 @@ impl App {
         }
         // So `instance.focus`, which arrives on the MCP thread, has a window
         // to raise.
-        crate::mcp_host::remember_window(window.clone());
+        crate::mcp_host::remember_window(self.window.id, window.clone());
         // And now that there is a window to answer with, offer it to the
         // Core as the front end it can call back into. Ordered after
         // `remember_window` because the first thing the Core asks for is
@@ -4640,11 +4652,19 @@ impl App {
     /// `about_to_wait`, which is where winit hands out the event loop a
     /// window has to be created from.
     fn new_window(&mut self) {
-        self.open_another_window = true;
+        // The same queue an MCP call uses, so a window opened by a keystroke
+        // and one opened by an agent get their ids from the same place. Two
+        // allocators would eventually give two windows one number.
+        unterm_engine::request_window();
     }
 
     /// Park the window being shown and start a fresh one beside it.
-    fn open_window(&mut self, event_loop: &ActiveEventLoop) {
+    /// Open another window, under the id already promised to whoever asked.
+    ///
+    /// The id is a parameter rather than taken here because an MCP caller was
+    /// told the number before this ran -- a window can only be built where
+    /// winit hands out an `ActiveEventLoop`, and no agent can wait for one.
+    fn open_window(&mut self, event_loop: &ActiveEventLoop, id: u64) {
         let Some(parked_id) = self.active_window_id() else {
             return;
         };
@@ -4669,6 +4689,7 @@ impl App {
         };
         let picture = crate::background::configured(&self.config);
         let fresh = WindowState::fresh(
+            id,
             &self.config,
             self.configured_pixel_size,
             self.window.font_shape,
@@ -6603,8 +6624,12 @@ impl App {
         if let Some(live) = self.window.state.take() {
             live.window.set_visible(false);
         }
+        // Before the handle goes: an `instance.focus` naming this window must
+        // fail rather than raise whichever window replaced it.
+        crate::mcp_host::forget_window(self.window.id);
         let next = self.parked.pop().expect("a parked window");
         self.window = next.state;
+        crate::mcp_host::set_focused_window(self.window.id);
         if let Some(live) = self.window.state.as_ref() {
             live.window.request_redraw();
         }
@@ -6701,7 +6726,10 @@ impl App {
         // Detaching here would make an agent's "look at this" an error for as
         // long as the user had Unterm in the background, which is precisely
         // when an agent has something worth looking at.
-        crate::mcp_host::forget_window();
+        // Every window, not one: parking destroys them all, and a stale
+        // entry here is an `Arc` keeping a dead window alive for the next
+        // `instance.focus` to raise.
+        crate::mcp_host::forget_all_windows();
         if let Some(live) = self.window.state.take() {
             live.window.set_visible(false);
             drop(live);
@@ -10082,6 +10110,15 @@ impl ApplicationHandler for App {
 
             WindowEvent::Focused(focused) => {
                 self.window.focused = focused;
+                // What `instance.windows` calls focused, and the window a
+                // call that names none is about. It is recorded here rather
+                // than in `focus_window` above, which looks like the same
+                // thing and is not: that one runs for every event and only
+                // says which window an event was about, so a background
+                // window asking to be redrawn would have claimed the focus.
+                if focused {
+                    crate::mcp_host::set_focused_window(self.window.id);
+                }
                 // Anything that turned on focus reporting is told. vim redraws
                 // its cursor on it and tmux its pane borders, so a terminal
                 // that stays silent leaves them showing the wrong thing.
@@ -11100,14 +11137,22 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // Asked for from outside -- an MCP call, or a second launch that
-        // handed over rather than becoming another process.
-        if unterm_engine::take_window_request() {
-            self.open_another_window = true;
+        // Cheap, and the only place that sees every way a tab can appear or
+        // go: `instance.windows` reports this. Parked windows are counted
+        // too -- a window keeps its tabs while another one is in front, so
+        // reporting the number it happened to have when it was parked would
+        // be wrong the first time anything changed behind it.
+        crate::mcp_host::note_window_tabs(self.window.id, self.window.tabs.tab_count());
+        for parked in &self.parked {
+            crate::mcp_host::note_window_tabs(parked.state.id, parked.state.tabs.tab_count());
         }
-        if std::mem::take(&mut self.open_another_window) {
+        // Asked for from outside -- an MCP call, a keystroke, or a second
+        // launch that handed over rather than becoming another process. Each
+        // request carries the id its window was promised, and two callers
+        // asking at once want two windows rather than one.
+        for id in unterm_engine::take_window_requests() {
             crate::startup_trace::mark("window.second.start");
-            self.open_window(event_loop);
+            self.open_window(event_loop, id);
             crate::startup_trace::mark("window.second.ready");
         }
         if self.window.closing {

@@ -1822,12 +1822,32 @@ impl unterm_engine::McpHost for RemoteMcpHost {
     }
 
     /// Forward to the attached front end, which is where windows live.
-    fn open_window(&self) -> bool {
+    ///
+    /// A call rather than a notify, because the answer is the new window's
+    /// id and only the front end may invent one. A Core allocating its own
+    /// would collide the first time a person opened a window while an agent
+    /// opened another. The front end reserves the number and returns it at
+    /// once -- it does not wait for the window, which can only be built on
+    /// the event loop.
+    fn open_window(&self) -> Option<u64> {
         if !self.can_prompt() {
-            return false;
+            return None;
         }
-        host_channel().notify("open_window", serde_json::Value::Null);
-        true
+        host_channel()
+            .call("open_window", serde_json::Value::Null, HOST_QUICK)
+            .ok()
+            .and_then(|value| value.get("window_id").and_then(|id| id.as_u64()))
+    }
+
+    fn list_windows(&self) -> Vec<unterm_engine::WindowSummary> {
+        if !self.can_prompt() {
+            return Vec::new();
+        }
+        host_channel()
+            .call("list_windows", serde_json::Value::Null, HOST_QUICK)
+            .ok()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default()
     }
 
     fn ask_confirmation(
@@ -1861,10 +1881,16 @@ impl unterm_engine::McpHost for RemoteMcpHost {
             .unwrap_or(false)
     }
 
-    fn focus_window(&self) -> Result<()> {
-        host_channel()
-            .call("focus_window", serde_json::Value::Null, HOST_QUICK)
-            .map(|_| ())
+    fn focus_window(&self, window_id: Option<u64>) -> Result<u64> {
+        let raised = host_channel().call(
+            "focus_window",
+            serde_json::json!({ "window_id": window_id }),
+            HOST_QUICK,
+        )?;
+        raised
+            .get("window_id")
+            .and_then(|id| id.as_u64())
+            .context("the front end raised a window but did not say which")
     }
 
     fn key_assignments(&self) -> Vec<serde_json::Value> {

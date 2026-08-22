@@ -619,8 +619,11 @@ pub const MCP_METHODS: &[McpMethod] = &[
         Param { name: "confirm", kind: "string", required: false, summary: "Must be unregister-current-instance when apply=true." },
     ] },
     McpMethod { name: "instance.set_title", namespace: "instance", summary: "Override the instance window title.", params: &[Param { name: "title", kind: "string", required: true, summary: "" }] },
-    McpMethod { name: "instance.focus", namespace: "instance", summary: "Bring this instance's main window to the front.", params: NO_PARAMS },
-    McpMethod { name: "instance.new_window", namespace: "instance", summary: "Open another window on this front end, rather than starting a second process.", params: NO_PARAMS },
+    McpMethod { name: "instance.focus", namespace: "instance", summary: "Bring one of this instance's windows to the front.", params: &[
+        Param { name: "window_id", kind: "number", required: false, summary: "From instance.windows; omit for whichever window is already in front." },
+    ] },
+    McpMethod { name: "instance.new_window", namespace: "instance", summary: "Open another window on this front end, rather than starting a second process. Returns its window_id.", params: NO_PARAMS },
+    McpMethod { name: "instance.windows", namespace: "instance", summary: "Every window this front end is showing, with the ids instance.focus takes.", params: NO_PARAMS },
 ];
 
 // CLI inventory. The MCP server runs in a different binary than the CLI,
@@ -689,7 +692,7 @@ mod tests {
         // that is the whole mechanism. A surface that grows without anyone
         // noticing is one where a method ships undocumented, unclassified and
         // untested, and the count is the only thing that makes a person look.
-        assert_eq!(MCP_METHODS.len(), 150);
+        assert_eq!(MCP_METHODS.len(), 151);
         let namespaces: std::collections::HashSet<_> = MCP_METHODS
             .iter()
             .filter_map(|method| method.name.split('.').next())

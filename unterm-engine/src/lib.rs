@@ -1330,6 +1330,24 @@ pub struct PaneLocation {
     pub tab_id: usize,
 }
 
+/// One window a front end is showing, as an agent sees it.
+///
+/// The id is the front end's own, handed out in order from 1. Deliberately
+/// not winit's `WindowId` -- an opaque platform handle that means nothing
+/// outside the process holding it -- and no longer the pid, which is what
+/// identified a window back when every window was a process. One process now
+/// has many, which is the point of the whole design; without a number per
+/// window an agent can open one and then has no way to name it again.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct WindowSummary {
+    pub id: u64,
+    /// What the title bar says, which is how a person would refer to it.
+    pub title: String,
+    /// The window this front end is drawing and sending keys to.
+    pub focused: bool,
+    pub tabs: usize,
+}
+
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub enum ViewportScrollResult {
@@ -1342,29 +1360,62 @@ pub enum ViewportScrollResult {
 /// Not every front end has windows in the same sense -- a headless one has
 /// none -- so this is separate from the session and screen traits rather than
 /// folded into them.
-/// Somebody has asked this front end for another window.
+/// Windows asked for but not yet made, by the id each will have.
 ///
-/// Set from whichever thread took the request -- an MCP call, a second launch
-/// handing over -- and read by the event loop, which is the only place a
-/// window can actually be made. A flag rather than a channel because the
-/// answer is the same however many ask at once: open one.
-pub static WINDOW_REQUESTED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+/// Filled from whichever thread took the request -- an MCP call, a second
+/// launch handing over -- and drained by the event loop, which is the only
+/// place a window can actually be made. A queue of ids rather than the flag
+/// this used to be: two callers asking at once want two windows, and each
+/// wants to be told which one is theirs.
+static WINDOW_REQUESTS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
 
-/// Ask the front end for another window.
-pub fn request_window() {
-    WINDOW_REQUESTED.store(true, std::sync::atomic::Ordering::Release);
+/// The next window id this process will hand out.
+///
+/// One allocator, and it lives in the front end. A Core forwards the request
+/// and is *told* the id rather than inventing one, because two allocators
+/// would collide the first time a person opened a window while an agent
+/// opened another -- and the collision would be two windows answering to one
+/// number, which is worse than no numbers at all.
+static NEXT_WINDOW_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Take the next window id without asking for a window.
+///
+/// For windows the front end makes on its own account -- the first one, or
+/// one a keystroke opened -- which still need an id to be addressed by.
+pub fn reserve_window_id() -> u64 {
+    NEXT_WINDOW_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Whether a window was asked for since this was last called.
-pub fn take_window_request() -> bool {
-    WINDOW_REQUESTED.swap(false, std::sync::atomic::Ordering::AcqRel)
+/// Ask the front end for another window; returns the id it will have.
+///
+/// Reserved here rather than reported once the window exists, because the
+/// caller is on an MCP thread and a window can only be made where winit hands
+/// out an `ActiveEventLoop`. Reserved is enough to answer with: nothing else
+/// will ever be given this number.
+pub fn request_window() -> u64 {
+    let id = reserve_window_id();
+    if let Ok(mut queue) = WINDOW_REQUESTS.lock() {
+        queue.push(id);
+    }
+    id
+}
+
+/// Every window asked for since this was last called, in the order asked.
+pub fn take_window_requests() -> Vec<u64> {
+    WINDOW_REQUESTS
+        .lock()
+        .map(|mut queue| std::mem::take(&mut *queue))
+        .unwrap_or_default()
 }
 
 pub trait WindowEngine {
-    fn focus_current_instance_window(&self) -> anyhow::Result<WindowFocusResult>;
+    /// Raise a window: the named one, or whichever is in front.
+    fn focus_current_instance_window(
+        &self,
+        window_id: Option<u64>,
+    ) -> anyhow::Result<WindowFocusResult>;
 
-    /// Open another window on this front end.
+    /// Open another window on this front end; returns the id it will have.
     ///
     /// Exists so a second launch does not have to become a second process.
     /// Starting one costs a GPU adapter -- ~200 ms, paid again every time --
@@ -1373,12 +1424,21 @@ pub trait WindowEngine {
     /// Defaults to refusing: a headless engine has no window to add one
     /// beside, and saying so is better than reporting a window that is not
     /// there.
-    fn open_window(&self) -> anyhow::Result<()> {
+    fn open_window(&self) -> anyhow::Result<u64> {
         // A Core has no window of its own; the front end attached to it does.
-        if mcp_host().is_some_and(|host| host.open_window()) {
-            return Ok(());
+        if let Some(id) = mcp_host().and_then(|host| host.open_window()) {
+            return Ok(id);
         }
         anyhow::bail!("no front end is attached to open a window on")
+    }
+
+    /// Every window this front end is showing.
+    ///
+    /// Empty rather than an error when there is no front end: "this Core has
+    /// no windows" is an answer, and an agent deciding whether to open one
+    /// should not have to tell that apart from a failure.
+    fn list_windows(&self) -> anyhow::Result<Vec<WindowSummary>> {
+        Ok(mcp_host().map(|host| host.list_windows()).unwrap_or_default())
     }
     fn active_pane_id(&self) -> anyhow::Result<Option<u64>>;
     fn pane_locations(&self) -> anyhow::Result<std::collections::HashMap<u64, PaneLocation>>;
@@ -1464,16 +1524,18 @@ impl HostEngine for next_core::NextCoreEngine {
 /// end that does have one installs a provider that answers properly.
 impl WindowEngine for next_core::NextCoreEngine {
     /// The kernel has no window; whatever is hosting it does.
-    fn focus_current_instance_window(&self) -> Result<WindowFocusResult> {
+    fn focus_current_instance_window(&self, window_id: Option<u64>) -> Result<WindowFocusResult> {
         let Some(host) = mcp_host() else {
             anyhow::bail!("no front end is hosting a window to focus");
         };
-        host.focus_window()?;
+        let raised = host.focus_window(window_id)?;
         let identity = host.window_identity();
         Ok(WindowFocusResult {
-            // One window per instance: separate windows are separate
-            // processes, which is what lets `instance.list` name them.
-            mux_window_id: 0,
+            // Which window was actually raised. This reported 0 while a
+            // window was a process and `instance.list` named it by pid; one
+            // process now has many, so the number has to come from the front
+            // end that handed it out.
+            mux_window_id: raised as usize,
             window_engine: identity.engine,
             uses_host_window: identity.uses_host_window,
         })
@@ -1602,14 +1664,19 @@ pub trait McpHost: Send + Sync {
         WindowIdentity::HEADLESS
     }
 
-    /// Ask the attached front end for another window.
+    /// Ask the attached front end for another window; the id it will have.
     ///
     /// The Core has no windows of its own -- it forwards to whichever front
-    /// end is attached, which is the whole point of this trait. False when
+    /// end is attached, which is the whole point of this trait. `None` when
     /// nothing is attached to ask, so the caller can fall back to starting a
     /// front end rather than reporting a window that was never opened.
-    fn open_window(&self) -> bool {
-        false
+    fn open_window(&self) -> Option<u64> {
+        None
+    }
+
+    /// Every window the attached front end is showing.
+    fn list_windows(&self) -> Vec<WindowSummary> {
+        Vec::new()
     }
 
     /// Whether there is a front end that can actually put a question on
@@ -1659,12 +1726,17 @@ pub trait McpHost: Send + Sync {
         false
     }
 
-    /// Bring this front end's window to the front.
+    /// Bring one of this front end's windows to the front.
     ///
     /// An agent that has just written something worth looking at needs a way
     /// to say so; `instance.focus` is it, and without a front end to ask,
-    /// there is no window to raise.
-    fn focus_window(&self) -> Result<()> {
+    /// there is no window to raise. `None` means whichever window is in
+    /// front already -- the old behaviour, and still the right default for a
+    /// caller that only has one.
+    ///
+    /// Returns the id actually raised, so a caller that passed `None` learns
+    /// which window its message landed in front of.
+    fn focus_window(&self, _window_id: Option<u64>) -> Result<u64> {
         anyhow::bail!("this front end has no window to focus")
     }
 
@@ -2433,7 +2505,7 @@ mod host_capture_tests {
 
     static ASKED: std::sync::Mutex<Vec<(Option<String>, Option<u32>, bool)>> =
         std::sync::Mutex::new(Vec::new());
-    static FOCUSED: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+    static FOCUSED: std::sync::Mutex<Vec<Option<u64>>> = std::sync::Mutex::new(Vec::new());
 
     impl McpHost for Recorder {
         fn render_scrollback_png(
@@ -2455,9 +2527,24 @@ mod host_capture_tests {
             }
         }
 
-        fn focus_window(&self) -> Result<()> {
-            *FOCUSED.lock().unwrap() += 1;
-            Ok(())
+        fn focus_window(&self, window_id: Option<u64>) -> Result<u64> {
+            FOCUSED.lock().unwrap().push(window_id);
+            // A front end asked for "whatever is in front" still has to say
+            // which one that was.
+            Ok(window_id.unwrap_or(7))
+        }
+
+        fn list_windows(&self) -> Vec<WindowSummary> {
+            vec![WindowSummary {
+                id: 7,
+                title: "recorded".to_string(),
+                focused: true,
+                tabs: 2,
+            }]
+        }
+
+        fn open_window(&self) -> Option<u64> {
+            Some(8)
         }
 
         fn capture_own_window(
@@ -2513,10 +2600,52 @@ mod host_capture_tests {
 
         // Focus reaches the same place, and reports the front end's own
         // identity rather than a guess at which one is running.
-        let focus = WindowEngine::focus_current_instance_window(&engine).unwrap();
-        assert_eq!(*FOCUSED.lock().unwrap(), 1);
+        let focus = WindowEngine::focus_current_instance_window(&engine, None).unwrap();
+        assert_eq!(*FOCUSED.lock().unwrap(), vec![None]);
         assert_eq!(focus.window_engine, "recorder");
         assert!(!focus.uses_host_window);
+        // Nothing named: the front end says which window it raised, so the
+        // caller learns where its message landed. This was hard-coded 0 back
+        // when a window was a process.
+        assert_eq!(focus.mux_window_id, 7);
+
+        // A named window is passed through rather than quietly ignored --
+        // the failure this replaces answered every id with the same window.
+        let focus = WindowEngine::focus_current_instance_window(&engine, Some(3)).unwrap();
+        assert_eq!(*FOCUSED.lock().unwrap(), vec![None, Some(3)]);
+        assert_eq!(focus.mux_window_id, 3);
+
+        // And the two calls an agent needs to address a window at all.
+        let windows = WindowEngine::list_windows(&engine).unwrap();
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].id, 7);
+        assert_eq!(windows[0].tabs, 2);
+        assert!(windows[0].focused);
+        assert_eq!(WindowEngine::open_window(&engine).unwrap(), 8);
+    }
+
+    /// Ids are handed out once, in order, whoever asks.
+    ///
+    /// The reservation happens on the asking thread because a window can only
+    /// be made on the event loop, and an MCP caller cannot wait for one. Two
+    /// callers racing must still get two numbers.
+    #[test]
+    fn window_ids_are_never_handed_out_twice() {
+        let first = request_window();
+        let second = reserve_window_id();
+        let third = request_window();
+        assert_ne!(first, second);
+        assert_ne!(second, third);
+        assert_ne!(first, third);
+
+        // Only the *requested* ones are queued: `reserve_window_id` is for a
+        // window the front end is already making for itself.
+        let queued = take_window_requests();
+        assert_eq!(queued, vec![first, third]);
+        assert!(
+            take_window_requests().is_empty(),
+            "draining twice must not repeat a window"
+        );
     }
 }
 
