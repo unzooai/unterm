@@ -1,5 +1,58 @@
 # Changelog
 
+## v0.69 — 2026-08-23
+
+Colour. Unterm never had any.
+
+### Fixed
+
+- **The terminal never told programs what it was, so they turned colour
+  off.** A GUI launched from Finder or launchd inherits no environment,
+  and `TERM` is the one variable no parent will ever supply — announcing
+  it is the terminal's own job. We never did. Every pane therefore told
+  the programs inside it "I am a blank terminal", and they believed it:
+  Node reported a colour depth of 1, so Claude Code and Codex switched
+  colour off entirely. Their dim hints, their status lines and the text
+  you were typing all arrived in one undifferentiated foreground —
+  measurably so, at RGB (235,235,233) for every one of them, with the
+  highlighted half and the dimmed half of the same line identical and
+  even a `failed` rendered in no red at all. Since dimming its own
+  chatter is the only way an agent distinguishes its notices from what
+  you just typed, that distinction was gone. `tput` failed outright and
+  ncurses programs fell back to their dumbest mode. The palette a theme
+  defines had never once been asked for. Panes now announce
+  `TERM=xterm-256color` and `COLORTERM=truecolor` — anything already
+  present still wins.
+
+- **A pane an agent opened announced itself differently from one you
+  opened.** There are two paths to a new pane, and only one of them had
+  learned to answer: the MCP surface built its own command and hand-set
+  `TERM`, having never heard of `COLORTERM`. On macOS the value is
+  usually inherited from the parent and the split stayed invisible; a
+  Linux VM, where nothing supplies it, showed the two kinds of pane
+  disagreeing outright. Both paths now share one definition.
+
+### Verified
+
+macOS and Ubuntu 24.04 (aarch64), by measuring rendered pixels rather
+than trusting that the escape codes were sent: red, green and blue each
+render as themselves, and dim sits 26–29 luminance below white on both.
+**Windows was not verified** — the test VM needs more memory than the
+machine could spare. The code carries no platform branch, so the same
+logic Linux proves is what Windows runs; the open question there is not
+whether colour works but whether announcing `TERM` changes the
+behaviour of MSYS/Git-bash-flavoured tools.
+
+### Internal
+
+- Two CI gates had stopped guarding anything since 0.68. The MCP host
+  gate ran `--bin unterm`, which held zero tests after `main.rs` was
+  split into `lib.rs` — it was the strict "exactly 4 passed" assertion
+  that caught this, where a laxer "at least one" would have gone on
+  passing while testing nothing. The GUI pane gate's counts had not
+  followed the single-process multi-window work, leaving it red since
+  0.68.2.
+
 ## v0.68.3 — 2026-08-23
 
 ### Fixed
