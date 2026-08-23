@@ -86,8 +86,38 @@ pub(super) fn prepare_command(
     }
     #[cfg(unix)]
     ensure_locale_env(&mut command);
+    ensure_term_env(&mut command);
     let cwd = command_cwd(&command, None);
     (command, cwd)
+}
+
+/// A terminal has to name itself. Nothing in a parent environment ever
+/// sets `TERM` for us — a GUI launched from Finder/launchd hands the
+/// shell an empty one, and every program that asks "can this terminal
+/// do colour?" reads that emptiness as "no". `tput` fails outright,
+/// ncurses apps fall back to their dumbest mode, and the
+/// `supports-color` probe that Claude Code and Codex run at startup
+/// turns colour off entirely: their dim hints, their status lines and
+/// the text you are typing all arrive in one undifferentiated
+/// foreground. The palette a theme defines is never asked for at all.
+///
+/// Terminal.app and iTerm2 announce `xterm-256color`, Ghostty announces
+/// `xterm-ghostty`. We ship no terminfo entry of our own, so we claim
+/// the one we actually behave like rather than a name no system has.
+/// `COLORTERM` is the 24-bit half of the same answer, and an honest one
+/// — the engine stores colour as `TerminalColor::Rgb`. Anything
+/// already present wins, so a launch that inherited a real `TERM`, or
+/// was handed one explicitly, keeps it.
+fn ensure_term_env(command: &mut portable_pty::CommandBuilder) {
+    let present = |key: &str| command.get_env(key).map_or(false, |value| !value.is_empty());
+    let needs_term = !present("TERM");
+    let needs_colorterm = !present("COLORTERM");
+    if needs_term {
+        command.env("TERM", "xterm-256color");
+    }
+    if needs_colorterm {
+        command.env("COLORTERM", "truecolor");
+    }
 }
 
 /// A GUI launched by Finder/launchd inherits no locale at all, so the
@@ -267,6 +297,52 @@ mod tests {
                 .get_env("HTTPS_PROXY")
                 .and_then(|value| value.to_str()),
             Some("http://127.0.0.1:7890")
+        );
+    }
+
+    /// The regression this guards: `prepare_command` synthesized a
+    /// locale but never a `TERM`, so every pane announced an empty one
+    /// and the agents running in it turned colour off.
+    #[test]
+    fn a_prepared_launch_announces_a_colour_terminal() {
+        let (command, _) = prepare_command(None, None, Vec::new());
+        assert_eq!(
+            command.get_env("TERM").and_then(|value| value.to_str()),
+            Some("xterm-256color")
+        );
+        assert_eq!(
+            command.get_env("COLORTERM").and_then(|value| value.to_str()),
+            Some("truecolor")
+        );
+    }
+
+    #[test]
+    fn an_explicit_term_survives_the_launch() {
+        let (command, _) = prepare_command(
+            None,
+            None,
+            vec![("TERM".to_string(), "screen-256color".to_string())],
+        );
+        assert_eq!(
+            command.get_env("TERM").and_then(|value| value.to_str()),
+            Some("screen-256color")
+        );
+        // COLORTERM is judged on its own, so naming a TERM does not
+        // cost you the 24-bit announcement.
+        assert_eq!(
+            command.get_env("COLORTERM").and_then(|value| value.to_str()),
+            Some("truecolor")
+        );
+    }
+
+    #[test]
+    fn an_empty_term_is_treated_as_absent() {
+        let mut command = portable_pty::CommandBuilder::new_default_prog();
+        command.env("TERM", "");
+        ensure_term_env(&mut command);
+        assert_eq!(
+            command.get_env("TERM").and_then(|value| value.to_str()),
+            Some("xterm-256color")
         );
     }
 
