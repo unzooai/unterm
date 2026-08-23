@@ -743,7 +743,7 @@ fn launch_shell_for_new_pane() -> Option<CommandBuilder> {
             CommandBuilder::new(default.get_shell())
         }
     };
-    command.env("TERM", "xterm-256color");
+    unterm_engine::apply_terminal_identity(&mut command);
     let mut command = Some(command);
     unterm_services::launch_env::apply_unterm_windows_utf8(&mut command);
     unterm_services::launch_env::apply_unterm_profile_env(&mut command);
@@ -1032,8 +1032,8 @@ mod input_preview_tests {
 #[cfg(test)]
 mod engine_neutral_handler_tests {
     use super::{
-        audit_log_snapshot_json, compute_agent_cwd, mcp_state, shell_command_builder,
-        ConnectionContext, McpHandler,
+        audit_log_snapshot_json, compute_agent_cwd, launch_shell_for_new_pane, mcp_state,
+        shell_command_builder, ConnectionContext, McpHandler,
     };
     use anyhow::{anyhow, Context, Result};
     use parking_lot::Mutex;
@@ -1045,6 +1045,24 @@ mod engine_neutral_handler_tests {
         OnceLock,
     };
     use unterm_engine::{next_core, CreateSessionRequest, InputEngine, SessionEngine};
+
+    /// A pane an agent asks for must announce the same terminal as one
+    /// the user opens. This path built its own `CommandBuilder` and set
+    /// `TERM` by hand, so it never learned about `COLORTERM` — caught in
+    /// a Linux VM, where the two kinds of pane disagreed; on macOS the
+    /// value was usually inherited and the split stayed hidden.
+    #[test]
+    fn a_pane_born_of_an_mcp_request_announces_a_colour_terminal() {
+        let command = launch_shell_for_new_pane().expect("a shell to launch");
+        assert_eq!(
+            command.get_env("TERM").and_then(|value| value.to_str()),
+            Some("xterm-256color")
+        );
+        assert_eq!(
+            command.get_env("COLORTERM").and_then(|value| value.to_str()),
+            Some("truecolor")
+        );
+    }
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();

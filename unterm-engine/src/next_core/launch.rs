@@ -108,7 +108,7 @@ pub(super) fn prepare_command(
 /// — the engine stores colour as `TerminalColor::Rgb`. Anything
 /// already present wins, so a launch that inherited a real `TERM`, or
 /// was handed one explicitly, keeps it.
-fn ensure_term_env(command: &mut portable_pty::CommandBuilder) {
+pub(crate) fn ensure_term_env(command: &mut portable_pty::CommandBuilder) {
     let present = |key: &str| command.get_env(key).map_or(false, |value| !value.is_empty());
     let needs_term = !present("TERM");
     let needs_colorterm = !present("COLORTERM");

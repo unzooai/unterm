@@ -1826,6 +1826,22 @@ pub fn window_identity() -> WindowIdentity {
         .unwrap_or(WindowIdentity::HEADLESS)
 }
 
+/// Announce what terminal a spawned program is talking to — `TERM` and
+/// `COLORTERM`, each only if not already set.
+///
+/// Every path that spawns a shell has to call this, and there is more
+/// than one: sessions born in the front end go through
+/// `next_core::launch::prepare_command`, while those born of an MCP
+/// request are built in `unterm-mcp`. That second path used to set
+/// `TERM` by hand and knew nothing of `COLORTERM`, so a pane an agent
+/// created announced itself differently from one the user opened —
+/// invisible on macOS, where the value was usually inherited anyway,
+/// and plain in a Linux VM where nothing supplies it. One definition,
+/// so the two cannot drift again.
+pub fn apply_terminal_identity(command: &mut portable_pty::CommandBuilder) {
+    next_core::launch::ensure_term_env(command);
+}
+
 /// The engine the front end installed, if it has.
 pub fn engine_provider() -> Option<fn() -> Box<dyn HostEngine>> {
     ENGINE_PROVIDER.get().copied()

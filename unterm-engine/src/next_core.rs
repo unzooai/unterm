@@ -34,7 +34,7 @@ mod history;
 mod input_dispatch;
 mod input_pipeline;
 pub mod key_encoding;
-mod launch;
+pub(crate) mod launch;
 pub mod layout;
 mod lifecycle;
 pub mod mouse_encoding;

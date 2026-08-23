@@ -64,8 +64,8 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "next-core MCP contract tests failed:`n$($run -join "`n")"
     }
-    if (-not @($run | Where-Object { $_ -match "test result: ok\..*48 passed" })) {
-        throw "next-core MCP contract test run did not report 48 passed tests"
+    if (-not @($run | Where-Object { $_ -match "test result: ok\..*49 passed" })) {
+        throw "next-core MCP contract test run did not report 49 passed tests"
     }
 
     # The other half of capture.scrollback: the surface refuses without a
@@ -84,7 +84,7 @@ try {
         throw "MCP host test run did not report 4 passed tests"
     }
 
-    Write-Host "next-core MCP contract tests ok: required=$($RequiredTests.Count) module_tests=48 host_tests=4"
+    Write-Host "next-core MCP contract tests ok: required=$($RequiredTests.Count) module_tests=49 host_tests=4"
 } finally {
     Pop-Location
 }
