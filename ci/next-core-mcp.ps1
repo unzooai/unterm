@@ -71,7 +71,11 @@ try {
     # The other half of capture.scrollback: the surface refuses without a
     # front end (above), and a front end hosting it really renders (here).
     $ErrorActionPreference = "Continue"
-    $hostRun = @(& cargo test -p unterm-app --bin unterm "mcp_host::tests::" -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
+    # --lib, not --bin: 0.68 split unterm-app's main.rs into a lib.rs and the
+    # tests went with it, so `--bin unterm` has held zero tests since. The
+    # count assertion below is what caught it -- had this gate asserted "at
+    # least one" it would have gone on passing while testing nothing.
+    $hostRun = @(& cargo test -p unterm-app --lib "mcp_host::tests::" -- --test-threads=1 2>&1 | ForEach-Object { $_.ToString() })
     $ErrorActionPreference = "Stop"
     if ($LASTEXITCODE -ne 0) {
         throw "MCP host tests failed:`n$($hostRun -join "`n")"

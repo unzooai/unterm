@@ -295,10 +295,13 @@ $Suites = @(
         Name = "app shell"
         Package = "unterm-app"
         Filter = "window::tests::"
-        # 16 since 0.67 added the startup-sizing test below. This number is
-        # meant to be edited by whoever adds a test here — that is the whole
+        # 21 since 0.68.2 made one process able to hold several windows: it
+        # added the four session-ownership tests that pin `window_should_adopt`
+        # and the D2 close-prompt test, but left this number at its 0.67 value
+        # of 16 — so this gate has been failing on CI ever since. This number
+        # is meant to be edited by whoever adds a test here — that is the whole
         # mechanism, and it is why a test quietly disappearing is caught.
-        ExpectedCount = 16
+        ExpectedCount = 21
         RequiredTests = @(
             @(
                 "window::tests::a_wide_glyph_copies_without_its_spacer_cell",
@@ -311,7 +314,13 @@ $Suites = @(
                 "window::tests::cycling_forward_from_the_last_tab_wraps_to_the_first",
                 "window::tests::cycling_back_from_the_first_tab_wraps_to_the_last",
                 "window::tests::a_tab_that_is_no_longer_there_cycles_from_the_start",
-                "window::tests::cycling_with_no_tabs_answers_rather_than_dividing_by_zero"
+                "window::tests::cycling_with_no_tabs_answers_rather_than_dividing_by_zero",
+                # Closing one window must end that window's panes and no one
+                # else's (D1), and only the last window standing may ask
+                # whether to quit (D2). Both are user-visible the moment they
+                # regress, and neither is covered by the counts above alone.
+                "window::tests::a_window_closes_only_the_panes_it_holds",
+                "window::tests::the_close_prompt_belongs_to_the_last_window"
             # A config naming no shell resolves differently by design: Windows
             # keeps its legacy PowerShell default, everywhere else the engine
             # chooses -- each platform carries its own cfg-gated test.
@@ -368,9 +377,12 @@ $Suites = @(
         Name = "capture and focus reach the window's owner"
         Package = "unterm-engine"
         Filter = "host_capture_tests::"
-        ExpectedCount = 1
+        # 2 since W-5 gave windows their own identity: an id handed out twice
+        # would point two agents at one window, so that test lives here too.
+        ExpectedCount = 2
         RequiredTests = @(
-            "host_capture_tests::capture_reaches_the_front_end_that_owns_the_window"
+            "host_capture_tests::capture_reaches_the_front_end_that_owns_the_window",
+            "host_capture_tests::window_ids_are_never_handed_out_twice"
         )
     },
     @{
