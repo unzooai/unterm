@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.69.1 — 2026-08-24
+
+### Fixed
+
+- **A pane could be resized down to one column, and one column is not a
+  narrow terminal — it is a destroyed one.** A codex pane was found
+  showing three characters, `=`, `[`, `[`: the first character of each of
+  its three lines. Resizing a screen narrower truncates its lines and its
+  scrollback in place rather than reflowing them, which is the right
+  answer for a window the user is dragging narrower and a catastrophe for
+  a width nobody asked for — and one column can only ever come from the
+  latter. Every fallback along the way said `.max(1)`, so a window
+  reporting no size at all, chrome measured wider than its window, or an
+  agent passing `cols: 1` all arrived at the pane as a single column.
+
+  Four paths closed at once: a `Resized(0,0)` event is now ignored rather
+  than clamped to one pixel; a window still reporting 0×0 at startup is
+  not used to compute a grid, and a session being adopted is not resized
+  at all; the grid floor rises from one cell to the engine's minimum, so
+  when the sidebar, file tree and git panel together outgrow the window
+  it is the chrome that loses room rather than the pane's contents; and
+  the engine now refuses any resize below `MIN_SESSION_GRID`, a floor the
+  front end and the engine finally share — the same gate covers the GUI,
+  Core IPC, and MCP `session.resize`.
+
 ## v0.69 — 2026-08-23
 
 Colour. Unterm never had any.
