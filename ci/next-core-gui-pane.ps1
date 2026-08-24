@@ -277,7 +277,10 @@ $Suites = @(
         RequiredTests = @(
             "terminal::tests::a_block_cursor_on_a_wide_character_covers_both_its_cells",
             "terminal::tests::a_window_sized_to_exactly_n_cells_gets_n",
-            "terminal::tests::a_window_too_small_for_one_cell_still_asks_for_one",
+            # Renamed in 0.69.1 along with what it asserts: the floor is no
+            # longer one cell but the engine's smallest grid, because a pane
+            # one column wide loses its lines rather than reflowing them.
+            "terminal::tests::a_window_too_small_for_a_grid_still_asks_for_the_smallest_one",
             "terminal::tests::every_glyph_is_rasterized_before_any_quad_is_built",
             "terminal::tests::text_becomes_glyph_quads",
             "terminal::tests::a_config_without_colours_still_gives_readable_ones",
@@ -295,13 +298,15 @@ $Suites = @(
         Name = "app shell"
         Package = "unterm-app"
         Filter = "window::tests::"
-        # 21 since 0.68.2 made one process able to hold several windows: it
-        # added the four session-ownership tests that pin `window_should_adopt`
-        # and the D2 close-prompt test, but left this number at its 0.67 value
-        # of 16 — so this gate has been failing on CI ever since. This number
-        # is meant to be edited by whoever adds a test here — that is the whole
-        # mechanism, and it is why a test quietly disappearing is caught.
-        ExpectedCount = 21
+        # 22 since 0.69.1 stopped a window reporting no size from being taken
+        # for a window one cell wide. 21 came from 0.68.2's single-process
+        # multi-window work (the four session-ownership tests pinning
+        # `window_should_adopt`, plus the D2 close-prompt test); before that it
+        # sat at 0.67's 16 and this gate went red on CI for a whole release.
+        # This number is meant to be edited by whoever adds a test here — that
+        # is the whole mechanism, and it is why a test quietly disappearing is
+        # caught.
+        ExpectedCount = 22
         RequiredTests = @(
             @(
                 "window::tests::a_wide_glyph_copies_without_its_spacer_cell",
@@ -320,7 +325,11 @@ $Suites = @(
                 # whether to quit (D2). Both are user-visible the moment they
                 # regress, and neither is covered by the counts above alone.
                 "window::tests::a_window_closes_only_the_panes_it_holds",
-                "window::tests::the_close_prompt_belongs_to_the_last_window"
+                "window::tests::the_close_prompt_belongs_to_the_last_window",
+                # A window reporting no size at all is not a window one cell
+                # wide: clamping 0 to 1 is what shrank a pane to a single
+                # column and threw its lines and scrollback away.
+                "window::tests::a_window_with_no_size_is_not_a_window_one_cell_wide"
             # A config naming no shell resolves differently by design: Windows
             # keeps its legacy PowerShell default, everywhere else the engine
             # chooses -- each platform carries its own cfg-gated test.
