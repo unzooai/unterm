@@ -447,6 +447,21 @@ impl QuickMenu {
     }
 }
 
+/// Whether a window size is one the terminal is actually being drawn at.
+///
+/// A window that has not been mapped yet reports 0x0, and depending on the
+/// platform and the winit build so can one that is minimised, occluded, or
+/// caught mid display change. None of those is a size, and nothing further
+/// down the chain can tell: the window width, the terminal area and the grid
+/// each floored at one cell, so a zero window arrived at the pane as a
+/// one-column terminal. Resizing a pane to one column does not narrow the
+/// view of its output, it truncates every line and the whole scrollback to a
+/// single character, and restoring the window cannot bring any of it back.
+/// So a window with no size is a window with nothing to say about grids.
+fn is_drawable_size(width: u32, height: u32) -> bool {
+    width > 0 && height > 0
+}
+
 fn styled_snapshot_has_text(snapshot: &unterm_engine::StyledScreenSnapshot) -> bool {
     styled_lines_have_text(&snapshot.lines)
 }
@@ -1522,14 +1537,26 @@ impl App {
         window.set_ime_allowed(true);
 
         let size = window.inner_size();
+        // A window that has not been mapped yet reports 0x0. Every fallback
+        // between here and the grid floors at one cell, so believing that
+        // number hands the first pane a one-column terminal -- and for a pane
+        // that already holds output, one column is not a narrow view of it,
+        // it is the loss of it. Stand in the same default `window_width`
+        // uses until the first real `Resized` says otherwise.
+        let sized = is_drawable_size(size.width, size.height);
+        let (window_width, window_height) = if sized {
+            (size.width as f32, size.height as f32)
+        } else {
+            (800.0, 600.0)
+        };
         // The terminal's own area, not the whole window: the strip on the
         // left and the padding either side are not columns the shell may
         // write into. Sizing the first pane from the raw window meant every
         // TUI launched at startup drew past the right edge until something
         // resized the window.
         let (cols, rows) = self.window.font.grid_for(
-            self.terminal_width_for(size.width as f32),
-            self.terminal_height_for(size.height as f32),
+            self.terminal_width_for(window_width),
+            self.terminal_height_for(window_height),
         );
         // A Core that outlived the previous window still holds its
         // sessions; a window that opened onto a populated Core must
@@ -1634,8 +1661,14 @@ impl App {
         let session = match adopted {
             Some(existing) => {
                 // This window's grid decides the size, not the one the
-                // previous window left behind.
-                let _ = self.engine.resize_session(existing.id, cols, rows);
+                // previous window left behind -- but only once this window
+                // has a size of its own. An adopted session arrives with
+                // output already on it, and resizing it to a guess would
+                // truncate that output rather than reflow it. The first real
+                // `Resized` is a frame away and knows the answer.
+                if sized {
+                    let _ = self.engine.resize_session(existing.id, cols, rows);
+                }
                 Some(existing)
             }
             None if pending_core_session.is_some() => {
@@ -2532,6 +2565,16 @@ impl App {
     }
 
     /// How wide the terminal is inside a window of this width.
+    ///
+    /// The floor is the engine's minimum grid, not one cell. Every piece of
+    /// chrome subtracted here has a minimum of its own that does not consult
+    /// the window -- the sidebar, the tree, the git panel -- so a narrow
+    /// enough window, or a large enough font, lets them ask for more than
+    /// there is. Flooring at one cell answered that with a one-column
+    /// terminal, and a one-column terminal is not a cramped view of a pane's
+    /// output, it is the loss of it: the next resize truncates every line and
+    /// the scrollback to a single character. Chrome drawing over the last
+    /// column is the cheaper failure.
     fn terminal_width_for(&self, window_width: f32) -> f32 {
         let metrics = self.window.font.metrics();
         (window_width
@@ -2539,7 +2582,7 @@ impl App {
             - self.git_panel_width_for(window_width)
             - self.terminal_padding_left()
             - self.terminal_padding_right())
-        .max(metrics.width)
+        .max(unterm_engine::MIN_SESSION_GRID as f32 * metrics.width)
     }
 
     /// What the strip shows: one line per tab, grouped by project.
@@ -8261,7 +8304,11 @@ impl App {
         // out of the terminal rather than drawn over it: a bar over the grid
         // hides a row the shell still believes in.
         let taken = self.terminal_top() + self.status_bar_height() + self.terminal_padding_bottom();
-        (height - taken).max(self.window.font.metrics().height)
+        // Floored at the engine's minimum grid for the same reason the width
+        // is: chrome that does not fit must cost a drawn row, not the pane's
+        // contents.
+        (height - taken)
+            .max(unterm_engine::MIN_SESSION_GRID as f32 * self.window.font.metrics().height)
     }
 
     /// How tall the line along the bottom is.
@@ -10155,17 +10202,26 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::Resized(size) => {
-                let (width, height) = (size.width.max(1), size.height.max(1));
-                let (cols, rows) = self.window.font.grid_for(width as f32, height as f32);
+                // `Resized(0, 0)` is the window saying it is not being
+                // drawn, not saying how wide it is being drawn. This used to
+                // clamp it to one pixel, and one pixel is a size: every
+                // fallback below floored at one cell, so the pane was told it
+                // was one column wide, which truncated every line *and the
+                // whole scrollback* to its first character. Restoring the
+                // window could not bring any of it back. A window with no
+                // size now keeps the last size it really had and tells no
+                // pane anything.
+                if !is_drawable_size(size.width, size.height) {
+                    return;
+                }
                 if let Some(live) = self.window.state.as_mut() {
-                    live.width = width;
-                    live.height = height;
+                    live.width = size.width;
+                    live.height = size.height;
                     live.configure(live.renderer.format());
                     live.window.request_redraw();
                 }
                 // Every pane has to learn its new grid, or a shell keeps
                 // wrapping at a width it is no longer drawn at.
-                let _ = (cols, rows);
                 self.resize_panes();
                 self.window.drawn_revision = None;
             }
@@ -11646,6 +11702,22 @@ fn encode(logical: &winit::keyboard::Key, held: crate::mouse::Held) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A window with no size must not be mistaken for a one-cell one.
+    ///
+    /// This is the top of the chain that cost a pane its scrollback: every
+    /// step below here floors at one cell, so a zero never reached the pane
+    /// as a zero -- it reached it as `cols: 1`, which truncates the pane's
+    /// lines instead of reflowing them. The engine refuses that grid as a
+    /// backstop; this is the refusal that keeps it from being asked for.
+    #[test]
+    fn a_window_with_no_size_is_not_a_window_one_cell_wide() {
+        assert!(!is_drawable_size(0, 0));
+        assert!(!is_drawable_size(0, 600));
+        assert!(!is_drawable_size(800, 0));
+        assert!(is_drawable_size(1, 1));
+        assert!(is_drawable_size(1280, 720));
+    }
 
     #[test]
     fn startup_content_trace_ignores_blank_cells_and_spacers() {

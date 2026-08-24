@@ -1097,6 +1097,20 @@ pub enum SplitDirection {
     Up,
 }
 
+/// The narrowest and shortest grid a pane may be told it has.
+///
+/// Narrowing a screen truncates every line and the whole scrollback to the
+/// new width; that is the right answer for a window someone dragged in, and
+/// the wrong one for a number nobody meant. Chrome that does not fit, a
+/// window reporting no size, an agent passing `cols: 1` -- each of those
+/// bottoms out at a single cell somewhere, and a single cell is not a narrow
+/// view of a pane's output, it is the loss of it.
+///
+/// So both ends hold the same floor: a front end sizes its grid to at least
+/// this, and the engine refuses anything below it. Two, because a terminal
+/// one cell wide can hold no line worth keeping.
+pub const MIN_SESSION_GRID: usize = 2;
+
 #[derive(Debug)]
 pub struct CreateSessionRequest {
     pub cols: usize,

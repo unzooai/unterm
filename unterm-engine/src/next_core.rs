@@ -3877,6 +3877,60 @@ mod tests {
         Ok(())
     }
 
+    /// A window that reported no size used to cost a pane everything it held.
+    ///
+    /// Every fallback between a window's size and a pane's grid floored at
+    /// one cell, so a window reporting 0x0 -- unmapped, minimised, caught
+    /// mid display change -- told the pane it was one column wide, which
+    /// truncated each line and the scrollback with them to a single
+    /// character. Nothing could undo it afterwards. The narrowing itself is
+    /// right; believing that width is not.
+    #[test]
+    fn resize_refuses_a_grid_too_narrow_to_hold_the_pane() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 40,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+
+        set_output_for_test(session.id, "== Novel Studio ==")?;
+
+        let err = engine
+            .resize_session(session.id, 1, 3)
+            .expect_err("a one-column grid is a number nobody meant");
+        assert!(
+            err.to_string().contains("refusing to resize"),
+            "unexpected error: {}",
+            err
+        );
+        let err = engine
+            .resize_session(session.id, 40, 1)
+            .expect_err("a one-row grid is the same mistake sideways");
+        assert!(
+            err.to_string().contains("refusing to resize"),
+            "unexpected error: {}",
+            err
+        );
+
+        // Refused, so the pane still has its line and the size it was drawn at.
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.cols, 40);
+        assert_eq!(screen.lines, vec!["== Novel Studio =="]);
+
+        // And a real narrowing still narrows.
+        engine.resize_session(session.id, 4, 3)?;
+        assert_eq!(engine.read_screen(session.id)?.lines, vec!["== N"]);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
     #[test]
     fn screen_buffer_strips_terminal_control_sequences() -> Result<()> {
         let _guard = test_guard();
