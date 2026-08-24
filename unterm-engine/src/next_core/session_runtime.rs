@@ -40,6 +40,16 @@ pub(super) fn resize_session(
     cols: usize,
     rows: usize,
 ) -> Result<()> {
+    // A limit on believing the caller, not a rendering limit: a pane keeping
+    // a size it is no longer drawn at wraps oddly until the next real resize,
+    // where a pane resized to one column has lost its output for good.
+    let floor = crate::MIN_SESSION_GRID;
+    if cols < floor || rows < floor {
+        anyhow::bail!(
+            "refusing to resize pane {} to {cols}x{rows}: a grid below {floor}x{floor} discards the pane's lines and scrollback rather than reflowing them",
+            session.snapshot.id
+        );
+    }
     session.master.lock().resize(pty_size(cols, rows))?;
     session.snapshot.cols = cols;
     session.snapshot.rows = rows;

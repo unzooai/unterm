@@ -576,8 +576,15 @@ impl TerminalFont {
         // slack is far below a pixel, so it cannot claim a cell that is not
         // there.
         const SLACK: f32 = 1e-3;
-        let cols = (width / self.metrics.width + SLACK).floor().max(1.0) as usize;
-        let rows = (height / self.metrics.height + SLACK).floor().max(1.0) as usize;
+        // Floored at the grid the engine will accept, not at one cell. This
+        // is the last place a shrinking window is still a number: below here
+        // it is a pane's size, and a pane told it is one column wide throws
+        // away every line it holds and its scrollback with them. A window too
+        // small to show two cells has chrome drawn over the grid; that is a
+        // frame someone can fix by dragging, where the truncation is not.
+        let floor = unterm_engine::MIN_SESSION_GRID as f32;
+        let cols = (width / self.metrics.width + SLACK).floor().max(floor) as usize;
+        let rows = (height / self.metrics.height + SLACK).floor().max(floor) as usize;
         (cols, rows)
     }
 }
@@ -1285,7 +1292,12 @@ mod tests {
         // Dividing by the cell size lands just under the whole number, and
         // flooring that costs a row -- an empty strip along the bottom and a
         // shell that thinks it is shorter than the window.
-        for rows in [1usize, 5, 24, 60] {
+        //
+        // From `MIN_SESSION_GRID` up: below it the answer is the floor rather
+        // than the arithmetic, which is what
+        // `a_window_too_small_for_a_grid_still_asks_for_the_smallest_one`
+        // covers.
+        for rows in [unterm_engine::MIN_SESSION_GRID, 5, 24, 60] {
             assert_eq!(
                 font.grid_for(metrics.width * 80.0, metrics.height * rows as f32)
                     .1,
@@ -1295,14 +1307,18 @@ mod tests {
     }
 
     #[test]
-    fn a_window_too_small_for_one_cell_still_asks_for_one() {
+    fn a_window_too_small_for_a_grid_still_asks_for_the_smallest_one() {
         let Some(font) = font() else {
             return;
         };
 
         // A zero-sized grid makes the PTY reject the resize and the shell draw
-        // nothing at all.
-        assert_eq!(font.grid_for(1.0, 1.0), (1, 1));
+        // nothing at all -- and a one-column one is worse than nothing, since
+        // resizing a pane to a single column truncates every line it holds and
+        // the whole scrollback behind it. The floor is what the engine accepts.
+        let floor = unterm_engine::MIN_SESSION_GRID;
+        assert_eq!(font.grid_for(1.0, 1.0), (floor, floor));
+        assert_eq!(font.grid_for(0.0, 0.0), (floor, floor));
     }
 
     #[test]
