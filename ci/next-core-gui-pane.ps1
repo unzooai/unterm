@@ -865,12 +865,14 @@ $Suites = @(
         Package = "unterm-services"
         Filter = "interrupt::tests::"
         # Most of these raise a console control event, which only Windows
-        # has; the rest are the pty story and hold everywhere.
-        ExpectedCount = $(if ($env:OS -eq "Windows_NT") { 11 } else { 3 })
+        # has. Two hold everywhere; the pty one is `cfg(not(windows))` --
+        # it was listed as common, so Windows CI failed this gate on a test
+        # that cannot exist there, and the Windows count was one too high
+        # for the same reason (2 common + 8 Windows = 10, never 11).
+        ExpectedCount = $(if ($env:OS -eq "Windows_NT") { 10 } else { 3 })
         RequiredTests = @(
             @(
                 "interrupt::tests::the_interrupt_byte_is_what_a_terminal_sends",
-                "interrupt::tests::a_pty_needs_nothing_beyond_the_byte",
                 "interrupt::tests::a_shell_at_its_prompt_is_never_stopped"
             ) + $(if ($env:OS -eq "Windows_NT") {
                 @(
@@ -883,7 +885,9 @@ $Suites = @(
                     "interrupt::tests::a_program_reading_keys_is_left_alone",
                     "interrupt::tests::a_running_command_actually_stops"
                 )
-            } else { @() })
+            } else {
+                @("interrupt::tests::a_pty_needs_nothing_beyond_the_byte")
+            })
         )
     },
     @{
