@@ -1,4 +1,4 @@
-param(
+﻿param(
     # The 0.60 feature-parity tranche added bounded per-pane scrollback,
     # semantic-prompt navigation, ordered tabs and interactive split resizing,
     # bringing the pre-parity 11,998-line core to 12,203. The follow-up
@@ -22,8 +22,16 @@ param(
     # restarts, startup-session draw, and Core-first discovery hardening.
     # Measured 13219 core / 2529 probe; recalibrated to measured plus the
     # usual headroom.
-    [int]$MaxCoreSourceLines = 13320,
-    [int]$MaxProbeSourceLines = 2600,
+    # 13320 -> 13560, probe 2600 -> 2800 (2026-08-26): the core gained
+    # wide-cell splitting -- overwriting either half of a CJK cell now
+    # releases the other, across writes, `ESC[K` and `ESC[nX`, with the
+    # regression tests that pin it -- and a cwd that is re-read rather than
+    # recorded once. The probe gained a shell dialect, because its workloads
+    # were cmd.exe-only and every throughput benchmark had been passing
+    # without running away from Windows. Measured 13445 core / 2700 probe;
+    # recalibrated to measured plus the usual headroom.
+    [int]$MaxCoreSourceLines = 13560,
+    [int]$MaxProbeSourceLines = 2800,
     [int]$MaxDirectDependencies = 10,
     # A debug binary carries its debug info, so this tracks the toolchain and
     # the C libraries far more than it tracks next-core. The real size control
@@ -39,7 +47,7 @@ $RepoRoot = Resolve-Path (Join-Path $EngineDir "..")
 $SourceRoot = Join-Path $EngineDir "src"
 $CoreRoot = Join-Path $SourceRoot "next_core"
 $MainCoreFile = Join-Path $SourceRoot "next_core.rs"
-$ProbeFile = Join-Path $SourceRoot "bin\unterm-next-core.rs"
+$ProbeFile = Join-Path $SourceRoot "bin" "unterm-next-core.rs"
 $IsWindowsPlatform = $env:OS -eq "Windows_NT"
 $DebugBinaryName = if ($IsWindowsPlatform) { "unterm-next-core.exe" } else { "unterm-next-core" }
 $TargetRoot = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
@@ -49,7 +57,7 @@ $TargetRoot = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
 } else {
     Join-Path $RepoRoot $env:CARGO_TARGET_DIR
 }
-$DebugBinary = Join-Path $TargetRoot "debug\$DebugBinaryName"
+$DebugBinary = Join-Path $TargetRoot "debug" $DebugBinaryName
 
 function Count-Lines {
     param([string[]]$Paths)
@@ -126,7 +134,10 @@ if (Test-Path $CoreRoot) {
 $coreSourceLines = Count-ProductionRustLines $coreFiles
 $probeSourceLines = Count-Lines @($ProbeFile)
 
-$treeLines = @(& cmd /c "cargo tree -p unterm-engine --depth 1 --prefix depth 2>&1" | ForEach-Object { $_.ToString() })
+# Invoke cargo directly rather than through `cmd /c`: the shim made this
+# whole gate Windows-only, so a change that broke the budget could not be
+# caught anywhere but CI.
+$treeLines = @(& cargo tree -p unterm-engine --depth 1 --prefix depth 2>&1 | ForEach-Object { $_.ToString() })
 if ($LASTEXITCODE -ne 0) {
     throw "cargo tree failed:`n$($treeLines -join "`n")"
 }
