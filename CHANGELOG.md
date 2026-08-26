@@ -1,5 +1,25 @@
 # Changelog
 
+## 未发布
+
+### Fixed
+
+- **A TUI that repaints one character at a time could scramble a line of
+  Chinese.** Claude Code and Codex redraw by jumping to an absolute column
+  and rewriting a single cell — `ESC[3G` then one glyph — which in a
+  CJK-heavy interface lands on half of a wide character constantly. Unterm
+  wrote the new character and left the other half standing, so the row kept
+  either a continuation cell that owned no character, or a two-column glyph
+  still painting over the character that had replaced it. Both read on
+  screen as characters in the wrong place, and only while an agent was
+  redrawing — which is why it looked intermittent.
+
+  Overwriting either half of a wide cell now releases the other, and the
+  same rule covers the two erase primitives these interfaces use alongside
+  it, `ESC[K` and `ESC[nX`. The half that survives keeps its own colours:
+  nothing was written to it. `ESC[@` and `ESC[P`, which shift cells rather
+  than overwrite them, can still separate a pair and are not covered here.
+
 ## v0.69.1 — 2026-08-24
 
 ### Fixed

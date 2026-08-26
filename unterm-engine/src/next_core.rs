@@ -576,6 +576,11 @@ impl NextCoreScreen {
                     line.truncate(self.cols);
                 }
             }
+            // Whatever this write lands on, it must not leave half of a wide
+            // character behind.
+            for offset in 0..width.max(1) {
+                Self::split_wide_cell(line, self.cursor_x + offset);
+            }
             if self.cursor_x == line.len() {
                 line.push(cell);
             } else if self.cursor_x < self.cols {
@@ -1203,6 +1208,10 @@ impl NextCoreScreen {
         if line.len() < end {
             line.resize(end, ScreenCell::blank(self.current_attr));
         }
+        // Either edge of the range can fall between the two halves of a wide
+        // character; the half left standing has to give up its second column.
+        Self::split_wide_cell(line, start);
+        Self::split_wide_cell(line, end.saturating_sub(1));
         let blank = ScreenCell::blank(self.current_attr);
         for cell in line.iter_mut().take(end).skip(start) {
             if !selective || !cell.attr.protected {
@@ -1350,6 +1359,10 @@ impl NextCoreScreen {
         if line.len() < end {
             line.resize(end, ScreenCell::blank(self.current_attr));
         }
+        // Same hazard as `ESC[K`: either edge can land between the halves of
+        // a wide character.
+        Self::split_wide_cell(line, self.cursor_x);
+        Self::split_wide_cell(line, end.saturating_sub(1));
         for cell in line.iter_mut().take(end).skip(self.cursor_x) {
             *cell = ScreenCell::blank(self.current_attr);
         }
@@ -1622,6 +1635,55 @@ impl NextCoreScreen {
         self.tab_stops = Self::default_tab_stops(self.cols);
         self.ensure_cursor_line();
         self.mark_all_dirty();
+    }
+
+    /// Erase the other half of a wide character when one half is overwritten.
+    ///
+    /// A TUI that repaints by jumping to a column and rewriting a single cell
+    /// -- which is exactly how Claude Code and Codex redraw, `ESC[3G` then one
+    /// glyph -- lands on half of a CJK character all the time. Leaving the
+    /// other half behind gives the row either a continuation cell that owns no
+    /// character, or a two-column glyph still painting over the character that
+    /// replaced it. On screen both read as characters in the wrong place.
+    ///
+    /// The surviving half keeps its own attributes: it was not written to, so
+    /// its colours are still the ones the application asked for.
+    fn split_wide_cell(line: &mut [ScreenCell], idx: usize) {
+        let Some(cell) = line.get(idx) else {
+            return;
+        };
+        if cell.width == 0 {
+            // A continuation. Its owner is the nearest earlier cell that is
+            // not itself a continuation.
+            let mut owner = idx;
+            while owner > 0 {
+                owner -= 1;
+                if line[owner].width != 0 {
+                    break;
+                }
+            }
+            if line[owner].width > 1 {
+                Self::blank_cell_in_place(&mut line[owner]);
+            }
+            return;
+        }
+        if cell.width > 1 {
+            for offset in 1..cell.width {
+                let Some(tail) = line.get_mut(idx + offset) else {
+                    break;
+                };
+                if tail.width != 0 {
+                    break;
+                }
+                Self::blank_cell_in_place(tail);
+            }
+        }
+    }
+
+    fn blank_cell_in_place(cell: &mut ScreenCell) {
+        cell.ch = ' ';
+        cell.combining.clear();
+        cell.width = 1;
     }
 
     fn truncate_lines_to_cols(lines: &mut [Vec<ScreenCell>], cols: usize) {
@@ -4494,6 +4556,139 @@ mod tests {
         assert_eq!(cells[1].width, 0);
         assert_eq!(cells[2].ch, 'A');
         assert_eq!(cells[2].width, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// A TUI patching one cell must not leave half a wide character behind.
+    ///
+    /// Claude Code and Codex redraw by jumping to an absolute column and
+    /// rewriting a single character (`ESC[3G` then the glyph). When the
+    /// column it lands on is the left half of a CJK character, the right half
+    /// has to go with it -- otherwise the row keeps a stale continuation cell
+    /// that owns no character.
+    #[test]
+    fn screen_buffer_clears_the_right_half_when_a_wide_cell_is_overwritten() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "\u{4f60}\u{597d}\x1b[1GA")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells[0].ch, 'A');
+        assert_eq!(cells[0].width, 1);
+        assert_eq!(
+            cells[1].width, 1,
+            "the right half of the overwritten wide cell is still a continuation"
+        );
+        assert_eq!(cells[1].ch, ' ');
+        assert_eq!(cells[2].ch, '\u{597d}');
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// `ESC[nX` erases in place rather than to the end of the line, and cuts
+    /// between the halves of a wide character exactly the same way.
+    #[test]
+    fn screen_buffer_clears_the_left_half_when_chars_are_erased_mid_wide_cell() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        // Erase one cell starting at column 2 -- the right half of the first
+        // wide character.
+        set_output_for_test(session.id, "\u{4f60}\u{597d}\x1b[2G\x1b[1X")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(
+            cells[0].width, 1,
+            "the surviving left half still claims two columns"
+        );
+        assert_eq!(cells[0].ch, ' ');
+        assert_eq!(cells[1].ch, ' ');
+        assert_eq!(cells[2].ch, '\u{597d}');
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// `ESC[K` is the other half of how these TUIs repaint, and it can cut
+    /// between the halves of a wide character just as a write can.
+    #[test]
+    fn screen_buffer_clears_the_left_half_when_a_line_is_erased_mid_wide_cell() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        // Erase from column 2 -- the right half of the first wide character.
+        set_output_for_test(session.id, "\u{4f60}\u{597d}\x1b[2G\x1b[K")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(
+            cells[0].width, 1,
+            "the surviving left half still claims two columns"
+        );
+        assert_eq!(cells[0].ch, ' ');
+        assert_eq!(cells[1].ch, ' ');
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// The mirror case: landing on the right half has to erase the left one,
+    /// or the wide glyph keeps painting over the character that replaced it.
+    #[test]
+    fn screen_buffer_clears_the_left_half_when_a_wide_cell_is_overwritten() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "\u{4f60}\u{597d}\x1b[2GA")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(
+            cells[0].width, 1,
+            "the left half of the overwritten wide cell is still two columns wide"
+        );
+        assert_eq!(cells[0].ch, ' ');
+        assert_eq!(cells[1].ch, 'A');
+        assert_eq!(cells[1].width, 1);
+        assert_eq!(cells[2].ch, '\u{597d}');
 
         engine.destroy_session(session.id)?;
         Ok(())

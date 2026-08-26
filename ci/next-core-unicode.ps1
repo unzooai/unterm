@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$ListOnly
 )
 
@@ -8,7 +8,7 @@ $CiDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $CiDir "..")
 
 $TestFilter = "screen_buffer_"
-$ExpectedCount = 98
+$ExpectedCount = 102
 $RequiredTests = @(
     "next_core::tests::screen_buffer_tracks_wide_character_cells",
     "next_core::tests::screen_buffer_preserves_combining_marks_on_base_cells",
@@ -18,7 +18,11 @@ $RequiredTests = @(
     "next_core::tests::screen_buffer_keeps_emoji_modifier_in_base_wide_cell",
     "next_core::tests::screen_buffer_keeps_regional_indicator_flag_in_one_wide_cell",
     "next_core::tests::screen_buffer_wraps_wide_cells_before_right_edge",
-    "next_core::tests::screen_buffer_repeats_wide_character_with_rep"
+    "next_core::tests::screen_buffer_repeats_wide_character_with_rep",
+    "next_core::tests::screen_buffer_clears_the_right_half_when_a_wide_cell_is_overwritten",
+    "next_core::tests::screen_buffer_clears_the_left_half_when_a_wide_cell_is_overwritten",
+    "next_core::tests::screen_buffer_clears_the_left_half_when_a_line_is_erased_mid_wide_cell",
+    "next_core::tests::screen_buffer_clears_the_left_half_when_chars_are_erased_mid_wide_cell"
 )
 
 Push-Location $RepoRoot
