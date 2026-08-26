@@ -5,7 +5,7 @@ use super::cell::{CellAttributes, ScreenCell};
 #[derive(Default)]
 pub(super) struct ScreenState {
     pub(super) cols: usize,
-    pub(super) scrollback: Vec<Vec<ScreenCell>>,
+    pub(super) scrollback: std::collections::VecDeque<Vec<ScreenCell>>,
     pub(super) lines: Vec<Vec<ScreenCell>>,
     pub(super) viewport_top: Option<usize>,
     pub(super) cursor_x: usize,

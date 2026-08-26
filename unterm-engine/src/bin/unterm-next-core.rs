@@ -386,6 +386,157 @@ fn shell_quote_cmd_arg(text: &str) -> String {
     text.replace('"', "\"\"")
 }
 
+/// Which dialect the benchmark's *workload* commands are written in.
+///
+/// The workloads were cmd.exe-only, which quietly turned every flood-derived
+/// benchmark into a no-op away from Windows: the POSIX shell rejected
+/// `for /L`, the completion marker landed in the same millisecond, and the
+/// report printed a pass for work that had never run. A dialect keeps the
+/// Windows text byte-for-byte identical -- so the recorded numbers stay
+/// comparable -- while giving every other platform a workload that measures
+/// the terminal instead of the shell's error message.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BenchShell {
+    Cmd,
+    Posix,
+}
+
+static BENCH_SHELL: std::sync::OnceLock<BenchShell> = std::sync::OnceLock::new();
+
+fn bench_shell() -> BenchShell {
+    *BENCH_SHELL.get().unwrap_or(&BenchShell::HOST_DEFAULT)
+}
+
+impl BenchShell {
+    #[cfg(windows)]
+    const HOST_DEFAULT: Self = Self::Cmd;
+    #[cfg(not(windows))]
+    const HOST_DEFAULT: Self = Self::Posix;
+
+    /// Read the dialect off the session command, because that is the shell
+    /// the workload will actually be typed into.
+    ///
+    /// Anything that is not cmd.exe is treated as POSIX -- including
+    /// PowerShell, which speaks neither dialect. That is deliberate: a
+    /// PowerShell run now fails loudly on the first workload rather than
+    /// reporting the silent pass it used to.
+    fn for_command(command: Option<&Vec<String>>) -> Self {
+        let Some(program) = command.and_then(|argv| argv.first()) else {
+            return Self::HOST_DEFAULT;
+        };
+        let stem = std::path::Path::new(program.as_str())
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or(program.as_str())
+            .to_ascii_lowercase();
+        if stem == "cmd" {
+            Self::Cmd
+        } else {
+            Self::Posix
+        }
+    }
+
+    fn program(self) -> &'static str {
+        match self {
+            Self::Cmd => "cmd.exe",
+            Self::Posix => "/bin/sh",
+        }
+    }
+
+    /// `count` lines of `PREFIX_1{suffix}`..`PREFIX_count{suffix}`, as fast as
+    /// the shell can emit them -- the generator must not be what the benchmark
+    /// measures. The suffix is how the render benchmarks get real text on the
+    /// line to shape into glyph runs.
+    fn counted_echo(self, count: usize, prefix: &str, suffix: &str) -> String {
+        match self {
+            Self::Cmd => {
+                format!("for /L %i in (1,1,{count}) do @echo {prefix}_%i{suffix}\r")
+            }
+            // awk rather than a `while` loop: at 100k iterations sh's own
+            // fork-free loop still costs more per line than the terminal does.
+            Self::Posix => format!(
+                "awk 'BEGIN{{for(i=1;i<={count};i++)print \"{prefix}_\" i \"{suffix}\"}}'\r"
+            ),
+        }
+    }
+
+    /// Print `marker` without the command line that prints it containing the
+    /// marker.
+    ///
+    /// cmd.exe does not echo a command it has not read yet, so a busy cmd.exe
+    /// hides the marker until the flood is done. A POSIX tty echoes as you
+    /// type, through the line discipline, no matter what the shell is doing --
+    /// so a literal `echo MARKER` would satisfy the wait immediately and
+    /// report a flood that took no time at all. Splitting the literal keeps
+    /// the marker off the echoed line.
+    fn echo_marker(self, marker: &str) -> String {
+        match self {
+            Self::Cmd => format!("echo {}\r", shell_quote_cmd_arg(marker)),
+            Self::Posix => {
+                let (head, tail) = split_marker(marker);
+                format!("printf '%s%s\\n' '{head}' '{tail}'\r")
+            }
+        }
+    }
+
+    /// Consume a pasted payload, then announce it -- the paste benchmarks time
+    /// the round trip from paste to the shell having taken the whole thing.
+    ///
+    /// A POSIX tty in canonical mode will not deliver a line longer than
+    /// `MAX_CANON` (1 KiB on macOS), so a 10 KiB paste can never reach a
+    /// `read` and the benchmark waits for a marker that will never come.
+    /// Leaving canonical mode for the duration and counting bytes measures the
+    /// same round trip without that ceiling. The marker is split so the
+    /// command's own echo cannot satisfy the wait.
+    fn consume_payload_then_echo_marker(
+        self,
+        variable: &str,
+        bytes: usize,
+        marker: &str,
+    ) -> String {
+        match self {
+            Self::Cmd => format!(
+                "set /p {variable}=&echo {}\r",
+                shell_quote_cmd_arg(marker)
+            ),
+            Self::Posix => {
+                let (head, tail) = split_marker(marker);
+                format!(
+                    "stty -icanon min 1 time 0; head -c {bytes} >/dev/null; \
+                     stty icanon; printf '%s%s\\n' '{head}' '{tail}'\r"
+                )
+            }
+        }
+    }
+
+    /// A process that prints `marker` and exits, for the session-ready timings.
+    fn one_shot_echo(self, marker: &str) -> CommandBuilder {
+        let mut command = CommandBuilder::new(self.program());
+        match self {
+            Self::Cmd => {
+                command.arg("/C");
+                command.arg(format!("echo {marker}"));
+            }
+            Self::Posix => {
+                command.arg("-c");
+                command.arg(format!("echo {marker}"));
+            }
+        }
+        command
+    }
+}
+
+/// Split on a char boundary near the middle so neither half is the whole
+/// marker. Markers here are ASCII, but the boundary walk costs nothing and
+/// keeps this honest if one ever isn't.
+fn split_marker(marker: &str) -> (&str, &str) {
+    let mut mid = marker.len() / 2;
+    while mid > 0 && !marker.is_char_boundary(mid) {
+        mid -= 1;
+    }
+    marker.split_at(mid)
+}
+
 fn percentile(sorted: &[u128], percentile: f64) -> u128 {
     if sorted.is_empty() {
         return 0;
@@ -408,13 +559,11 @@ fn start_flood_stream(
 ) -> Result<FloodRun> {
     let marker = format!("UNTERM_NEXT_CORE_FLOOD_DONE_{lines}_{pane_id}");
     let before_raw_len = engine.debug_output(pane_id)?.len();
-    let command = format!("for /L %i in (1,1,{lines}) do @echo UNTERM_NEXT_CORE_FLOOD_%i\r");
+    let shell = bench_shell();
+    let command = shell.counted_echo(lines, "UNTERM_NEXT_CORE_FLOOD", "");
     let started_at = Instant::now();
     engine.write_input(pane_id, command.as_str())?;
-    engine.write_input(
-        pane_id,
-        format!("echo {}\r", shell_quote_cmd_arg(marker.as_str())).as_str(),
-    )?;
+    engine.write_input(pane_id, shell.echo_marker(marker.as_str()).as_str())?;
     Ok(FloodRun {
         marker,
         before_raw_len,
@@ -827,9 +976,11 @@ fn run_render_frame_benchmark(
     };
     engine.write_input(
         pane_id,
-        "for /L %i in (1,1,30) do @echo RENDER_FRAME_BENCH_%i\r",
+        bench_shell()
+            .counted_echo(30, "RENDER_FRAME_BENCH", "")
+            .as_str(),
     )?;
-    engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
+    engine.write_input(pane_id, bench_shell().echo_marker(ready_marker).as_str())?;
     wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
 
     let full_before = Instant::now();
@@ -937,9 +1088,11 @@ fn run_render_plan_benchmark(
     };
     engine.write_input(
         pane_id,
-        "for /L %i in (1,1,30) do @echo RENDER_PLAN_BENCH_%i abcdefghijklmnopqrstuvwxyz\r",
+        bench_shell()
+            .counted_echo(30, "RENDER_PLAN_BENCH", " abcdefghijklmnopqrstuvwxyz")
+            .as_str(),
     )?;
-    engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
+    engine.write_input(pane_id, bench_shell().echo_marker(ready_marker).as_str())?;
     wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
 
     let api_plan = engine.read_render_draw_plan(pane_id, None)?;
@@ -1005,9 +1158,11 @@ fn run_render_geometry_plan_benchmark(
     };
     engine.write_input(
         pane_id,
-        "for /L %i in (1,1,30) do @echo RENDER_GEOMETRY_PLAN_BENCH_%i abcdefghijklmnopqrstuvwxyz\r",
+        bench_shell()
+            .counted_echo(30, "RENDER_GEOMETRY_PLAN_BENCH", " abcdefghijklmnopqrstuvwxyz")
+            .as_str(),
     )?;
-    engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
+    engine.write_input(pane_id, bench_shell().echo_marker(ready_marker).as_str())?;
     wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
 
     let frame = engine.read_render_frame(pane_id, None)?;
@@ -1084,9 +1239,11 @@ fn run_render_submission_plan_benchmark(
     };
     engine.write_input(
         pane_id,
-        "for /L %i in (1,1,30) do @echo RENDER_SUBMISSION_PLAN_BENCH_%i abcdefghijklmnopqrstuvwxyz\r",
+        bench_shell()
+            .counted_echo(30, "RENDER_SUBMISSION_PLAN_BENCH", " abcdefghijklmnopqrstuvwxyz")
+            .as_str(),
     )?;
-    engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
+    engine.write_input(pane_id, bench_shell().echo_marker(ready_marker).as_str())?;
     wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
 
     let geometry = engine
@@ -1162,9 +1319,11 @@ fn run_render_commit_plan_benchmark(
     };
     engine.write_input(
         pane_id,
-        "for /L %i in (1,1,30) do @echo RENDER_COMMIT_PLAN_BENCH_%i abcdefghijklmnopqrstuvwxyz\r",
+        bench_shell()
+            .counted_echo(30, "RENDER_COMMIT_PLAN_BENCH", " abcdefghijklmnopqrstuvwxyz")
+            .as_str(),
     )?;
-    engine.write_input(pane_id, format!("echo {ready_marker}\r").as_str())?;
+    engine.write_input(pane_id, bench_shell().echo_marker(ready_marker).as_str())?;
     wait_for_marker(engine, pane_id, &ready_run, poll_interval, timeout)?;
     let _ = wait_for_stable_screen_revision(engine, pane_id, poll_interval, timeout)?;
 
@@ -1236,6 +1395,11 @@ fn run_render_cursor_move_benchmark(
         bail!("--bench-render-cursor-moves must be greater than 0");
     }
 
+    // Type only once the shell has stopped producing output. cmd.exe has its
+    // prompt up before the first write lands, so this never mattered on
+    // Windows; a POSIX shell is still starting, and keys sent into that gap
+    // are echoed as literal `^[[D` instead of moving the cursor.
+    wait_for_stable_screen_revision(engine, pane_id, poll_interval, timeout)?;
     let marker = "UNTERM_CURSOR_MOVE_BENCHMARK";
     engine.write_input(pane_id, marker)?;
     let started = Instant::now();
@@ -1393,9 +1557,14 @@ fn run_paste_benchmark(
         .ok_or_else(|| anyhow::anyhow!("--bench-paste-kb is too large"))?;
     let marker = format!("UNTERM_NEXT_CORE_PASTE_DONE_{bytes}");
     let payload = make_paste_payload(bytes);
-    let command = format!(
-        "set /p UNTERM_NEXT_CORE_PASTE_INPUT=&echo {}\r",
-        shell_quote_cmd_arg(marker.as_str())
+    // The reader has to be running before the paste arrives: on POSIX it is
+    // the reader that takes the tty out of canonical mode, and a paste that
+    // beats it there is truncated at MAX_CANON and never completes.
+    wait_for_stable_screen_revision(engine, pane_id, poll_interval, timeout)?;
+    let command = bench_shell().consume_payload_then_echo_marker(
+        "UNTERM_NEXT_CORE_PASTE_INPUT",
+        bytes,
+        marker.as_str(),
     );
     engine.write_input(pane_id, command.as_str())?;
     std::thread::sleep(poll_interval);
@@ -1445,13 +1614,16 @@ fn run_paste_under_flood_benchmark(
 
     let result = (|| -> Result<(u128, u128, u8)> {
         let marker = format!("UNTERM_NEXT_CORE_PASTE_FLOOD_DONE_{bytes}");
+        wait_for_stable_screen_revision(engine, pane_id, poll_interval, timeout)?;
         engine.write_input(
             pane_id,
-            format!(
-                "set /p UNTERM_NEXT_CORE_PASTE_FLOOD_INPUT=&echo {}\r",
-                shell_quote_cmd_arg(marker.as_str())
-            )
-            .as_str(),
+            bench_shell()
+                .consume_payload_then_echo_marker(
+                    "UNTERM_NEXT_CORE_PASTE_FLOOD_INPUT",
+                    bytes,
+                    marker.as_str(),
+                )
+                .as_str(),
         )?;
         std::thread::sleep(poll_interval);
         let before_raw_len = engine.debug_output(pane_id)?.len();
@@ -1690,7 +1862,7 @@ fn cmd_session(cols: usize, rows: usize) -> CreateSessionRequest {
         cols,
         rows,
         command_dir: None,
-        command: Some(CommandBuilder::new("cmd.exe")),
+        command: Some(CommandBuilder::new(bench_shell().program())),
         env: Vec::new(),
         launch_policy: Default::default(),
     }
@@ -1934,9 +2106,7 @@ fn run_session_create_benchmark(
 }
 
 fn ready_session(marker: &str, cols: usize, rows: usize) -> CreateSessionRequest {
-    let mut command = CommandBuilder::new("cmd.exe");
-    command.arg("/C");
-    command.arg(format!("echo {marker}"));
+    let command = bench_shell().one_shot_echo(marker);
     CreateSessionRequest {
         cols,
         rows,
@@ -2049,6 +2219,7 @@ fn explicit_launch_policy(env: &[(String, String)]) -> LaunchPolicySnapshot {
 
 fn main() -> Result<()> {
     let args = parse_args()?;
+    let _ = BENCH_SHELL.set(BenchShell::for_command(args.command.as_ref()));
     let engine = next_core();
     let launch_policy = explicit_launch_policy(&args.env);
     let session_started = Instant::now();

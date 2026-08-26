@@ -1516,11 +1516,16 @@ impl NextCoreScreen {
         self.mark_dirty_range(top, bottom);
         for _ in 0..count.max(1) {
             let removed = self.lines.remove(top);
+            let mut blank = Vec::new();
             if top == 0 && bottom + 1 >= self.rows && self.alternate.is_none() {
-                let trimmed = self.history.push_scrollback(removed, self.scrollback_limit);
-                self.trim_prompt_rows(trimmed);
+                let push = self.history.push_scrollback(removed, self.scrollback_limit);
+                self.trim_prompt_rows(push.trimmed);
+                if let Some(mut recycled) = push.recycled {
+                    recycled.clear();
+                    blank = recycled;
+                }
             }
-            self.lines.insert(bottom, Vec::new());
+            self.lines.insert(bottom, blank);
         }
         self.cursor_y = self.cursor_y.min(self.rows.saturating_sub(1));
     }
@@ -1686,7 +1691,12 @@ impl NextCoreScreen {
         cell.width = 1;
     }
 
-    fn truncate_lines_to_cols(lines: &mut [Vec<ScreenCell>], cols: usize) {
+    /// Takes anything that hands out its rows by mutable reference, so the
+    /// live lines (a `Vec`) and the scrollback (a `VecDeque`) share one body.
+    fn truncate_lines_to_cols<'a>(
+        lines: impl IntoIterator<Item = &'a mut Vec<ScreenCell>>,
+        cols: usize,
+    ) {
         for line in lines {
             if line.len() > cols {
                 line.truncate(cols);

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$OutputPath = "",
     [string]$SummaryJsonPath = "",
     [int]$InputWrites = 1000,
@@ -73,10 +73,10 @@ $ErrorActionPreference = "Stop"
 $EngineDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $EngineDir "..")
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
-    $OutputPath = Join-Path $RepoRoot "docs\next-core-benchmark-report.md"
+    $OutputPath = Join-Path $RepoRoot "docs" "next-core-benchmark-report.md"
 }
 if ([string]::IsNullOrWhiteSpace($SummaryJsonPath)) {
-    $SummaryJsonPath = Join-Path $RepoRoot "docs\next-core-benchmark-summary.json"
+    $SummaryJsonPath = Join-Path $RepoRoot "docs" "next-core-benchmark-summary.json"
 }
 
 function Invoke-Benchmark {
@@ -408,14 +408,21 @@ try {
         }
     }
 
-    $script:ExePath = Join-Path $RepoRoot "target\debug\unterm-next-core.exe"
+    # The probe and the shell it drives both differ by platform. Everything
+    # else in this file -- every workload, every threshold -- is shared, which
+    # is the point: one benchmark definition, three platforms, no second
+    # implementation to drift.
+    $exeName = if ($IsWindows) { "unterm-next-core.exe" } else { "unterm-next-core" }
+    $script:BinaryRelativePath = Join-Path "target" "debug" $exeName
+    $script:BenchShell = if ($IsWindows) { "cmd.exe" } else { "/bin/sh" }
+    $script:ExePath = Join-Path $RepoRoot $script:BinaryRelativePath
     if (-not (Test-Path $script:ExePath)) {
         throw "missing next-core probe: $script:ExePath"
     }
 
     $jsonSmoke = Invoke-JsonSmoke
 
-    $commonTail = @("--timeout-ms", "$TimeoutMs", "--wait-ms", "0", "--write", "exit`r", "--", "cmd.exe")
+    $commonTail = @("--timeout-ms", "$TimeoutMs", "--wait-ms", "0", "--write", "exit`r", "--", $script:BenchShell)
     $results = @()
     $results += Invoke-Benchmark -Name "input write latency" -BenchArgs ([string[]](@("--bench-input-writes", "$InputWrites") + $commonTail))
     $results += Invoke-Benchmark -Name "key-to-screen latency" -BenchArgs ([string[]](@("--bench-key-to-screen", "$KeyToScreenRounds") + $commonTail))
@@ -518,7 +525,8 @@ try {
     $report.Add("- Commit: ``$commit``")
     $report.Add("- Machine: ``$machine``")
     $report.Add("- OS: ``$os``")
-    $report.Add("- Binary: ``target\debug\unterm-next-core.exe``")
+    $report.Add("- Binary: ``$($script:BinaryRelativePath)``")
+    $report.Add("- Shell: ``$($script:BenchShell)``")
     $report.Add("- JSON smoke: ``$($jsonSmoke.Engine) $($jsonSmoke.Screen) raw_bytes=$($jsonSmoke.RawBytes) foreground=$($jsonSmoke.ForegroundProcess) cwd=$($jsonSmoke.Cwd) profile=$($jsonSmoke.Profile) proxy_keys=$($jsonSmoke.ProxyEnvKeys -join ',') screen_reads=$($jsonSmoke.ScreenReads) render_frame_revision=$($jsonSmoke.RenderFrameRevision) render_frame_lines=$($jsonSmoke.RenderFrameLines) render_frame_cols=$($jsonSmoke.RenderFrameCols) render_frame_grid_cells=$($jsonSmoke.RenderFrameGridCells) render_delta_lines=$($jsonSmoke.RenderDeltaLines) render_draw_plan_revision=$($jsonSmoke.RenderDrawPlanRevision) render_draw_plan_glyph_runs=$($jsonSmoke.RenderDrawPlanGlyphRuns) render_draw_plan_cell_runs=$($jsonSmoke.RenderDrawPlanCellRuns) render_draw_plan_cursor=$($jsonSmoke.RenderDrawPlanCursor) render_draw_delta_glyph_runs=$($jsonSmoke.RenderDrawDeltaGlyphRuns) render_draw_delta_cell_runs=$($jsonSmoke.RenderDrawDeltaCellRuns) render_draw_delta_cursor=$($jsonSmoke.RenderDrawDeltaCursor) render_geometry_viewport=$($jsonSmoke.RenderGeometryViewportWidth)x$($jsonSmoke.RenderGeometryViewportHeight) render_geometry_glyph_runs=$($jsonSmoke.RenderGeometryGlyphRuns) render_geometry_cell_runs=$($jsonSmoke.RenderGeometryCellRuns) render_geometry_cursor=$($jsonSmoke.RenderGeometryCursor) render_submission_damage_rects=$($jsonSmoke.RenderSubmissionDamageRects) render_submission_text_runs=$($jsonSmoke.RenderSubmissionTextRuns) render_submission_background_quads=$($jsonSmoke.RenderSubmissionBackgroundQuads) render_submission_cursor=$($jsonSmoke.RenderSubmissionCursor) render_commit_submit=$($jsonSmoke.RenderCommitSubmit) render_commit_full_repaint=$($jsonSmoke.RenderCommitFullRepaint) render_commit_damage_rects=$($jsonSmoke.RenderCommitDamageRects) runtime_pump_dispatches=$($jsonSmoke.RuntimePumpDispatched) runtime_pump_lanes=lifecycle:$($jsonSmoke.RuntimePumpLifecycle),input:$($jsonSmoke.RuntimePumpInput),render:$($jsonSmoke.RuntimePumpRender),screen:$($jsonSmoke.RuntimePumpScreen),background:$($jsonSmoke.RuntimePumpBackground) runtime_pump_waited=$($jsonSmoke.RuntimePumpWaitedForResponse) runtime_pump_completed_without_wait=$($jsonSmoke.RuntimePumpCompletedWithoutWait) runtime_pump_max_dispatch_us=$($jsonSmoke.RuntimePumpMaxDispatchUs) runtime_pump_max_drain_us=$($jsonSmoke.RuntimePumpMaxDrainUs) lifecycle_created=$($jsonSmoke.LifecycleCreated) dead_reason=$($jsonSmoke.DeadReason)``")
     $report.Add("")
     $report.Add("## Gates")
@@ -581,7 +589,8 @@ try {
         commit = $commit
         machine = $machine
         os = $os
-        binary = "target\debug\unterm-next-core.exe"
+        binary = $script:BinaryRelativePath
+        shell = $script:BenchShell
         json_smoke = $jsonSmoke
         gates = @($gates | ForEach-Object {
             [pscustomobject]@{

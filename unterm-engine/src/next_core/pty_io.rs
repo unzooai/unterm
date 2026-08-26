@@ -51,7 +51,9 @@ impl StartupOutputFilter {
                 return None;
             }
             self.done = true;
-            return non_empty(strip_powershell_startup_noise(&std::mem::take(&mut self.buffer)));
+            return non_empty(
+                strip_powershell_startup_noise(&std::mem::take(&mut self.buffer)).into_owned(),
+            );
         }
         if startup_buffer_is_blank(&self.buffer) {
             return None;
@@ -180,25 +182,56 @@ fn warning_prefix_is_at_end(text: &str, warning: &str) -> bool {
         .any(|(idx, _)| text.ends_with(&warning[..idx]))
 }
 
+/// Append to a buffer that keeps roughly the last `max_bytes` of output.
+///
+/// "Roughly" is the point. Trimming a `String` from the front memmoves
+/// everything that stays, so trimming on every chunk made this 1 MiB buffer
+/// the most expensive thing in the entire output path -- on a 400k-line
+/// flood, 71% of the PTY reader thread's samples were that one memmove.
+/// Letting the buffer overshoot by a quarter and then cutting back to
+/// `max_bytes` turns one memmove per chunk into one per quarter-buffer, for a
+/// bounded amount of extra memory per session.
 pub(super) fn append_bounded_output(output: &mut String, chunk: &str, max_bytes: usize) {
     output.push_str(chunk);
-    trim_to_utf8_boundary(output, max_bytes);
+    if output.len() > trim_threshold(max_bytes) {
+        trim_to_utf8_boundary(output, max_bytes);
+    }
 }
 
-pub(super) fn strip_powershell_startup_noise(text: &str) -> String {
-    remove_powershell_startup_warning(text).unwrap_or_else(|| text.to_string())
+/// The size the buffer has to reach before a trim is worth its memmove.
+fn trim_threshold(max_bytes: usize) -> usize {
+    max_bytes.saturating_add((max_bytes / 4).max(1))
+}
+
+/// Strip PowerShell's screen-reader warning if this chunk carries it.
+///
+/// Every output chunk of every session, on every platform, passes through
+/// here for the whole life of the session -- so the common answer, "there is
+/// nothing to strip", has to be cheap. Borrowing instead of copying saves an
+/// allocation and a copy of the chunk, and the `PSReadLine` guard rules the
+/// chunk out in one scan instead of three: every pattern below contains it.
+pub(super) fn strip_powershell_startup_noise(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains("PSReadLine") {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    match remove_powershell_startup_warning(text) {
+        Some(filtered) => std::borrow::Cow::Owned(filtered),
+        None => std::borrow::Cow::Borrowed(text),
+    }
 }
 
 pub(super) fn trim_to_utf8_boundary(text: &mut String, max_bytes: usize) {
     if text.len() <= max_bytes {
         return;
     }
-    let keep_from = text.len() - max_bytes;
-    let keep_from = text
-        .char_indices()
-        .map(|(idx, _)| idx)
-        .find(|idx| *idx >= keep_from)
-        .unwrap_or(0);
+    // Walk forward from the cut to the next char boundary -- three bytes at
+    // most. The scan this replaces started at the front and decoded every
+    // char up to the cut, which on a megabyte buffer means reading the whole
+    // buffer to find something that is never more than three bytes away.
+    let mut keep_from = text.len() - max_bytes;
+    while !text.is_char_boundary(keep_from) {
+        keep_from += 1;
+    }
     text.drain(..keep_from);
 }
 
@@ -245,12 +278,38 @@ mod tests {
     }
 
     #[test]
-    fn bounded_output_preserves_recent_text() {
-        let mut output = String::from("abcdef");
+    fn bounded_output_keeps_the_newest_text_once_it_trims() {
+        let mut output = String::from("abcdefg");
 
-        append_bounded_output(&mut output, "gh", 4);
+        // Seven bytes is past four plus its quarter of slack, so this append
+        // is the one that trims.
+        append_bounded_output(&mut output, "h", 4);
 
         assert_eq!(output, "efgh");
+    }
+
+    #[test]
+    fn bounded_output_tolerates_slack_before_trimming() {
+        let mut output = String::from("abcd");
+
+        append_bounded_output(&mut output, "e", 4);
+
+        assert_eq!(output, "abcde");
+    }
+
+    #[test]
+    fn bounded_output_stays_bounded_across_many_appends() {
+        let mut output = String::new();
+        for _ in 0..1000 {
+            append_bounded_output(&mut output, "0123456789", 64);
+        }
+
+        assert!(
+            output.len() <= 64 + 64 / 4 + "0123456789".len(),
+            "buffer grew to {} bytes",
+            output.len()
+        );
+        assert!(output.ends_with("0123456789"));
     }
 
     #[test]

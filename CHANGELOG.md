@@ -20,6 +20,35 @@
   nothing was written to it. `ESC[@` and `ESC[P`, which shift cells rather
   than overwrite them, can still separate a pair and are not covered here.
 
+- **Every throughput benchmark had been passing without running.** The
+  benchmark workloads were written in cmd.exe syntax (`for /L %i in …`), so
+  away from Windows the shell rejected the command, the completion marker
+  landed in the same millisecond, and the report recorded a pass for work
+  that had never happened; three further benchmarks failed outright. macOS
+  and Linux therefore had no throughput measurement at all. The workloads
+  now come in both dialects — the Windows text byte-for-byte unchanged, so
+  its recorded numbers stay comparable — and `bench-next-core.ps1` runs on
+  all three platforms from the one definition.
+
+### Changed
+
+- **A terminal used to get slower the longer it ran.** The scrollback was a
+  list that dropped its oldest line by shifting every remaining line up one
+  place. At the default 10,000-line limit that is roughly a quarter of a
+  megabyte of memory moved for every single line of output — paid forever
+  once the buffer fills, which for a build log takes seconds. It accounted
+  for 83% of the time the PTY reader thread spent doing anything.
+
+  The scrollback is now a deque, where both ends are free. The row evicted
+  from the top is handed straight back as the new blank row at the bottom,
+  so a scrolling terminal in steady state stops allocating rows altogether.
+  And the raw-output buffer no longer copies itself on every chunk to stay
+  under its limit: at the chunk sizes an interactive session produces that
+  alone went from 36 µs to 0.04 µs per chunk.
+
+  Half a million lines of output went from 5.5 seconds to 1.0 — 89,000
+  lines per second to 497,000, measured on macOS.
+
 ## v0.69.1 — 2026-08-24
 
 ### Fixed
