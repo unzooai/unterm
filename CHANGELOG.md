@@ -32,6 +32,23 @@
 
 ### Changed
 
+- **The default theme's text now stands apart from an agent's grey.** Claude
+  Code and Codex mark their hints, token counts and status lines with
+  `#999999`. Against Agent Inbox's old `#d6d3cc` foreground that is a
+  contrast ratio of 1.91 — under the 3:1 floor where a difference reads at a
+  glance, which is why the two were easy to confuse even after colour
+  started working in v0.69. It was also the dimmest foreground of any theme
+  shipped here, its siblings sitting between 2.28 and 2.46. The same warm
+  white now sits at `#f2efe7`, a ratio of 2.48, without going to a clinical
+  pure white.
+
+  Unterm reproduces `#999999` accurately — that was measured off the
+  rendered pixels, not assumed — so this widens the gap from our side rather
+  than rewriting anybody's colours. Worth knowing for anyone tuning
+  `colors.foreground` themselves: the macOS coverage curve that gives text
+  its native weight also lays down about 19% more ink than the raw glyph
+  outline, which makes dim text read bolder than it does elsewhere.
+
 - **A terminal used to get slower the longer it ran.** The scrollback was a
   list that dropped its oldest line by shifting every remaining line up one
   place. At the default 10,000-line limit that is roughly a quarter of a

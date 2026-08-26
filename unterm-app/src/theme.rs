@@ -40,7 +40,15 @@ pub const THEMES: &[Theme] = &[
         id: "agent-inbox",
         name: "Agent Inbox",
         background: srgb(0x16, 0x18, 0x1d),
-        foreground: srgb(0xd6, 0xd3, 0xcc),
+        // Bright enough to stand apart from an agent's secondary grey.
+        //
+        // Claude Code and Codex mark their hints, token counts and status
+        // lines with `#999999`. Against the old `#d6d3cc` that is a contrast
+        // ratio of 1.91 -- below the 3:1 floor where a difference reads at a
+        // glance, and the dimmest foreground of any theme here while its
+        // siblings sat between 2.28 and 2.46. This lifts the same warm white
+        // to 2.48 without going to a clinical pure white.
+        foreground: srgb(0xf2, 0xef, 0xe7),
         cursor: srgb(0xe8, 0xb3, 0x4b),
         selection: srgb(0x2c, 0x31, 0x3a),
         selection_text: srgb(0xf0, 0xed, 0xe6),
