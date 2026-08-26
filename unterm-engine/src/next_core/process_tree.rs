@@ -13,6 +13,43 @@ pub(super) struct ProcessNodeSummary {
     pub(super) detected_agent: Option<String>,
 }
 
+/// Where a pane is now, best source first.
+///
+/// A shell that reports OSC 7 is authoritative and costs nothing, but in
+/// Unterm that escape never arrives: macOS only installs zsh's
+/// `update_terminal_cwd` hook by sourcing `/etc/zshrc_$TERM_PROGRAM`, and a
+/// GUI launched from Finder inherits no `TERM_PROGRAM` at all -- the same
+/// empty-environment trap that once left `TERM` unset and turned colour off.
+///
+/// So the process walk is not a rare fallback, it is the normal path, and it
+/// has to run on every read. It used to run only while the recorded cwd was
+/// still empty, which meant a pane *opened in* a directory -- it starts with
+/// one recorded -- could never report a `cd` again. It showed the folder it
+/// was opened in for the rest of its life.
+pub(super) fn resolve_cwd(
+    reported: Option<String>,
+    existing: Option<String>,
+    root_pid: Option<u32>,
+    process_name: &str,
+) -> Option<String> {
+    if reported.is_some() {
+        return reported;
+    }
+    let probed = snapshot(root_pid, process_name)
+        .and_then(|process| process.foreground_cwd.or(process.root_cwd));
+    choose_cwd(reported, probed, existing)
+}
+
+/// Keep the last known directory when nothing can be read now, rather than
+/// blanking the pane's label because one probe happened to fail.
+fn choose_cwd(
+    reported: Option<String>,
+    probed: Option<String>,
+    existing: Option<String>,
+) -> Option<String> {
+    reported.or(probed).or(existing)
+}
+
 pub(super) fn snapshot(
     root_pid: Option<u32>,
     fallback_process: &str,
@@ -139,6 +176,38 @@ fn detect_known_agent_name(name: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use super::choose_cwd;
+
+    fn s(text: &str) -> Option<String> {
+        Some(text.to_string())
+    }
+
+    #[test]
+    fn a_shell_that_reports_its_directory_is_believed() {
+        assert_eq!(
+            choose_cwd(s("/now"), s("/probed"), s("/stale")),
+            s("/now")
+        );
+    }
+
+    /// The regression: a pane opened *in* a directory already has one
+    /// recorded, and used to be pinned to it for life because the process
+    /// walk only ran while the record was empty.
+    #[test]
+    fn a_recorded_directory_does_not_outrank_a_fresh_probe() {
+        assert_eq!(choose_cwd(None, s("/now"), s("/opened-in")), s("/now"));
+    }
+
+    #[test]
+    fn a_failed_probe_keeps_the_last_known_directory() {
+        assert_eq!(choose_cwd(None, None, s("/last-known")), s("/last-known"));
+    }
+
+    #[test]
+    fn nothing_known_reports_nothing() {
+        assert_eq!(choose_cwd(None, None, None), None);
+    }
+
     use super::*;
     use std::path::PathBuf;
 

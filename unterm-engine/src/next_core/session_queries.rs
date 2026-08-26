@@ -6,16 +6,14 @@ pub(super) fn shell_snapshot(pane_id: usize) -> Result<ShellSnapshot> {
     let handles = session_handles::shell_current(pane_id)?;
     let mut shell = handles.shell;
 
-    if let Some(cwd) = handles.screen.lock().current_dir() {
-        shell.cwd = Some(cwd);
-        return Ok(shell);
-    }
-
-    if shell.cwd.is_none() {
-        if let Some(process) = process_tree::snapshot(handles.root_pid, &shell.process_name) {
-            shell.cwd = process.foreground_cwd.or(process.root_cwd);
-        }
-    }
+    let reported = handles.screen.lock().current_dir();
+    let existing = shell.cwd.take();
+    shell.cwd = process_tree::resolve_cwd(
+        reported,
+        existing,
+        handles.root_pid,
+        &shell.process_name,
+    );
     Ok(shell)
 }
 

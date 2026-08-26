@@ -49,15 +49,14 @@ fn snapshot(session: &mut NextCoreSession) -> (SessionSnapshot, Option<String>) 
     if let Some(title) = screen.title() {
         snapshot.title = title;
     }
-    if let Some(cwd) = screen.current_dir() {
-        snapshot.shell.cwd = Some(cwd);
-    } else if snapshot.shell.cwd.is_none() {
-        if let Some(process) =
-            process_tree::snapshot(session.root_pid, &snapshot.shell.process_name)
-        {
-            snapshot.shell.cwd = process.foreground_cwd.or(process.root_cwd);
-        }
-    }
+    let reported = screen.current_dir();
+    let existing = snapshot.shell.cwd.take();
+    snapshot.shell.cwd = process_tree::resolve_cwd(
+        reported,
+        existing,
+        session.root_pid,
+        &snapshot.shell.process_name,
+    );
     (snapshot, dead_reason)
 }
 

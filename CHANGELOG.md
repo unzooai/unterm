@@ -4,6 +4,23 @@
 
 ### Fixed
 
+- **A pane opened in a folder showed that folder for the rest of its life.**
+  `cd` somewhere else and the sidebar kept naming the directory the pane was
+  opened in — jump from `mv` into `story` and the strip still said `mv`.
+
+  Two causes on top of each other. A shell reports where it is with OSC 7,
+  but macOS only installs zsh's hook for that by sourcing
+  `/etc/zshrc_$TERM_PROGRAM`, and a GUI launched from Finder inherits no
+  `TERM_PROGRAM` — the same empty-environment trap that left `TERM` unset and
+  turned colour off in v0.69. So that escape never arrives in Unterm, and the
+  process-tree walk behind it is not a rare fallback but the only source
+  there is. It was guarded by `if cwd.is_none()`: it ran only while nothing
+  had been recorded yet. A pane opened *in* a directory starts with one
+  recorded, so for those panes it never ran at all.
+
+  The directory is now re-read on every query. A failed read keeps the last
+  known answer rather than blanking the label.
+
 - **A TUI that repaints one character at a time could scramble a line of
   Chinese.** Claude Code and Codex redraw by jumping to an absolute column
   and rewriting a single cell — `ESC[3G` then one glyph — which in a
