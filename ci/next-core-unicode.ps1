@@ -8,7 +8,7 @@ $CiDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $CiDir "..")
 
 $TestFilter = "screen_buffer_"
-$ExpectedCount = 102
+$ExpectedCount = 107
 $RequiredTests = @(
     "next_core::tests::screen_buffer_tracks_wide_character_cells",
     "next_core::tests::screen_buffer_preserves_combining_marks_on_base_cells",
@@ -22,7 +22,12 @@ $RequiredTests = @(
     "next_core::tests::screen_buffer_clears_the_right_half_when_a_wide_cell_is_overwritten",
     "next_core::tests::screen_buffer_clears_the_left_half_when_a_wide_cell_is_overwritten",
     "next_core::tests::screen_buffer_clears_the_left_half_when_a_line_is_erased_mid_wide_cell",
-    "next_core::tests::screen_buffer_clears_the_left_half_when_chars_are_erased_mid_wide_cell"
+    "next_core::tests::screen_buffer_clears_the_left_half_when_chars_are_erased_mid_wide_cell",
+    "next_core::tests::screen_buffer_splits_a_wide_cell_when_chars_are_inserted_mid_cell",
+    "next_core::tests::screen_buffer_splits_a_wide_cell_pushed_past_the_right_edge_by_inserted_chars",
+    "next_core::tests::screen_buffer_splits_a_wide_cell_when_chars_are_deleted_mid_cell",
+    "next_core::tests::screen_buffer_splits_a_wide_cell_when_the_deleted_range_ends_mid_cell",
+    "next_core::tests::screen_buffer_keeps_wide_pairs_whole_when_a_shift_moves_them_together"
 )
 
 Push-Location $RepoRoot

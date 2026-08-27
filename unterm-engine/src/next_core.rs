@@ -1323,6 +1323,9 @@ impl NextCoreScreen {
                 ScreenCell::blank(self.current_attr)
             };
         }
+        // Everything from the cursor rightwards just moved one way; whatever
+        // wide character that walked through has to be made whole again.
+        Self::repair_wide_pairs(line, left, right);
         self.mark_dirty_row(self.cursor_y);
     }
 
@@ -1346,6 +1349,8 @@ impl NextCoreScreen {
                 ScreenCell::blank(self.current_attr)
             };
         }
+        // Same slide, opposite direction, same repair.
+        Self::repair_wide_pairs(line, left, right);
         self.mark_dirty_row(self.cursor_y);
     }
 
@@ -1689,6 +1694,76 @@ impl NextCoreScreen {
         cell.ch = ' ';
         cell.combining.clear();
         cell.width = 1;
+    }
+
+    /// Put a row back together after a shift moved cells past each other.
+    ///
+    /// `ESC[@` and `ESC[P` never overwrite a cell, they slide it -- and a
+    /// slide can pass straight between the two columns of a wide character.
+    /// zsh's line editor emits both of them every time you type or delete in
+    /// the middle of a line, so on a row of Chinese this is not a corner case,
+    /// it is what editing a line looks like.
+    ///
+    /// Splitting at the two ends the way `ESC[K` does is not enough here. The
+    /// ends are only one of the ways a shift breaks a pair: the other half can
+    /// be the one that falls off the right margin, or the one dragged in from
+    /// beyond the deleted span, and both of those land in the middle of the
+    /// row rather than at its edges. So this sweeps everything the shift
+    /// rewrote and asks each cell the only question that matters -- is your
+    /// other half still beside you? -- which is also why it does not need to
+    /// be told which way the row moved, or by how much.
+    ///
+    /// The sweep reaches one column past each end, because a pair can straddle
+    /// a boundary: the half inside the span is the one that moved, and the
+    /// orphan it leaves sits just outside. It runs left to right on purpose --
+    /// blanking a wide cell shrinks it to one column, and the continuation
+    /// behind it has to be judged against the cell as it now is.
+    ///
+    /// Survivors are blanked in place and keep their own attributes. Nothing
+    /// was written over them, the shift only carried the neighbour away, so
+    /// the colours the application asked for are still the ones it wants.
+    fn repair_wide_pairs(line: &mut [ScreenCell], start: usize, end: usize) {
+        if line.is_empty() {
+            return;
+        }
+        let first = start.saturating_sub(1);
+        let last = end.saturating_add(1).min(line.len() - 1);
+        for idx in first..=last {
+            match line[idx].width {
+                0 => {
+                    if !Self::has_wide_owner(line, idx) {
+                        Self::blank_cell_in_place(&mut line[idx]);
+                    }
+                }
+                width if width > 1 => {
+                    let whole = (1..width).all(|offset| {
+                        matches!(line.get(idx + offset), Some(tail) if tail.width == 0)
+                    });
+                    if !whole {
+                        Self::blank_cell_in_place(&mut line[idx]);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Whether a continuation cell still has a wide cell reaching it.
+    ///
+    /// Walks back over any continuations in between, because a wider-than-two
+    /// character owns several of them, and a row that begins with one owns
+    /// nothing at all -- that is the orphan a delete leaves at column one.
+    fn has_wide_owner(line: &[ScreenCell], idx: usize) -> bool {
+        let mut owner = idx;
+        while owner > 0 {
+            owner -= 1;
+            let width = line[owner].width;
+            if width == 0 {
+                continue;
+            }
+            return owner + width > idx;
+        }
+        false
     }
 
     /// Takes anything that hands out its rows by mutable reference, so the
@@ -4699,6 +4774,197 @@ mod tests {
         assert_eq!(cells[1].ch, 'A');
         assert_eq!(cells[1].width, 1);
         assert_eq!(cells[2].ch, '\u{597d}');
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// `ESC[@` never overwrites a cell, it slides one -- and a slide that
+    /// starts on the right half of a wide character passes straight between
+    /// its two columns. zsh's line editor emits this every time you type into
+    /// the middle of a line, so a row of Chinese only has to be edited once.
+    #[test]
+    fn screen_buffer_splits_a_wide_cell_when_chars_are_inserted_mid_cell() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        // Insert one blank at column 2 -- the right half of the first wide
+        // character.
+        set_output_for_test(session.id, "\u{4f60}\u{597d}\x1b[2G\x1b[1@")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(
+            cells[0].width, 1,
+            "the left half still claims the column the insert took away from it"
+        );
+        assert_eq!(cells[0].ch, ' ');
+        assert_eq!(cells[1].ch, ' ');
+        assert_eq!(
+            cells[2].width, 1,
+            "the right half the insert pushed aside is still a continuation"
+        );
+        assert_eq!(cells[2].ch, ' ');
+        assert_eq!(cells[3].ch, '\u{597d}');
+        assert_eq!(cells[3].width, 2);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// The far end of an insert is just as dangerous: the cells shifted right
+    /// run out of row, and the half that falls off the margin leaves the half
+    /// still on screen painting two columns it no longer owns.
+    #[test]
+    fn screen_buffer_splits_a_wide_cell_pushed_past_the_right_edge_by_inserted_chars() -> Result<()>
+    {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 6,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        // The row is exactly full: A B then two wide characters. One inserted
+        // blank shoves the last continuation off the right edge.
+        set_output_for_test(session.id, "AB\u{4f60}\u{597d}\x1b[1G\x1b[1@")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells[1].ch, 'A');
+        assert_eq!(cells[3].ch, '\u{4f60}');
+        assert_eq!(cells[3].width, 2);
+        assert_eq!(cells[4].width, 0);
+        assert_eq!(
+            cells[5].width, 1,
+            "the last wide cell kept both columns after one of them fell off the row"
+        );
+        assert_eq!(cells[5].ch, ' ');
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// `ESC[P` is the same hazard running the other way. Deleting from the
+    /// right half of a wide character drags its neighbour into the column the
+    /// left half is still painting over.
+    #[test]
+    fn screen_buffer_splits_a_wide_cell_when_chars_are_deleted_mid_cell() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        // Delete one cell at column 2 -- the right half of the first wide
+        // character.
+        set_output_for_test(session.id, "\u{4f60}\u{597d}\x1b[2G\x1b[1P")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(
+            cells[0].width, 1,
+            "the left half still claims the column the next character moved into"
+        );
+        assert_eq!(cells[0].ch, ' ');
+        assert_eq!(cells[1].ch, '\u{597d}');
+        assert_eq!(cells[1].width, 2);
+        assert_eq!(cells[2].width, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// The other edge of a delete: the span ends between the halves of a wide
+    /// character, so the continuation is dragged left on its own and lands at
+    /// the cursor as a cell that owns no character at all.
+    #[test]
+    fn screen_buffer_splits_a_wide_cell_when_the_deleted_range_ends_mid_cell() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        // Delete one cell at column 1 -- half of the first wide character.
+        set_output_for_test(session.id, "\u{4f60}\u{597d}\x1b[1G\x1b[1P")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(
+            cells[0].width, 1,
+            "the orphaned right half is still a continuation of nothing"
+        );
+        assert_eq!(cells[0].ch, ' ');
+        assert_eq!(cells[1].ch, '\u{597d}');
+        assert_eq!(cells[1].width, 2);
+        assert_eq!(cells[2].width, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// The repair only fires on pairs a shift actually cut. A shift that moves
+    /// both halves together, or removes both of them together, has to leave
+    /// the row exactly as wide as it found it.
+    #[test]
+    fn screen_buffer_keeps_wide_pairs_whole_when_a_shift_moves_them_together() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        // Row 1 inserts one blank ahead of both wide characters; row 2 deletes
+        // one wide character whole.
+        set_output_for_test(
+            session.id,
+            "\u{4f60}\u{597d}\x1b[1G\x1b[1@\x1b[2;1H\u{4f60}\u{597d}\x1b[2;1H\x1b[2P",
+        )?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let shifted = &styled.lines[0].cells;
+        assert_eq!(shifted[0].ch, ' ');
+        assert_eq!(shifted[1].ch, '\u{4f60}');
+        assert_eq!(shifted[1].width, 2);
+        assert_eq!(shifted[2].width, 0);
+        assert_eq!(shifted[3].ch, '\u{597d}');
+        assert_eq!(shifted[3].width, 2);
+        assert_eq!(shifted[4].width, 0);
+
+        let deleted = &styled.lines[1].cells;
+        assert_eq!(deleted[0].ch, '\u{597d}');
+        assert_eq!(deleted[0].width, 2);
+        assert_eq!(deleted[1].width, 0);
+        assert_eq!(deleted[2].ch, ' ');
+        assert_eq!(deleted[2].width, 1);
 
         engine.destroy_session(session.id)?;
         Ok(())
