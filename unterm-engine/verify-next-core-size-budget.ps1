@@ -22,6 +22,16 @@
     # restarts, startup-session draw, and Core-first discovery hardening.
     # Measured 13219 core / 2529 probe; recalibrated to measured plus the
     # usual headroom.
+    # 13560 -> 13720 (2026-08-28): wide-character pairs are now repaired
+    # after every operation that can separate them, not just the ones that
+    # overwrite -- ICH/DCH, insert mode, and SL/SR all shift cells, and a
+    # shift leaves the orphan in the middle of the row rather than at its
+    # edge, so the point checks became a sweep. SL/SR also stopped being
+    # "DCH/ICH applied to the cursor's row" and now move every row of the
+    # scroll region, which is what ECMA-48 says they do and what stops a
+    # boxed TUI tearing. The cell got smaller at the same time (80 -> 48
+    # bytes), which is why this is not larger. Measured 13614; recalibrated
+    # to measured plus the usual headroom.
     # 13320 -> 13560, probe 2600 -> 2800 (2026-08-26): the core gained
     # wide-cell splitting -- overwriting either half of a CJK cell now
     # releases the other, across writes, `ESC[K` and `ESC[nX`, with the
@@ -30,7 +40,7 @@
     # were cmd.exe-only and every throughput benchmark had been passing
     # without running away from Windows. Measured 13445 core / 2700 probe;
     # recalibrated to measured plus the usual headroom.
-    [int]$MaxCoreSourceLines = 13560,
+    [int]$MaxCoreSourceLines = 13720,
     [int]$MaxProbeSourceLines = 2800,
     [int]$MaxDirectDependencies = 10,
     # A debug binary carries its debug info, so this tracks the toolchain and

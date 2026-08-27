@@ -1785,6 +1785,7 @@ impl NextCoreScreen {
                     }
                 }
                 width if width > 1 => {
+                    let width = usize::from(width);
                     let whole = (1..width).all(|offset| {
                         matches!(line.get(idx + offset), Some(tail) if tail.width == 0)
                     });
@@ -1810,7 +1811,7 @@ impl NextCoreScreen {
             if width == 0 {
                 continue;
             }
-            return owner + width > idx;
+            return owner + usize::from(width) > idx;
         }
         false
     }
