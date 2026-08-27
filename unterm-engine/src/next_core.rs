@@ -10,6 +10,7 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use portable_pty::{Child, MasterPty};
 use std::collections::BTreeSet;
+use std::convert::TryFrom;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -484,7 +485,7 @@ impl NextCoreScreen {
         let mut text = String::new();
         for cell in line.iter().filter(|cell| cell.width > 0) {
             text.push(cell.ch);
-            text.push_str(&cell.combining);
+            text.push_str(cell.combining());
         }
         text.trim_end().to_string()
     }
@@ -541,7 +542,7 @@ impl NextCoreScreen {
     }
 
     fn put_cell(&mut self, cell: ScreenCell) {
-        let width = cell.width;
+        let width = usize::from(cell.width);
         let attr = cell.attr;
         let left_margin = self.active_left_margin();
         let right_margin = self.active_right_margin();
@@ -1515,7 +1516,7 @@ impl NextCoreScreen {
                 self.hyperlinks.push(uri);
                 self.hyperlinks.len() - 1
             });
-        self.current_attr.hyperlink = Some(idx);
+        self.current_attr.hyperlink = u32::try_from(idx).ok();
     }
 
     fn insert_lines(&mut self, count: usize) {
@@ -1725,7 +1726,7 @@ impl NextCoreScreen {
             return;
         }
         if cell.width > 1 {
-            for offset in 1..cell.width {
+            for offset in 1..usize::from(cell.width) {
                 let Some(tail) = line.get_mut(idx + offset) else {
                     break;
                 };
@@ -1739,7 +1740,7 @@ impl NextCoreScreen {
 
     fn blank_cell_in_place(cell: &mut ScreenCell) {
         cell.ch = ' ';
-        cell.combining.clear();
+        cell.clear_combining();
         cell.width = 1;
     }
 
@@ -7924,5 +7925,58 @@ mod tests {
         engine.destroy_session(session.id)?;
         let _ = std::fs::remove_dir_all(&sessions_root);
         Ok(())
+    }
+
+    /// A flood fed straight into the screen model: no PTY, no shell, no lock.
+    ///
+    /// `--bench-flood-lines` measures a pipeline -- awk generating lines, the
+    /// kernel moving them through a pty, the probe's main thread polling the
+    /// output under the same mutex the reader holds. On a busy machine the
+    /// reader spends most of its samples parked in `read()`, and a change to
+    /// the terminal model disappears into the noise. This measures only the
+    /// part this file is responsible for.
+    ///
+    /// Ignored by default: it is a stopwatch, not an assertion.
+    /// `cargo test --release -p unterm-engine feed_flood_throughput --
+    /// --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn feed_flood_throughput() {
+        let lines: usize = std::env::var("UNTERM_BENCH_LINES")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(200_000);
+        let mut payload = String::new();
+        for index in 0..lines {
+            payload.push_str(&format!("UNTERM_NEXT_CORE_FLOOD_{index}\r\n"));
+        }
+
+        // Chunked at 8 KiB, the size of the pty reader's own buffer, so the
+        // parser sees the same shape of input it sees in production.
+        let mut chunks = Vec::new();
+        let mut start = 0;
+        while start < payload.len() {
+            let mut end = (start + 8192).min(payload.len());
+            while !payload.is_char_boundary(end) {
+                end -= 1;
+            }
+            chunks.push(&payload[start..end]);
+            start = end;
+        }
+
+        let mut screen = NextCoreScreen::new(80, 24);
+        let started = std::time::Instant::now();
+        for chunk in &chunks {
+            screen.feed(chunk);
+        }
+        let elapsed = started.elapsed();
+        eprintln!(
+            "feed_flood lines={} bytes={} elapsed_ms={} lines_per_sec={:.1}",
+            lines,
+            payload.len(),
+            elapsed.as_millis(),
+            lines as f64 / elapsed.as_secs_f64().max(0.000_001)
+        );
+        assert_eq!(screen.scrollback_rows(), DEFAULT_SCROLLBACK_LINES);
     }
 }
