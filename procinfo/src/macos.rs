@@ -163,15 +163,9 @@ impl LocalProcessInfo {
 
         let procs: Vec<_> = all_pids().into_iter().filter_map(info_for_pid).collect();
 
-        fn build_proc(info: &libc::proc_bsdinfo, procs: &[libc::proc_bsdinfo]) -> LocalProcessInfo {
-            let mut children = HashMap::new();
-
-            for kid in procs {
-                if kid.pbi_ppid == info.pbi_pid {
-                    children.insert(kid.pbi_pid, build_proc(kid, procs));
-                }
-            }
-
+        // Children are filled in by `LocalProcessInfo::build_tree`, which owns
+        // the cycle guard the recursion here used to lack.
+        fn build_proc(info: &libc::proc_bsdinfo) -> LocalProcessInfo {
             let (executable, argv) = exe_and_args_for_pid_sysctl(info.pbi_pid as _)
                 .unwrap_or_else(|| (exe_for_pid(info.pbi_pid as _), vec![]));
 
@@ -187,12 +181,18 @@ impl LocalProcessInfo {
                 argv,
                 start_time: info.pbi_start_tvsec,
                 status: LocalProcessStatus::from(info.pbi_status),
-                children,
+                children: HashMap::new(),
             }
         }
 
         if let Some(info) = procs.iter().find(|info| info.pbi_pid == pid) {
-            Some(build_proc(info, &procs))
+            Some(LocalProcessInfo::build_tree(
+                info,
+                &procs,
+                |entry| entry.pbi_pid,
+                |entry| entry.pbi_ppid,
+                build_proc,
+            ))
         } else {
             None
         }

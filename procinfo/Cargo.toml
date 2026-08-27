@@ -25,5 +25,12 @@ winapi = { workspace=true, features = [
     "processthreadsapi",
     "shellapi",
     "tlhelp32",
+    # `windows.rs` has always used LocalFree/QueryFullProcessImageNameW from
+    # here, but only ever compiled because some *other* crate in the workspace
+    # switched the feature on and cargo unified it in. That made `cargo check
+    # -p procinfo --target ...-windows-...` — the one cheap way to compile-check
+    # this Windows-only file from a Mac or Linux box — fail on its own. Declare
+    # what we actually use.
+    "winbase",
 ]}
 

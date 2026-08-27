@@ -395,15 +395,13 @@ impl LocalProcessInfo {
         let procs = cached_entries();
         log::trace!("Got snapshot");
 
-        fn build_proc(info: &PROCESSENTRY32W, procs: &[PROCESSENTRY32W]) -> LocalProcessInfo {
-            let mut children = HashMap::new();
-
-            for kid in procs {
-                if kid.th32ParentProcessID == info.th32ProcessID {
-                    children.insert(kid.th32ProcessID, build_proc(kid, procs));
-                }
-            }
-
+        // Children are filled in by `LocalProcessInfo::build_tree`, which owns
+        // the cycle guard the recursion here used to lack. Windows is where
+        // that bit hardest: it never clears a child's `th32ParentProcessID`
+        // when the parent dies and it recycles pids aggressively, so the
+        // parent/child graph really does grow cycles, and this walk really did
+        // take CI down with `STATUS_STACK_OVERFLOW`.
+        fn build_proc(info: &PROCESSENTRY32W) -> LocalProcessInfo {
             let mut executable = None;
             let mut start_time = 0;
             let mut cwd = PathBuf::new();
@@ -439,13 +437,19 @@ impl LocalProcessInfo {
                 argv,
                 start_time,
                 status: LocalProcessStatus::Run,
-                children,
+                children: HashMap::new(),
                 console,
             }
         }
 
         if let Some(info) = procs.iter().find(|info| info.th32ProcessID == pid) {
-            Some(build_proc(info, &procs))
+            Some(LocalProcessInfo::build_tree(
+                info,
+                &procs,
+                |entry| entry.th32ProcessID,
+                |entry| entry.th32ParentProcessID,
+                build_proc,
+            ))
         } else {
             None
         }

@@ -306,6 +306,53 @@ mod tests {
         assert_eq!(foreground.detected_agent, None);
     }
 
+    /// The walks in this file -- `count_descendants`,
+    /// `foreground_process_summary`, `detect_agent_in_process_tree` -- are all
+    /// unguarded recursion, and that is fine *because* `LocalProcessInfo` is a
+    /// strict tree: `children` owns its children, so a cycle is not even
+    /// representable here. The hazard lives one layer down, in the flat
+    /// pid/ppid snapshot that `procinfo` turns into that tree; a recycled pid
+    /// can make a process claim a descendant of its own as its parent. This
+    /// test drives the pathological snapshot through the real builder and
+    /// checks that what comes out the other side still adds up: three
+    /// processes, two of them descendants of the root, counted once each.
+    #[test]
+    fn a_cyclic_snapshot_still_produces_a_self_consistent_count() {
+        struct Entry {
+            pid: u32,
+            ppid: u32,
+        }
+
+        // 10 -> 20 -> 30, and 30 claims 10 as its parent.
+        let procs = vec![
+            Entry { pid: 10, ppid: 30 },
+            Entry { pid: 20, ppid: 10 },
+            Entry { pid: 30, ppid: 20 },
+        ];
+        let root = LocalProcessInfo::build_tree(
+            &procs[0],
+            &procs,
+            |entry| entry.pid,
+            |entry| entry.ppid,
+            |entry| {
+                process_info_for_test(
+                    entry.pid,
+                    entry.ppid,
+                    "zsh",
+                    Vec::new(),
+                    entry.pid as u64,
+                    Vec::new(),
+                )
+            },
+        );
+
+        assert_eq!(count_descendants(&root), 2);
+        // The newest process wins the foreground pick, and the root must not
+        // have been re-materialised somewhere below itself to win it.
+        assert_eq!(foreground_process_summary(&root).pid, 30);
+        assert_eq!(detect_agent_in_process_tree(&root), None);
+    }
+
     #[test]
     fn fallback_reports_known_root_agent_without_process_tree() {
         let snapshot = snapshot(None, "codex").expect("fallback snapshot");

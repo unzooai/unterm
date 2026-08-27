@@ -104,15 +104,9 @@ impl LocalProcessInfo {
 
         let procs: Vec<_> = all_pids().into_iter().filter_map(info_for_pid).collect();
 
-        fn build_proc(info: &LinuxStat, procs: &[LinuxStat]) -> LocalProcessInfo {
-            let mut children = HashMap::new();
-
-            for kid in procs {
-                if kid.ppid == info.pid {
-                    children.insert(kid.pid as u32, build_proc(kid, procs));
-                }
-            }
-
+        // Children are filled in by `LocalProcessInfo::build_tree`, which owns
+        // the cycle guard the recursion here used to lack.
+        fn build_proc(info: &LinuxStat) -> LocalProcessInfo {
             let executable = exe_for_pid(info.pid);
             let name = info.name.clone();
             let argv = parse_cmdline(info.pid);
@@ -126,12 +120,18 @@ impl LocalProcessInfo {
                 argv,
                 start_time: info.starttime,
                 status: info.status.as_str().into(),
-                children,
+                children: HashMap::new(),
             }
         }
 
         if let Some(info) = procs.iter().find(|info| info.pid == pid) {
-            Some(build_proc(info, &procs))
+            Some(LocalProcessInfo::build_tree(
+                info,
+                &procs,
+                |entry| entry.pid as u32,
+                |entry| entry.ppid as u32,
+                build_proc,
+            ))
         } else {
             None
         }
