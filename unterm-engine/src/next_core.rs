@@ -1384,54 +1384,86 @@ impl NextCoreScreen {
         self.mark_dirty_row(self.cursor_y);
     }
 
+    /// `SL`: the whole scroll region slides left, and the cursor stays put.
+    ///
+    /// This used to be `ESC[P` wearing a different name. It took its left edge
+    /// from the cursor and it moved the cursor's row and nothing else, and
+    /// both of those are wrong: ECMA-48 hands `SL` the presentation component,
+    /// which is the scroll region bounded by the vertical margins and, under
+    /// `DECLRMM`, the horizontal ones. The cursor has no part in it at all.
+    /// The single-row half is the one that showed -- `SL` in any full-screen
+    /// app tore the frame open along whichever line the cursor happened to be
+    /// sitting on.
+    ///
+    /// Rows nothing was ever written to are skipped rather than filled. There
+    /// is nothing on them to move, and materialising a full row of cells for
+    /// every blank line on every `SL` would make a cheap operation allocate
+    /// the screen.
     fn scroll_left(&mut self, count: usize) {
         self.ensure_cursor_line();
-        let left = self.cursor_x.max(self.active_left_margin());
+        let left = self.active_left_margin();
         let right = self.active_right_margin();
         if left > right {
             return;
         }
         let count = count.max(1).min(right + 1 - left);
-        let line = &mut self.lines[self.cursor_y];
-        if line.len() < right + 1 {
-            line.resize(right + 1, ScreenCell::blank(self.current_attr));
-        }
-        for idx in left..=right {
-            let source = idx + count;
-            line[idx] = if source <= right {
-                line[source].clone()
-            } else {
-                ScreenCell::blank(self.current_attr)
+        let blank = ScreenCell::blank(self.current_attr);
+        for row in self.scroll_top..=self.scroll_bottom {
+            let Some(line) = self.lines.get_mut(row) else {
+                continue;
             };
+            if line.is_empty() {
+                continue;
+            }
+            if line.len() < right + 1 {
+                line.resize(right + 1, blank.clone());
+            }
+            for idx in left..=right {
+                let source = idx + count;
+                line[idx] = if source <= right {
+                    line[source].clone()
+                } else {
+                    blank.clone()
+                };
+            }
+            // The slide is the one `ESC[P` performs, so it cuts wide
+            // characters in exactly the same places.
+            Self::repair_wide_pairs(line, left, right);
+            self.mark_dirty_row(row);
         }
-        // `SL` slides the row exactly the way `ESC[P` does, so it cuts wide
-        // characters in exactly the same places.
-        Self::repair_wide_pairs(line, left, right);
-        self.mark_dirty_row(self.cursor_y);
     }
 
+    /// `SR`: the same region, the same silence from the cursor, other way.
     fn scroll_right(&mut self, count: usize) {
         self.ensure_cursor_line();
-        let left = self.cursor_x.max(self.active_left_margin());
+        let left = self.active_left_margin();
         let right = self.active_right_margin();
         if left > right {
             return;
         }
         let count = count.max(1).min(right + 1 - left);
-        let line = &mut self.lines[self.cursor_y];
-        if line.len() < right + 1 {
-            line.resize(right + 1, ScreenCell::blank(self.current_attr));
-        }
-        for idx in (left..=right).rev() {
-            line[idx] = if idx >= left + count {
-                line[idx - count].clone()
-            } else {
-                ScreenCell::blank(self.current_attr)
+        let blank = ScreenCell::blank(self.current_attr);
+        for row in self.scroll_top..=self.scroll_bottom {
+            let Some(line) = self.lines.get_mut(row) else {
+                continue;
             };
+            if line.is_empty() {
+                continue;
+            }
+            if line.len() < right + 1 {
+                line.resize(right + 1, blank.clone());
+            }
+            for idx in (left..=right).rev() {
+                line[idx] = if idx >= left + count {
+                    line[idx - count].clone()
+                } else {
+                    blank.clone()
+                };
+            }
+            // And this one is `ESC[@`.
+            Self::repair_wide_pairs(line, left, right);
+            self.mark_dirty_row(row);
         }
-        // And `SR` the way `ESC[@` does.
-        Self::repair_wide_pairs(line, left, right);
-        self.mark_dirty_row(self.cursor_y);
     }
 
     #[cfg(test)]
@@ -5581,7 +5613,11 @@ mod tests {
         set_output_for_test(session.id, "abcdefghij\x1b[1;3H\x1b[2 @\x1b[1;5H\x1b[3 A")?;
         let screen = engine.read_screen(session.id)?;
 
-        assert_eq!(screen.lines, vec!["abef   ghi"]);
+        // `SL 2` takes the whole row left two columns -- `cdefghij` plus two
+        // blanks -- and `SR 3` then takes that three columns right, dropping
+        // the `j` off the right margin. The cursor moves are irrelevant to
+        // both; they are here only to prove that.
+        assert_eq!(screen.lines, vec!["   cdefghi"]);
         assert_eq!(screen.cursor.x, 4);
         assert_eq!(screen.cursor.y, 0);
 
@@ -5609,9 +5645,101 @@ mod tests {
         )?;
         let screen = engine.read_screen(session.id)?;
 
-        assert_eq!(screen.lines, vec!["0125 67 89"]);
+        // Margins are columns 3-8, so the shifts run over `234567` and leave
+        // `01` and `89` alone. `SL 2` makes that `4567  `, `SR 1` makes it
+        // ` 4567 `.
+        assert_eq!(screen.lines, vec!["01 4567 89"]);
         assert_eq!(screen.cursor.x, 4);
         assert_eq!(screen.cursor.y, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// `SL` moves the whole scroll region, not the cursor's row. A boxed frame
+    /// is the honest test: an implementation that shifts one row tears the box
+    /// open, and no amount of squinting at a single line would show it.
+    #[test]
+    fn screen_buffer_scrolls_left_across_every_row_of_the_region() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        // The cursor is parked mid-row on the middle line; `SL` must ignore it
+        // entirely and start every row at the left margin.
+        set_output_for_test(
+            session.id,
+            "+------+\r\n|abcdef|\r\n+------+\x1b[2;5H\x1b[1 @",
+        )?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["------+", "abcdef|", "------+"]);
+        assert_eq!(screen.cursor.x, 4, "SL does not move the cursor");
+        assert_eq!(screen.cursor.y, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// The mirror: `SR` moves every row of the region too, and the column that
+    /// falls off the right margin is gone from all of them.
+    #[test]
+    fn screen_buffer_scrolls_right_across_every_row_of_the_region() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 8,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(
+            session.id,
+            "+------+\r\n|abcdef|\r\n+------+\x1b[3;2H\x1b[1 A",
+        )?;
+
+        let screen = engine.read_screen(session.id)?;
+        // Every row loses exactly its last column: `+------+` keeps six
+        // dashes and one `+`, `|abcdef|` keeps the letters and its opening
+        // bar.
+        assert_eq!(screen.lines, vec![" +------", " |abcdef", " +------"]);
+        assert_eq!(screen.cursor.x, 1, "SR does not move the cursor");
+        assert_eq!(screen.cursor.y, 2);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// The region is the vertical one as well. `DECSTBM` fences off rows 2-3,
+    /// and `SL` has to leave the rows outside it alone -- including row 1,
+    /// which is where setting the region just put the cursor.
+    #[test]
+    fn screen_buffer_limits_horizontal_scroll_to_the_scroll_region() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 6,
+            rows: 4,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "aaa\r\nbbb\r\nccc\r\nddd\x1b[2;3r\x1b[1 @")?;
+
+        let screen = engine.read_screen(session.id)?;
+        assert_eq!(screen.lines, vec!["aaa", "bb", "cc", "ddd"]);
 
         engine.destroy_session(session.id)?;
         Ok(())

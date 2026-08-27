@@ -8,7 +8,7 @@ $CiDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $CiDir "..")
 
 $TestFilter = "screen_buffer_"
-$ExpectedCount = 111
+$ExpectedCount = 114
 $RequiredTests = @(
     "next_core::tests::screen_buffer_tracks_wide_character_cells",
     "next_core::tests::screen_buffer_preserves_combining_marks_on_base_cells",
@@ -31,7 +31,10 @@ $RequiredTests = @(
     "next_core::tests::screen_buffer_splits_a_wide_cell_when_insert_mode_shifts_the_row",
     "next_core::tests::screen_buffer_splits_a_wide_cell_pushed_off_the_row_by_insert_mode",
     "next_core::tests::screen_buffer_splits_a_wide_cell_when_the_row_scrolls_left",
-    "next_core::tests::screen_buffer_splits_a_wide_cell_pushed_past_the_right_edge_by_scrolling_right"
+    "next_core::tests::screen_buffer_splits_a_wide_cell_pushed_past_the_right_edge_by_scrolling_right",
+    "next_core::tests::screen_buffer_scrolls_left_across_every_row_of_the_region",
+    "next_core::tests::screen_buffer_scrolls_right_across_every_row_of_the_region",
+    "next_core::tests::screen_buffer_limits_horizontal_scroll_to_the_scroll_region"
 )
 
 Push-Location $RepoRoot
