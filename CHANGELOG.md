@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.70.1 — 2026-08-27
+
+### Fixed
+
+- **Windows: reading a pane's directory walked the whole process tree, and
+  could exhaust the stack doing it.** v0.70's directory fix re-read the cwd on
+  every snapshot, and the call it used built a `LocalProcessInfo` for every
+  process on the machine and then recursed over it three times. On Windows,
+  where the main thread gets a 1 MiB stack — and where a recycled parent PID
+  can make the parent/child graph contain a cycle, which no amount of stack
+  survives — that overflowed. It ran on every sidebar refresh.
+
+  The directory now comes from `current_working_dir(pid)`, which asks the one
+  process it cares about and does not build or walk a tree at all. It is also
+  the more honest answer: a pane's directory is its shell's, and a
+  long-running foreground program does not move the shell.
+
+  The recursive tree walk still backs the activity/agent-detection views,
+  where it runs far less often; its missing cycle guard is a known gap.
+
 ## v0.70 — 2026-08-26
 
 ### Fixed
