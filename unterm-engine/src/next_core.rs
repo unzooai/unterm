@@ -575,6 +575,16 @@ impl NextCoreScreen {
                 if line.len() > self.cols {
                     line.truncate(self.cols);
                 }
+                // Insert mode is `ESC[@` arriving one keystroke at a time, and
+                // it slides the row for every character typed. Unlike `ESC[@`
+                // the slide is always one uninterrupted block, so it can only
+                // cut a wide character at its two seams -- the column the
+                // blanks went into, and the tail the truncation took off --
+                // and this sits on the per-character path, so it repairs those
+                // two rather than sweeping the whole row.
+                Self::repair_wide_pairs(line, self.cursor_x, self.cursor_x + width.max(1) - 1);
+                let tail = line.len().saturating_sub(1);
+                Self::repair_wide_pairs(line, tail, tail);
             }
             // Whatever this write lands on, it must not leave half of a wide
             // character behind.
@@ -1394,6 +1404,9 @@ impl NextCoreScreen {
                 ScreenCell::blank(self.current_attr)
             };
         }
+        // `SL` slides the row exactly the way `ESC[P` does, so it cuts wide
+        // characters in exactly the same places.
+        Self::repair_wide_pairs(line, left, right);
         self.mark_dirty_row(self.cursor_y);
     }
 
@@ -1416,6 +1429,8 @@ impl NextCoreScreen {
                 ScreenCell::blank(self.current_attr)
             };
         }
+        // And `SR` the way `ESC[@` does.
+        Self::repair_wide_pairs(line, left, right);
         self.mark_dirty_row(self.cursor_y);
     }
 
@@ -1698,11 +1713,12 @@ impl NextCoreScreen {
 
     /// Put a row back together after a shift moved cells past each other.
     ///
-    /// `ESC[@` and `ESC[P` never overwrite a cell, they slide it -- and a
-    /// slide can pass straight between the two columns of a wide character.
-    /// zsh's line editor emits both of them every time you type or delete in
-    /// the middle of a line, so on a row of Chinese this is not a corner case,
-    /// it is what editing a line looks like.
+    /// `ESC[@`, `ESC[P`, `ESC[ @`, `ESC[ A` and insert mode never overwrite a
+    /// cell, they slide it -- and a slide can pass straight between the two
+    /// columns of a wide character. zsh's line editor reaches for one of them
+    /// every time you type or delete in the middle of a line, so on a row of
+    /// Chinese this is not a corner case, it is what editing a line looks
+    /// like.
     ///
     /// Splitting at the two ends the way `ESC[K` does is not enough here. The
     /// ends are only one of the ways a shift breaks a pair: the other half can
@@ -4965,6 +4981,151 @@ mod tests {
         assert_eq!(deleted[1].width, 0);
         assert_eq!(deleted[2].ch, ' ');
         assert_eq!(deleted[2].width, 1);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// Insert mode (`ESC[4h`) slides the row for every single character it
+    /// writes, so it is the same hazard as `ESC[@` arriving one keystroke at a
+    /// time. Landing on the right half of a wide character splits it and
+    /// leaves the left half painting over the character just typed.
+    #[test]
+    fn screen_buffer_splits_a_wide_cell_when_insert_mode_shifts_the_row() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        // Type into column 2 -- the right half of the first wide character.
+        set_output_for_test(session.id, "\x1b[4h\u{4f60}\u{597d}\x1b[2GA")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(
+            cells[0].width, 1,
+            "the left half still claims the column the typed character took"
+        );
+        assert_eq!(cells[0].ch, ' ');
+        assert_eq!(cells[1].ch, 'A');
+        assert_eq!(
+            cells[2].width, 1,
+            "the right half the insert pushed aside is still a continuation"
+        );
+        assert_eq!(cells[2].ch, ' ');
+        assert_eq!(cells[3].ch, '\u{597d}');
+        assert_eq!(cells[3].width, 2);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// The far seam of an insert-mode write is the truncation back to the
+    /// column count: the row is already full, so one typed character shoves a
+    /// continuation off the end and strands the half still on screen.
+    #[test]
+    fn screen_buffer_splits_a_wide_cell_pushed_off_the_row_by_insert_mode() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 6,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "\x1b[4hAB\u{4f60}\u{597d}\x1b[1GX")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells[0].ch, 'X');
+        assert_eq!(cells[1].ch, 'A');
+        assert_eq!(cells[3].ch, '\u{4f60}');
+        assert_eq!(cells[3].width, 2);
+        assert_eq!(cells[4].width, 0);
+        assert_eq!(
+            cells[5].width, 1,
+            "the last wide cell kept both columns after one of them fell off the row"
+        );
+        assert_eq!(cells[5].ch, ' ');
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// `ESC[ @` slides the row sideways too, and the cell it drags in over the
+    /// left edge can be a continuation whose owner has just left the row --
+    /// the one orphan with no earlier cell to look back at.
+    #[test]
+    fn screen_buffer_splits_a_wide_cell_when_the_row_scrolls_left() -> Result<()> {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 80,
+            rows: 24,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        // Cursor parked on column 1 so the shift starts at the left margin
+        // whichever way `SL` ends up resolving its left edge.
+        set_output_for_test(session.id, "\u{4f60}\u{597d}\x1b[1G\x1b[1 @")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(
+            cells[0].width, 1,
+            "the orphaned right half is still a continuation of nothing"
+        );
+        assert_eq!(cells[0].ch, ' ');
+        assert_eq!(cells[1].ch, '\u{597d}');
+        assert_eq!(cells[1].width, 2);
+        assert_eq!(cells[2].width, 0);
+
+        engine.destroy_session(session.id)?;
+        Ok(())
+    }
+
+    /// `ESC[ A` is the mirror, and so is its damage: the row runs out of
+    /// columns and the half that falls off the right margin leaves the other
+    /// half claiming a column that is no longer there.
+    #[test]
+    fn screen_buffer_splits_a_wide_cell_pushed_past_the_right_edge_by_scrolling_right() -> Result<()>
+    {
+        let _guard = test_guard();
+        let _runtime_guard = reset_state_for_test();
+        let engine = NextCoreEngine;
+        let session = engine.create_session(CreateSessionRequest {
+            cols: 6,
+            rows: 3,
+            command_dir: None,
+            command: None,
+            env: Vec::new(),
+            launch_policy: Default::default(),
+        })?;
+        set_output_for_test(session.id, "AB\u{4f60}\u{597d}\x1b[1G\x1b[1 A")?;
+
+        let styled = engine.read_styled_screen(session.id)?;
+        let cells = &styled.lines[0].cells;
+        assert_eq!(cells[1].ch, 'A');
+        assert_eq!(cells[3].ch, '\u{4f60}');
+        assert_eq!(cells[3].width, 2);
+        assert_eq!(cells[4].width, 0);
+        assert_eq!(
+            cells[5].width, 1,
+            "the last wide cell kept both columns after one of them fell off the row"
+        );
+        assert_eq!(cells[5].ch, ' ');
 
         engine.destroy_session(session.id)?;
         Ok(())

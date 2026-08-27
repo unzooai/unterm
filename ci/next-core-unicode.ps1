@@ -8,7 +8,7 @@ $CiDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $CiDir "..")
 
 $TestFilter = "screen_buffer_"
-$ExpectedCount = 107
+$ExpectedCount = 111
 $RequiredTests = @(
     "next_core::tests::screen_buffer_tracks_wide_character_cells",
     "next_core::tests::screen_buffer_preserves_combining_marks_on_base_cells",
@@ -27,7 +27,11 @@ $RequiredTests = @(
     "next_core::tests::screen_buffer_splits_a_wide_cell_pushed_past_the_right_edge_by_inserted_chars",
     "next_core::tests::screen_buffer_splits_a_wide_cell_when_chars_are_deleted_mid_cell",
     "next_core::tests::screen_buffer_splits_a_wide_cell_when_the_deleted_range_ends_mid_cell",
-    "next_core::tests::screen_buffer_keeps_wide_pairs_whole_when_a_shift_moves_them_together"
+    "next_core::tests::screen_buffer_keeps_wide_pairs_whole_when_a_shift_moves_them_together",
+    "next_core::tests::screen_buffer_splits_a_wide_cell_when_insert_mode_shifts_the_row",
+    "next_core::tests::screen_buffer_splits_a_wide_cell_pushed_off_the_row_by_insert_mode",
+    "next_core::tests::screen_buffer_splits_a_wide_cell_when_the_row_scrolls_left",
+    "next_core::tests::screen_buffer_splits_a_wide_cell_pushed_past_the_right_edge_by_scrolling_right"
 )
 
 Push-Location $RepoRoot
