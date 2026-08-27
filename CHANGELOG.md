@@ -1,5 +1,70 @@
 # Changelog
 
+## 未发布
+
+### Fixed
+
+- **Anything that shifted a row sideways could tear a wide character in
+  half.** The v0.70 fix covered writes and erases; it did not cover the
+  operations that *move* cells. `ESC[@` and `ESC[P` — which zsh's line editor
+  uses constantly when you type or delete inside a line — plus insert mode and
+  `SL`/`SR` all shift, and a shift leaves the orphaned half in the *middle* of
+  the row rather than at its edge, where the earlier point-checks were looking.
+
+  Every one of those now repairs the rewritten span afterwards, reaching one
+  column past each end because a pair can straddle a boundary, and working
+  left to right because blanking a wide cell shrinks it and the continuation
+  behind it has to be judged against what the cell has become. The surviving
+  half keeps its own colours: nothing was written over it, its neighbour was
+  merely carried away.
+
+  This also closed a hole in the v0.70 fix itself — a continuation cell at
+  column one owns nothing, and the backward search for its owner used to
+  bottom out on the cell itself and quietly do nothing.
+
+- **`SL` and `SR` moved one row instead of the whole scroll region.** What
+  shipped as "scroll left/right" was `ESC[P`/`ESC[@` applied to the cursor's
+  row, with the left edge taken from the cursor rather than the margin.
+  ECMA-48 gives the cursor no part in either, and both act on every row
+  between the top and bottom margins. On any full-screen application that
+  drew a box, scrolling tore the frame open along one line.
+
+  Two existing tests had pinned the old behaviour and have been rewritten
+  against the specification; a multi-row test now covers the case that would
+  have caught this. `DECIC`/`DECDC` — the genuinely cursor-relative column
+  insert and delete, and the likely source of the original confusion — remain
+  unimplemented and are silently dropped.
+
+- **A cycle in the process tree could hang or crash a directory lookup.**
+  Windows reuses process ids and does not clear a dead parent's id from its
+  children, so the parent/child graph can contain a loop; the walk that built
+  the tree had no visited set and would follow it until the stack ran out. The
+  same unguarded walk had been written three times, once per platform. It is
+  now one walk with a visited set — an edge into a process already in the tree
+  is dropped — plus a depth ceiling, since a long chain costs stack even
+  without a cycle.
+
+### Changed
+
+- **Writing an `a` no longer consults the Unicode width tables, and a cell no
+  longer costs 80 bytes.** Profiling the output path after v0.70 put
+  `unicode_column_width` at the top: it ran for every character written,
+  almost always to rediscover that a plain ASCII letter occupies one column.
+  Printable ASCII now short-circuits, cross-checked against the real tables by
+  a test that walks every code point it claims.
+
+  `ScreenCell` went from 80 bytes to 48 — the combining marks it almost never
+  carries moved behind a pointer, and two fields were sized to the values they
+  actually hold. A pane with a full 10,000-line scrollback now peaks at 24.9 MB
+  where it used to reach 35.9, a 31% reduction, and every copy of a cell got
+  narrower.
+
+  Parser throughput measured 1.52× on an in-process flood. End-to-end wall
+  clock is unchanged, and that is worth stating plainly: since v0.70 removed
+  the scrollback's copying, that benchmark spends more than half its time
+  blocked reading the pty, so it no longer measures the parser. The gains here
+  are processor time and memory, not seconds on that number.
+
 ## v0.70.1 — 2026-08-27
 
 ### Fixed
