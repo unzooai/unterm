@@ -30,13 +30,21 @@ pub(super) fn resolve_cwd(
     reported: Option<String>,
     existing: Option<String>,
     root_pid: Option<u32>,
-    process_name: &str,
 ) -> Option<String> {
     if reported.is_some() {
         return reported;
     }
-    let probed = snapshot(root_pid, process_name)
-        .and_then(|process| process.foreground_cwd.or(process.root_cwd));
+    // Ask the one process we care about, rather than building the whole
+    // process tree and walking it three times over. This runs on every
+    // snapshot now, and the tree walk is recursive: on Windows, where the
+    // main thread gets a 1 MiB stack, doing it per snapshot overflowed it
+    // outright. The pane's own shell is also the honest answer to "which
+    // directory is this pane in" -- a long-running foreground program does
+    // not move the shell.
+    let probed = root_pid
+        .and_then(LocalProcessInfo::current_working_dir)
+        .as_deref()
+        .and_then(path_to_non_empty_string);
     choose_cwd(reported, probed, existing)
 }
 

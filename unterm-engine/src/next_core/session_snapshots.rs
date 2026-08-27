@@ -51,12 +51,7 @@ fn snapshot(session: &mut NextCoreSession) -> (SessionSnapshot, Option<String>) 
     }
     let reported = screen.current_dir();
     let existing = snapshot.shell.cwd.take();
-    snapshot.shell.cwd = process_tree::resolve_cwd(
-        reported,
-        existing,
-        session.root_pid,
-        &snapshot.shell.process_name,
-    );
+    snapshot.shell.cwd = process_tree::resolve_cwd(reported, existing, session.root_pid);
     (snapshot, dead_reason)
 }
 

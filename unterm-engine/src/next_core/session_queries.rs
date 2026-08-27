@@ -8,12 +8,7 @@ pub(super) fn shell_snapshot(pane_id: usize) -> Result<ShellSnapshot> {
 
     let reported = handles.screen.lock().current_dir();
     let existing = shell.cwd.take();
-    shell.cwd = process_tree::resolve_cwd(
-        reported,
-        existing,
-        handles.root_pid,
-        &shell.process_name,
-    );
+    shell.cwd = process_tree::resolve_cwd(reported, existing, handles.root_pid);
     Ok(shell)
 }
 
