@@ -8,6 +8,7 @@
 
 mod agents;
 mod assets;
+mod console;
 pub mod server;
 
 pub use server::start_web_settings_server;

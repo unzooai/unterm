@@ -19,6 +19,7 @@
 //!   GET  /api/sessions/:id/markdown     -> recording::read_session_markdown
 
 use crate::assets;
+use crate::console;
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -154,6 +155,18 @@ impl Response {
 
     pub(crate) fn err(status: u16, reason: &'static str, message: &str) -> Self {
         Self::json(status, reason, json!({"error": message}))
+    }
+
+    /// A bare redirect. Used to put the trailing slash back on `/console`
+    /// so the page's relative asset URLs resolve under it.
+    fn redirect(status: u16, location: &str) -> Self {
+        Self {
+            status,
+            reason: "Moved Permanently",
+            content_type: "text/plain; charset=utf-8",
+            body: Vec::new(),
+            extra_headers: vec![("Location", location.to_string())],
+        }
     }
 }
 
@@ -320,6 +333,36 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
                 return Response::text(200, "OK", ct, body.as_bytes().to_vec());
             }
             return Response::err(404, "Not Found", "no such static asset");
+        }
+
+        // The Unzoo One console, served from disk. Unauthenticated like the
+        // settings SPA above: the page then reads /bootstrap.json for the
+        // token and carries it on every /api/* call.
+        if path == "/console" {
+            // Without the trailing slash the page's relative asset URLs would
+            // resolve against "/" instead of "/console/".
+            return Response::redirect(301, "/console/");
+        }
+        if let Some(rest) = path.strip_prefix("/console/") {
+            return match console::lookup(rest) {
+                Some((ct, body)) => Response::text(200, "OK", ct, body),
+                None if console::console_dir().is_none() => Response::err(
+                    503,
+                    "Service Unavailable",
+                    "console assets not installed; build unzoo-one with `npm run build:static` \
+                     and point UNTERM_CONSOLE_DIR at its dist/client",
+                ),
+                None => Response::err(404, "Not Found", "no such console asset"),
+            };
+        }
+
+        // The console's HTML references its assets by absolute path
+        // (/assets/…, /unzoo-favicon.png). Serving them only under /console/
+        // would 401 every one of them, so fall through to the console
+        // directory for anything the settings server itself does not claim.
+        // The settings SPA lives at / and /static/, both handled above.
+        if let Some((ct, body)) = console::lookup(path) {
+            return Response::text(200, "OK", ct, body);
         }
     }
 
