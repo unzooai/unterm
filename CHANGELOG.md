@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.71.1 — 2026-08-30
+
+### Fixed
+
+- **Installing over a running Unterm asked you to close something you could
+  not see.** An install is interactive, so a file still held open makes
+  Restart Manager stop and say "the following applications should be closed".
+  The installer declared nothing about its own processes, so clearing that was
+  left to the user — and could not be done: `unterm-core.exe` is started
+  detached, on purpose, so that closing a window does not end the shells
+  behind it, and `unterm-cli.exe` is the MCP bridge an editor holds open for
+  an agent. Neither has a window. Quitting Unterm left both running, the
+  installer still saw a locked file, and the install failed again.
+
+  The installer now closes all three itself before it copies anything.
+  Verified on a Windows 11 ARM machine: with the Core and the bridge running,
+  the install log shows the close action completing before the first file
+  copy, both processes gone afterwards, exit code 0.
+
+  This is the installer half. The reason those processes are still there when
+  you quit is a separate fix, still to come: quitting should take the Core
+  with it.
+
+- **`unterm-core.exe` and `unterm-cli.exe` shipped with no version number.**
+  Only the front end embedded a version resource, so Explorer's properties
+  page and any support tooling reported nothing for the other two. Not the
+  cause of the install failure above — `REINSTALLMODE=amus` already forces
+  every file onto disk regardless of version — but it is why nobody could
+  tell which build was installed by looking.
+
+### Added
+
+- **The settings app can host the Unzoo One console**, reachable from the
+  menu, and the installer can bundle it. Merged from `feat/console-hosting`.
+
 ## v0.71 — 2026-08-28
 
 ### Fixed
