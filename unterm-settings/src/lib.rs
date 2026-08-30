@@ -6,6 +6,7 @@
 //! workspace deps; ~/.unterm/server.json carries the bound port and the
 //! shared auth token.
 
+mod agent_run;
 mod agents;
 mod assets;
 mod console;

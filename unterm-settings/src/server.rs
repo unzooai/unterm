@@ -476,6 +476,23 @@ fn route(req: &Request, auth_token: &str, handler: &McpHandler) -> Response {
         // Routes wrap the unterm-agents crate so the Web Settings panel can
         // list / configure / install / launch every AI CLI in the signed
         // manifest. See `agents.rs` for the actual handlers.
+        // Running a brain. Takes an agent id, never an argv — see agent_run.
+        ("POST", "/api/agent/start") => super::agent_run::api_start(handler, &req.body),
+        ("POST", "/api/agent/events") => {
+            super::agent_run::api_session_act(handler, "agent_session.events", &req.body)
+        }
+        ("POST", "/api/agent/status") => {
+            super::agent_run::api_session_act(handler, "agent_session.status", &req.body)
+        }
+        ("POST", "/api/agent/input") => {
+            super::agent_run::api_session_act(handler, "agent_session.submit_input", &req.body)
+        }
+        ("POST", "/api/agent/interrupt") => {
+            super::agent_run::api_session_act(handler, "agent_session.interrupt", &req.body)
+        }
+        ("POST", "/api/agent/close") => {
+            super::agent_run::api_session_act(handler, "agent_session.close", &req.body)
+        }
         ("GET", "/api/agents/list") => super::agents::api_list(&req.query),
         ("GET", "/api/agents/manifest") => super::agents::api_manifest_info(),
         ("POST", "/api/agents/manifest/refresh") => super::agents::api_manifest_refresh(),
