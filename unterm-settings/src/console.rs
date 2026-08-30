@@ -100,6 +100,43 @@ pub fn lookup(request_path: &str) -> Option<(&'static str, Vec<u8>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// `UNTERM_CONSOLE_DIR` is process-wide, so the tests that set it take
+    /// turns. Run the suite with `--test-threads=1` like the rest of the
+    /// workspace and this is belt-and-braces; run it in parallel and it is
+    /// what keeps these two from reading each other's directory.
+    static CONSOLE_DIR_ENV: Mutex<()> = Mutex::new(());
+
+    /// Points `UNTERM_CONSOLE_DIR` at a directory for as long as it lives,
+    /// then puts the old value back.
+    struct ConsoleDirGuard {
+        original: Option<std::ffi::OsString>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl ConsoleDirGuard {
+        fn set(dir: &Path) -> Self {
+            let lock = CONSOLE_DIR_ENV
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let original = std::env::var_os("UNTERM_CONSOLE_DIR");
+            std::env::set_var("UNTERM_CONSOLE_DIR", dir);
+            Self {
+                original,
+                _lock: lock,
+            }
+        }
+    }
+
+    impl Drop for ConsoleDirGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(value) => std::env::set_var("UNTERM_CONSOLE_DIR", value),
+                None => std::env::remove_var("UNTERM_CONSOLE_DIR"),
+            }
+        }
+    }
 
     fn fixture() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -155,5 +192,33 @@ mod tests {
         assert_eq!(content_type(Path::new("geist-98bbbccb.woff2")), "font/woff2");
         assert_eq!(content_type(Path::new("mark.webp")), "image/webp");
         assert_eq!(content_type(Path::new("weird.bin")), "application/octet-stream");
+    }
+
+    #[test]
+    fn env_var_points_at_the_console_and_lookup_reads_it() {
+        let dir = fixture();
+        let _guard = ConsoleDirGuard::set(dir.path());
+
+        assert_eq!(console_dir().as_deref(), Some(dir.path()), "UNTERM_CONSOLE_DIR wins");
+
+        let (ct, body) = lookup("").expect("index.html");
+        assert_eq!(ct, "text/html; charset=utf-8");
+        assert!(String::from_utf8_lossy(&body).contains("console"));
+
+        let (ct, body) = lookup("/assets/app-abc123.js").expect("hashed asset");
+        assert_eq!(ct, "application/javascript; charset=utf-8");
+        assert_eq!(body, b"export{}");
+
+        assert!(lookup("/../secret.txt").is_none(), "traversal stays refused through lookup");
+        assert!(lookup("/nope.js").is_none());
+    }
+
+    #[test]
+    fn a_directory_without_index_is_not_a_console() {
+        let empty = tempfile::tempdir().expect("tempdir");
+        let _guard = ConsoleDirGuard::set(empty.path());
+        // No index.html means the env var is ignored, and with no console
+        // beside the test binary either, there is nothing to serve.
+        assert!(console_dir().is_none() || lookup("").is_none());
     }
 }
