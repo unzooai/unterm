@@ -19,3 +19,42 @@ The default mode verifies `docs\next-core-benchmark-summary.json` with `unterm-e
 The full mode runs `unterm-engine\bench-next-core.ps1`, writes the Markdown/JSON benchmark artifacts, then verifies the JSON summary.
 
 GitHub Actions workflow changes require a token with `workflow` scope. If a local agent cannot push `.github\workflows\*.yml`, keep this script and documentation committed, then add the workflow step from an account or token with that scope.
+
+## Installers
+
+Two products ship out of this repo's build scripts, and they stay independent:
+
+```powershell
+# Just the terminal. Same MSI as always; the console rides along when its
+# static build is present, and the build succeeds without it either way.
+pwsh -File ci\build-msi.ps1
+
+# Unzoo One: one download that installs the terminal and the browser.
+gh release download -R unzooai/unzoo -p "UnzooSetup-*.exe" --dir dist
+pwsh -File ci\build-bundle.ps1 -UnzooSetup dist\UnzooSetup-2.5.32.exe
+```
+
+The bundle is additive. It carries `Unterm.msi` byte-for-byte and hands Unzoo's
+own installer its silent switch; neither product is repackaged or renamed, and
+the bundle's `UpgradeCode` is its own. Installing through the bundle and
+installing the two pieces by hand leave the machine in the same state, and each
+product keeps updating on its own schedule.
+
+`build-bundle.ps1` builds an MSI first unless you point `-UntermMsi` at one.
+The browser is chained as non-vital: if its installer fails, the terminal is
+still installed and usable, just without the browser-driven capabilities. A
+machine that already has the same or a newer Unzoo Browser skips that 183 MB
+step entirely.
+
+### The console
+
+The Unzoo One console is built in the `unzoo-one` repo:
+
+```bash
+cd ..\unzoo-one && npm run build:static   # -> dist\client
+```
+
+`build-msi.ps1 -ConsoleDir` defaults to `..\unzoo-one\dist\client`. When it
+finds a build there it stages it into `<install dir>\console`, which
+`unterm-settings` serves at `/console/`. No build, no console: the MSI is a
+couple of MB smaller and the menu entry stays hidden.
