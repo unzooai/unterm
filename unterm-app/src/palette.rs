@@ -35,6 +35,9 @@ pub enum Command {
     ExportSession,
     /// Open the web settings page in a browser.
     OpenSettings,
+    /// Open the Unzoo One console in a browser. Only offered when the
+    /// console assets are actually installed.
+    OpenConsole,
     /// Open the shell picker: a new tab running the shell you choose.
     OpenShellSelector,
     /// Show the directories under a path, so one can be picked.

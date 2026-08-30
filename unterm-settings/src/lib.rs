@@ -9,6 +9,7 @@
 mod agents;
 mod assets;
 mod console;
+pub use console::console_dir;
 pub mod server;
 
 pub use server::start_web_settings_server;

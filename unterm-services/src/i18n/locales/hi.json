@@ -163,6 +163,8 @@
   "settings.menu.split_right.hint": "वर्तमान पैनल को बाएँ/दाएँ विभाजित करें",
   "settings.menu.web_settings": "सेटिंग्स (वेब)",
   "settings.menu.web_settings.hint": "थीम, प्रॉक्सी, सत्र और बाक़ी सब",
+  "settings.menu.console": "Unzoo One कंसोल",
+  "settings.menu.console.hint": "कार्य, अनुमोदन, आउटपुट और रन इतिहास",
   "settings.title": "सेटिंग्स",
   "shell.footer.hint": " ↑↓ नेविगेट   Enter खोलें   Esc रद्द   1-9 त्वरित",
   "shell.subtitle": "  शेल प्रोफ़ाइल चुनें",

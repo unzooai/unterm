@@ -35,6 +35,11 @@
       <ComponentGroupRef Id="UntermFiles" />
       <ComponentRef Id="StartMenuShortcut" />
       <ComponentRef Id="ExplorerContextMenu" />
+      <!-- Built by unzoo-one's `npm run build:static`; ci\build-msi.ps1 sets
+           ConsoleStaged=1 once it has copied it into the staging folder. -->
+      <?if $(var.ConsoleStaged) = "1" ?>
+      <ComponentGroupRef Id="ConsoleFiles" />
+      <?endif?>
     </Feature>
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -46,6 +51,9 @@
         <!-- Mesa software-GL is x64-only; no arm64 prebuilt exists. -->
         <?if $(sys.BUILDARCH) != "arm64" ?>
         <Directory Id="MesaFolder" Name="mesa" />
+        <?endif?>
+        <?if $(var.ConsoleStaged) = "1" ?>
+        <Directory Id="ConsoleFolder" Name="console" />
         <?endif?>
       </Directory>
     </StandardDirectory>
@@ -201,5 +209,14 @@
           Value="&quot;[INSTALLFOLDER]unterm.exe&quot; start --cwd &quot;%V&quot;" />
       </Component>
     </DirectoryRef>
+
+    <!-- The console's file names carry content hashes that change on every
+         front-end build, so they are harvested rather than listed. Anything
+         under the staged console\ directory ships as-is. -->
+    <?if $(var.ConsoleStaged) = "1" ?>
+    <ComponentGroup Id="ConsoleFiles" Directory="ConsoleFolder">
+      <Files Include="$(var.SourceDir)\console\**" />
+    </ComponentGroup>
+    <?endif?>
   </Package>
 </Wix>

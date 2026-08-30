@@ -24,7 +24,11 @@ param(
   # -arch (component bitness + ProgramFiles64 resolution). Defaults from the
   # host so a native arm runner produces an arm64 MSI without extra args.
   [ValidateSet("x64", "arm64")]
-  [string]$Arch = $(if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" })
+  [string]$Arch = $(if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }),
+  # The Unzoo One console's static build (unzoo-one's `npm run build:static`
+  # output). Optional: without it the MSI builds exactly as before, and the
+  # installed unterm simply does not offer the console.
+  [string]$ConsoleDir = "..\unzoo-one\dist\client"
 )
 $ErrorActionPreference = "Stop"
 
@@ -82,6 +86,24 @@ Copy-Item "assets\fonts\NotoColorEmoji.ttf" $fonts
 # The default terminal face, opened by file name at startup.
 Copy-Item "assets\fonts\JetBrainsMono-Regular.ttf" $fonts
 
+# The Unzoo One console, if its static build is around. unterm-settings serves
+# whatever lands in <install dir>\console at /console/; when the directory is
+# absent the console entry never shows up in the menu, so shipping without it
+# is a supported build, not a broken one.
+$consoleStaged = $false
+if (Test-Path (Join-Path $ConsoleDir "index.html")) {
+  $consoleTarget = Join-Path $stage "console"
+  Copy-Item $ConsoleDir $consoleTarget -Recurse
+  # Vite leaves its manifest cache behind; it is not needed at runtime.
+  $viteCache = Join-Path $consoleTarget ".vite"
+  if (Test-Path $viteCache) { Remove-Item -Recurse -Force $viteCache }
+  $consoleStaged = $true
+  $count = (Get-ChildItem $consoleTarget -Recurse -File).Count
+  Write-Host "Staging the Unzoo One console: $count files from $ConsoleDir"
+} else {
+  Write-Host "No console build at $ConsoleDir — the MSI will ship without it."
+}
+
 if (-not (Test-Path $WixPath)) {
   throw "WiX not found at $WixPath. Download wix.exe from https://github.com/wixtoolset/wix and place it there."
 }
@@ -100,6 +122,7 @@ $msiPath = Join-Path $OutDir $msiName
 & $WixPath build installer\Unterm.wxs `
   -ext WixToolset.UI.wixext `
   -d "SourceDir=$stage" `
+  -d "ConsoleStaged=$(if ($consoleStaged) { '1' } else { '0' })" `
   -arch $Arch `
   -o $msiPath
 if ($LASTEXITCODE -ne 0) {

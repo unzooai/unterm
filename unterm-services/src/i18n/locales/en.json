@@ -237,6 +237,8 @@
   "settings.menu.split_right.hint": "split current pane left/right",
   "settings.menu.web_settings": "Settings (Web)",
   "settings.menu.web_settings.hint": "themes, proxy, sessions, all the rest",
+  "settings.menu.console": "Unzoo One Console",
+  "settings.menu.console.hint": "tasks, approvals, artifacts, the whole workbench",
   "settings.title": "Settings",
   "shell.footer.hint": " ↑↓ Navigate   Enter Open   Esc Cancel   1-9 Quick",
   "shell.subtitle": "  Choose a shell profile",

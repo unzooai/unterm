@@ -7140,6 +7140,20 @@ impl App {
         }
     }
 
+    /// Open the Unzoo One console. Same HTTP server as the settings page,
+    /// off `/console/`.
+    fn open_console(&mut self) {
+        let info = unterm_services::server_info::read();
+        if info.http_port == 0 {
+            log::warn!("the settings server has not started yet");
+            return;
+        }
+        let url = format!("http://127.0.0.1:{}/console/", info.http_port);
+        if let Err(err) = crate::links::open(&url) {
+            log::warn!("could not open {url}: {err}");
+        }
+    }
+
     /// The picker's rows: every theme the product ships.
     fn theme_entries(&self) -> Vec<crate::palette::Entry> {
         let current = self.theme_id.clone();
@@ -7256,7 +7270,7 @@ impl App {
             hint: chord(action),
             command: crate::palette::Command::Action(action),
         };
-        vec![
+        let mut entries = vec![
             action(t("menu.new_tab"), crate::keys::Action::NewTab),
             action(
                 t("settings.menu.split_right"),
@@ -7328,7 +7342,24 @@ impl App {
                     url: "https://unterm.app".to_string(),
                 },
             },
-        ]
+        ];
+        // 控制台只在装了资源时进菜单：没装的话点开只会是一个 404。
+        if unterm_settings::console_dir().is_some() {
+            let at = entries
+                .iter()
+                .position(|entry| entry.command == crate::palette::Command::OpenSettings)
+                .map(|index| index + 1)
+                .unwrap_or(entries.len());
+            entries.insert(
+                at,
+                crate::palette::Entry {
+                    label: t("settings.menu.console"),
+                    hint: t("settings.menu.console.hint"),
+                    command: crate::palette::Command::OpenConsole,
+                },
+            );
+        }
+        entries
     }
 
     /// Every command the GUI exposes, not only the subset with a key chord.
@@ -8029,6 +8060,7 @@ impl App {
             crate::palette::Command::ToggleRecording => self.toggle_recording(),
             crate::palette::Command::ExportSession => self.export_session(),
             crate::palette::Command::OpenSettings => self.open_settings(),
+            crate::palette::Command::OpenConsole => self.open_console(),
             crate::palette::Command::ApplyTheme { id } => self.apply_theme(&id),
             crate::palette::Command::TypeCharacter { glyph, name } => {
                 self.type_character(&glyph, &name)

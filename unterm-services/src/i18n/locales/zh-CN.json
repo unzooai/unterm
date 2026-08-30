@@ -237,6 +237,8 @@
   "settings.menu.split_right.hint": "将当前面板左右拆分",
   "settings.menu.web_settings": "设置(网页版)",
   "settings.menu.web_settings.hint": "主题、代理、会话等更多选项",
+  "settings.menu.console": "Unzoo One 工作台",
+  "settings.menu.console.hint": "任务、审批、成果与运行记录",
   "settings.title": "设置",
   "shell.footer.hint": " ↑↓ 选择   Enter 打开   Esc 取消   1-9 快速选择",
   "shell.subtitle": "  选择 Shell 配置",

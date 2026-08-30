@@ -163,6 +163,8 @@
   "settings.menu.split_right.hint": "Aktiven Bereich horizontal teilen",
   "settings.menu.web_settings": "Einstellungen (Web)",
   "settings.menu.web_settings.hint": "Themes, Proxy, Sitzungen und mehr",
+  "settings.menu.console": "Unzoo One Konsole",
+  "settings.menu.console.hint": "Aufgaben, Freigaben, Artefakte, Verlauf",
   "settings.title": "Einstellungen",
   "shell.footer.hint": " ↑↓ Navigieren   Enter Öffnen   Esc Abbrechen   1-9 Schnellauswahl",
   "shell.subtitle": "  Shell-Profil auswählen",

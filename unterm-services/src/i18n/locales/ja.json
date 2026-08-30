@@ -163,6 +163,8 @@
   "settings.menu.split_right.hint": "現在のペインを左右に分割",
   "settings.menu.web_settings": "設定(Web)",
   "settings.menu.web_settings.hint": "テーマ、プロキシ、セッションなど",
+  "settings.menu.console": "Unzoo One コンソール",
+  "settings.menu.console.hint": "タスク、承認、成果物、実行記録",
   "settings.title": "設定",
   "shell.footer.hint": " ↑↓ 移動   Enter 開く   Esc キャンセル   1-9 ショートカット",
   "shell.subtitle": "  シェルプロファイルを選択",
