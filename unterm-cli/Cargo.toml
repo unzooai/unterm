@@ -41,3 +41,6 @@ libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 winapi = { workspace = true, features = ["winuser", "processthreadsapi", "handleapi", "winbase"] }
+
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = { workspace = true }

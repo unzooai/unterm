@@ -8,6 +8,7 @@ Prerequisites:
     Install with:
       dotnet tool install --tool-path .\.tools wix --version 6.0.1
       .\.tools\wix.exe extension add -g WixToolset.UI.wixext/6.0.1
+      .\.tools\wix.exe extension add -g WixToolset.Util.wixext/6.0.1
     See .github/workflows/release-windows.yml for the canonical recipe.
 
 Usage:
@@ -90,6 +91,7 @@ if (-not (Test-Path $WixPath)) {
 # resolve the <ui:WixUI Id="WixUI_Minimal"/> reference at build time.
 # `wix extension add` is idempotent; it noops if already added.
 & $WixPath extension add -g WixToolset.UI.wixext/6.0.1 | Out-Null
+& $WixPath extension add -g WixToolset.Util.wixext/6.0.1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
   throw "WiX UI extension registration failed with exit code $LASTEXITCODE"
 }
@@ -99,6 +101,7 @@ $msiPath = Join-Path $OutDir $msiName
 
 & $WixPath build installer\Unterm.wxs `
   -ext WixToolset.UI.wixext `
+  -ext WixToolset.Util.wixext `
   -d "SourceDir=$stage" `
   -arch $Arch `
   -o $msiPath

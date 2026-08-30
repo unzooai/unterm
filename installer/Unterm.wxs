@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package
     Name="Unterm"
     Manufacturer="Alex"
@@ -21,6 +22,36 @@
          terminal in it. 'a' overrides that version comparison; without it any
          upgrade across the kernel boundary ships a folder of DLLs and no exe. -->
     <Property Id="REINSTALLMODE" Value="amus" />
+
+    <!-- Close what is holding the files, rather than asking the user to.
+         An install is interactive (WixUI_Minimal below), so a locked file
+         means Restart Manager shows "the following applications should be
+         closed" and stops. Quitting the window is not enough to clear it:
+         unterm-core.exe is spawned detached so sessions survive a window
+         closing, and unterm-cli.exe is what an agent's MCP bridge runs, held
+         open by whichever editor spawned it. Neither has a window to close,
+         so the user is asked to close something they cannot see and the
+         install fails however many times they try.
+
+         TerminateProcess rather than a close message: the two helpers have no
+         message loop to receive one, and by this point the user has already
+         agreed to install over them. -->
+    <util:CloseApplication
+      Id="CloseUntermGui"
+      Target="unterm.exe"
+      CloseMessage="yes"
+      TerminateProcess="1"
+      RebootPrompt="no" />
+    <util:CloseApplication
+      Id="CloseUntermCore"
+      Target="unterm-core.exe"
+      TerminateProcess="1"
+      RebootPrompt="no" />
+    <util:CloseApplication
+      Id="CloseUntermCli"
+      Target="unterm-cli.exe"
+      TerminateProcess="1"
+      RebootPrompt="no" />
     <MediaTemplate EmbedCab="yes" />
 
     <!-- WixUI_Minimal gives the user a small wizard: Welcome → License →
