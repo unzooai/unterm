@@ -6390,6 +6390,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "tempfile",
  "unterm-agents",
  "unterm-engine",
  "unterm-mcp",
