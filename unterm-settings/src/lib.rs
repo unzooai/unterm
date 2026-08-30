@@ -6,8 +6,11 @@
 //! workspace deps; ~/.unterm/server.json carries the bound port and the
 //! shared auth token.
 
+mod agent_run;
 mod agents;
 mod assets;
+mod console;
+pub use console::console_dir;
 pub mod server;
 
 pub use server::start_web_settings_server;

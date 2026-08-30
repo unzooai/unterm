@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The Unzoo One installer: one download that lays down the terminal and the
+  browser, so a new user does not have to find and run two of them.
+
+  This is purely additive. It carries Unterm.msi as-is and hands Unzoo's own
+  installer its own silent switch; neither product is repackaged, renamed, or
+  given a new UpgradeCode. Both stay independently installable and each keeps
+  updating on its own schedule — the bundle only solves first-time setup.
+
+  Build it with ci\build-bundle.ps1, which stages the MSI and the Unzoo
+  installer next to each other first.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+
+  <Bundle
+    Name="Unzoo One"
+    Manufacturer="Alex"
+    Version="$(var.BundleVersion)"
+    UpgradeCode="0D238B09-1BCC-451C-96E4-F2849F7BAFC3"
+    IconSourceFile="assets\windows\terminal.ico"
+    Compressed="yes">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication
+        Theme="hyperlinkLicense"
+        LicenseUrl="https://unterm.app"
+        SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+
+    <!--
+      Unzoo Browser writes a plain uninstall entry. Reading DisplayVersion
+      tells us both whether it is here and which build, so an install that
+      already has it skips a 183 MB no-op.
+    -->
+    <util:RegistrySearch
+      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+      Id="UnzooInstalledVersion"
+      Root="HKLM"
+      Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Unzoo Browser"
+      Value="DisplayVersion"
+      Result="value"
+      Variable="UnzooVersion" />
+
+    <Chain>
+      <!--
+        The terminal, the Core, and the console. Unterm.msi is the same file
+        the standalone download ships; installing through the bundle and
+        installing it directly leave the machine in the same state.
+      -->
+      <MsiPackage
+        Id="Unterm"
+        SourceFile="$(var.UntermMsi)"
+        Vital="yes" />
+
+      <!--
+        The browser. Its installer is NSIS, so /S is the silent switch.
+        Not vital: a machine with the terminal but no browser is still a
+        working install, just without the browser-driven capabilities.
+      -->
+      <ExePackage
+        Id="UnzooBrowser"
+        SourceFile="$(var.UnzooSetup)"
+        InstallArguments="/S"
+        UninstallArguments="/S"
+        PerMachine="yes"
+        Permanent="no"
+        Vital="no"
+        DetectCondition="UnzooVersion &gt;= v$(var.UnzooVersion)" />
+    </Chain>
+  </Bundle>
+</Wix>

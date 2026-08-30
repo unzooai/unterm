@@ -243,6 +243,8 @@ mod catalogue_tests {
             "settings.menu.split_right",
             "settings.menu.recording_on",
             "settings.menu.recording_off",
+            "settings.menu.console",
+            "settings.menu.console.hint",
             "settings.menu.export_session",
             "settings.menu.web_settings",
         ];

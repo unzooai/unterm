@@ -163,6 +163,8 @@
   "settings.menu.split_right.hint": "將目前面板左右分割",
   "settings.menu.web_settings": "設定(網頁版)",
   "settings.menu.web_settings.hint": "佈景主題、Proxy、工作階段等其他項目",
+  "settings.menu.console": "Unzoo One 工作台",
+  "settings.menu.console.hint": "任務、審批、成果與執行記錄",
   "settings.title": "設定",
   "shell.footer.hint": " ↑↓ 選擇   Enter 開啟   Esc 取消   1-9 快速選擇",
   "shell.subtitle": "  選擇 Shell 設定檔",

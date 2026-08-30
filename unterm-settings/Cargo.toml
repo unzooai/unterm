@@ -24,3 +24,6 @@ unterm-mcp = { path = "../unterm-mcp" }
 unterm-profile.workspace = true
 unterm-protocol.workspace = true
 unterm-services.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

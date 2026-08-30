@@ -163,6 +163,8 @@
   "settings.menu.split_right.hint": "현재 창을 좌우로 분할",
   "settings.menu.web_settings": "설정(웹)",
   "settings.menu.web_settings.hint": "테마, 프록시, 세션 등 모든 항목",
+  "settings.menu.console": "Unzoo One 콘솔",
+  "settings.menu.console.hint": "작업, 승인, 산출물, 실행 기록",
   "settings.title": "설정",
   "shell.footer.hint": " ↑↓ 이동   Enter 열기   Esc 취소   1-9 빠른 선택",
   "shell.subtitle": "  셸 프로필 선택",

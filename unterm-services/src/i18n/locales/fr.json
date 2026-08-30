@@ -163,6 +163,8 @@
   "settings.menu.split_right.hint": "diviser le panneau actif horizontalement",
   "settings.menu.web_settings": "Paramètres (Web)",
   "settings.menu.web_settings.hint": "thèmes, proxy, sessions et plus encore",
+  "settings.menu.console": "Console Unzoo One",
+  "settings.menu.console.hint": "tâches, validations, livrables et historique",
   "settings.title": "Paramètres",
   "shell.footer.hint": " ↑↓ Naviguer   Entrée Ouvrir   Esc Annuler   1-9 Raccourci",
   "shell.subtitle": "  Choisissez un profil de shell",

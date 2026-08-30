@@ -163,6 +163,8 @@
   "settings.menu.split_right.hint": "dividi orizzontalmente il pannello attivo",
   "settings.menu.web_settings": "Impostazioni (Web)",
   "settings.menu.web_settings.hint": "temi, proxy, sessioni e altro",
+  "settings.menu.console": "Console Unzoo One",
+  "settings.menu.console.hint": "attività, approvazioni, artefatti e cronologia",
   "settings.title": "Impostazioni",
   "shell.footer.hint": " ↑↓ Naviga   Invio Apri   Esc Annulla   1-9 Rapido",
   "shell.subtitle": "  Scegli un profilo di shell",
