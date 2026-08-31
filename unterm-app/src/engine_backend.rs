@@ -97,8 +97,66 @@ pub enum Backend {
     Core,
 }
 
+/// Set when this process is the one that started the Core.
+///
+/// Only the front end that started it may stop it: a Core that was already
+/// up belongs to whoever started it, which may be a `--headless` one the
+/// user launched on purpose.
+static STARTED_THE_CORE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Stop the Core, if this process started it and nobody else is using it.
+///
+/// The Core is spawned detached so that closing a window does not end the
+/// shells behind it. That is right for a window, and wrong for the process
+/// ending: nothing else ever stops it, so every quit leaves one behind. They
+/// accumulate invisibly on macOS, and on Windows they hold `unterm-core.exe`
+/// open, which is what made an installer ask the user to close a program that
+/// has no window.
+///
+/// The user has already been asked about live sessions by this point --
+/// `close_needs_confirmation` counts them before the last window closes -- so
+/// this is a plain shutdown, not a drain.
+pub fn stop_core_if_ours() {
+    use std::sync::atomic::Ordering;
+
+    if !STARTED_THE_CORE.load(Ordering::Acquire) {
+        return;
+    }
+    // Two paths reach a quit -- winit's `exiting`, and the explicit teardown
+    // that ends this process with `exit` -- and which one runs depends on how
+    // the user left. Both call this; only the first may act.
+    static ALREADY_STOPPED: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    if ALREADY_STOPPED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    // Another window of another process is still talking to this Core. Ours
+    // is going away; the Core is not ours alone to end.
+    let others = unterm_services::server_info::list_live_instances()
+        .into_iter()
+        .filter(|instance| instance.pid != std::process::id())
+        .count();
+    if others > 0 {
+        log::info!("leaving unterm-core running for {others} other front end(s)");
+        return;
+    }
+    let Some(shared) = CORE_SHARED.get() else {
+        return;
+    };
+    match shared.client.shutdown() {
+        Ok(()) => log::info!("stopped the unterm-core this process started"),
+        // Worth a line but not a failure: the Core may have exited already,
+        // and there is nothing left to do about it either way.
+        Err(err) => log::warn!("could not stop unterm-core on exit: {err:#}"),
+    }
+}
+
 fn connect_core_shared() -> Result<()> {
-    let info = unterm_core::ensure_running()?;
+    let (info, arrival) = unterm_core::ensure_running_reporting_arrival()?;
+    if arrival == unterm_core::CoreArrival::Started {
+        STARTED_THE_CORE.store(true, std::sync::atomic::Ordering::Release);
+    }
     let client = CoreEngineClient::connect(&info.endpoint, info.token.clone())?;
     // The config file is this process's to read; the Core just
     // applies whatever the connecting client was configured with.
@@ -638,8 +696,13 @@ impl WindowEngine for CoreHostEngine {
     /// and this call arrives on an MCP thread. The id is settled now
     /// regardless, because the caller is waiting to be told which window it
     /// just asked for.
-    fn open_window(&self) -> Result<u64> {
-        Ok(unterm_engine::request_window())
+    fn open_window_on(
+        &self,
+        cwd: Option<std::path::PathBuf>,
+        profile: Option<String>,
+        command: Vec<String>,
+    ) -> Result<u64> {
+        Ok(unterm_engine::request_window_on(cwd, profile, command))
     }
 }
 

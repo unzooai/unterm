@@ -281,8 +281,13 @@ impl McpHost for AppMcpHost {
     /// hands out an `ActiveEventLoop`, and this call is on an MCP thread.
     /// The id is the window's from this moment -- nothing else will be given
     /// it -- so the caller can use it without waiting for a frame.
-    fn open_window(&self) -> Option<u64> {
-        let id = unterm_engine::request_window();
+    fn open_window_on(
+        &self,
+        cwd: Option<std::path::PathBuf>,
+        profile: Option<String>,
+        command: Vec<String>,
+    ) -> Option<u64> {
+        let id = unterm_engine::request_window_on(cwd, profile, command);
         // The loop may be idle; without a nudge the window appears at
         // whatever event happens by next.
         request_repaint();
@@ -775,7 +780,26 @@ impl unterm_core::HostResponder for AppHostResponder {
             // for the event loop, which is the only place one can be made --
             // but the id is settled here and returned, because the Core is
             // waiting to tell an agent which window it just asked for.
-            "open_window" => Ok(json!({ "window_id": AppMcpHost.open_window() })),
+            "open_window" => {
+                let cwd = params
+                    .get("cwd")
+                    .and_then(|value| value.as_str())
+                    .map(std::path::PathBuf::from);
+                let profile = params
+                    .get("profile")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                let command = params
+                    .get("command")
+                    .and_then(|value| value.as_array())
+                    .map(|argv| {
+                        argv.iter()
+                            .filter_map(|item| item.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                Ok(json!({ "window_id": AppMcpHost.open_window_on(cwd, profile, command) }))
+            }
             "list_windows" => Ok(json!(AppMcpHost.list_windows())),
             "set_window_title" => Ok(json!(AppMcpHost.set_window_title(text("title")))),
             "focus_window" => AppMcpHost

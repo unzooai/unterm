@@ -622,7 +622,11 @@ pub const MCP_METHODS: &[McpMethod] = &[
     McpMethod { name: "instance.focus", namespace: "instance", summary: "Bring one of this instance's windows to the front.", params: &[
         Param { name: "window_id", kind: "number", required: false, summary: "From instance.windows; omit for whichever window is already in front." },
     ] },
-    McpMethod { name: "instance.new_window", namespace: "instance", summary: "Open another window on this front end, rather than starting a second process. Returns its window_id.", params: NO_PARAMS },
+    McpMethod { name: "instance.new_window", namespace: "instance", summary: "Open another window on this front end, rather than starting a second process. Returns its window_id.", params: &[
+        Param { name: "cwd", kind: "string", required: false, summary: "Directory the window's first shell starts in." },
+        Param { name: "profile", kind: "string", required: false, summary: "Identity profile to apply to the window's first shell." },
+        Param { name: "command", kind: "array", required: false, summary: "Program and arguments to run instead of the configured shell." },
+    ] },
     McpMethod { name: "instance.windows", namespace: "instance", summary: "Every window this front end is showing, with the ids instance.focus takes.", params: NO_PARAMS },
 ];
 

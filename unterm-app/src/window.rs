@@ -4718,7 +4718,8 @@ impl App {
     /// The id is a parameter rather than taken here because an MCP caller was
     /// told the number before this ran -- a window can only be built where
     /// winit hands out an `ActiveEventLoop`, and no agent can wait for one.
-    fn open_window(&mut self, event_loop: &ActiveEventLoop, id: u64) {
+    fn open_window(&mut self, event_loop: &ActiveEventLoop, request: unterm_engine::WindowRequest) {
+        let id = request.id;
         let Some(parked_id) = self.active_window_id() else {
             return;
         };
@@ -4759,7 +4760,26 @@ impl App {
             state: previous,
         });
         let explicit = std::mem::replace(&mut self.explicit_launch, true);
+        // `start` reads these for the shell it is about to make. Swapped
+        // around the call rather than assigned, the way `explicit_launch` is:
+        // they describe the *first* shell of a window, and a path left behind
+        // in `start_directory` would open every later tab there too.
+        let directory = request
+            .cwd
+            .is_some()
+            .then(|| std::mem::replace(&mut self.start_directory, request.cwd.clone()));
+        let command = request.command.first().map(|program| {
+            let mut builder = portable_pty::CommandBuilder::new(program);
+            builder.args(request.command.iter().skip(1));
+            std::mem::replace(&mut self.shell, Some(builder))
+        });
         let started = self.start(event_loop);
+        if let Some(previous) = directory {
+            self.start_directory = previous;
+        }
+        if let Some(previous) = command {
+            self.shell = previous;
+        }
         self.explicit_launch = explicit;
         match started {
             Ok(live) => {
@@ -6727,6 +6747,19 @@ impl App {
             return;
         }
         self.window.closing = true;
+        // Take the Core with us. It is spawned detached so that closing a
+        // window does not end the shells behind it, which is right for a
+        // window and wrong for the application leaving: nothing else ever
+        // stops it, so every quit left one running. They pile up unseen on
+        // macOS, and on Windows one holds unterm-core.exe open against the
+        // next installer -- which is why installing used to ask the user to
+        // close a program that has no window.
+        //
+        // Here rather than after the event loop returns: the fuse below ends
+        // this process with `exit`, which does not unwind, so nothing after
+        // `run_app` runs on any platform. The sessions this window owned are
+        // already gone by now.
+        crate::engine_backend::stop_core_if_ours();
         // The fuse. Whatever a teardown thread is joining, whatever lock a
         // worker still wants: the user chose to leave, the state is saved,
         // and needing Force Quit to make that stick is the one outcome this
@@ -11206,6 +11239,16 @@ impl ApplicationHandler for App {
         }
     }
 
+    /// The event loop is ending -- the other way out.
+    ///
+    /// On macOS a Cmd+Q goes through `applicationWillTerminate:`, which winit
+    /// reports here and which never reaches the window teardown that ends the
+    /// process itself. Stopping the Core has to hang off both, or quitting
+    /// the ordinary way on a Mac leaves one running.
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        crate::engine_backend::stop_core_if_ours();
+    }
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // Cheap, and the only place that sees every way a tab or a session
         // can appear or go: `instance.windows` reports this, and
@@ -11222,9 +11265,9 @@ impl ApplicationHandler for App {
         // launch that handed over rather than becoming another process. Each
         // request carries the id its window was promised, and two callers
         // asking at once want two windows rather than one.
-        for id in unterm_engine::take_window_requests() {
+        for request in unterm_engine::take_window_requests() {
             crate::startup_trace::mark("window.second.start");
-            self.open_window(event_loop, id);
+            self.open_window(event_loop, request);
             crate::startup_trace::mark("window.second.ready");
         }
         if self.window.closing {

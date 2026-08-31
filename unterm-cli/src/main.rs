@@ -422,11 +422,27 @@ fn main() -> Result<()> {
 }
 
 /// Ask a running front end for another window. False if none would take it.
-fn hand_over_window() -> bool {
+fn hand_over_window(
+    cwd: Option<&std::path::Path>,
+    profile: Option<&str>,
+    command: &[String],
+) -> bool {
     let Ok(mut client) = crate::client::McpClient::connect() else {
         return false;
     };
-    client.call("instance.new_window", serde_json::json!({})).is_ok()
+    let mut params = serde_json::Map::new();
+    if let Some(cwd) = cwd {
+        params.insert("cwd".into(), cwd.display().to_string().into());
+    }
+    if let Some(profile) = profile {
+        params.insert("profile".into(), profile.into());
+    }
+    if !command.is_empty() {
+        params.insert("command".into(), command.to_vec().into());
+    }
+    client
+        .call("instance.new_window", serde_json::Value::Object(params))
+        .is_ok()
 }
 
 fn run_start(
@@ -439,10 +455,12 @@ fn run_start(
     // ~200 ms, paid again by every process -- while a window on a front end
     // that already has one costs 31 ms.
     //
-    // Only for a plain `start`. `--cwd`, `--profile` and a program are asks
-    // about *this* window, and handing them to a front end that would ignore
-    // them is worse than the process it saves.
-    if cwd.is_none() && profile.is_none() && command.is_empty() && hand_over_window() {
+    // `--cwd`, `--profile` and a program used to force a second process:
+    // `instance.new_window` took no arguments, so handing the ask over lost
+    // it, and a window on the wrong folder is worse than a slow one. The
+    // request carries them now, so every `start` can hand over -- which also
+    // stops each one leaving a Core of its own behind when it quits.
+    if hand_over_window(cwd.as_deref(), profile.as_deref(), &command) {
         return Ok(());
     }
     let current = std::env::current_exe().context("locating unterm-cli executable")?;

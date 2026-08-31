@@ -5707,7 +5707,7 @@ impl McpHandler {
             "instance.close" => self.instance_close(params),
             "instance.set_title" => self.instance_set_title(params),
             "instance.focus" => self.instance_focus(params),
-            "instance.new_window" => self.instance_new_window(),
+            "instance.new_window" => self.instance_new_window(params),
             "instance.windows" => self.instance_windows(),
             // Identity profiles: read-only surface for agents. Writes
             // (create / set-secret / delete) and `profile.spawn` (which
@@ -6216,8 +6216,30 @@ impl McpHandler {
     /// waiting would mean blocking an MCP worker on a frame. The number is
     /// already the window's -- nothing else will be given it -- so an agent
     /// can pass it straight to `instance.focus`.
-    fn instance_new_window(&self) -> Result<Value> {
-        let window_id = self.engine().open_window()?;
+    fn instance_new_window(&self, params: &Value) -> Result<Value> {
+        // Optional, and the reason this takes params at all: `unterm start
+        // --cwd` used to become a whole second process rather than hand the
+        // window over, because handing it over lost the directory. A window
+        // opened on the wrong folder is worse than a slow one, so the guard
+        // was right until the ask could travel with the request.
+        let cwd = params
+            .get("cwd")
+            .and_then(|value| value.as_str())
+            .map(std::path::PathBuf::from);
+        let profile = params
+            .get("profile")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        let command = params
+            .get("command")
+            .and_then(|value| value.as_array())
+            .map(|argv| {
+                argv.iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let window_id = self.engine().open_window_on(cwd, profile, command)?;
         Ok(json!({ "ok": true, "window_id": window_id }))
     }
 

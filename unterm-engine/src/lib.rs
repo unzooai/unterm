@@ -1391,7 +1391,22 @@ pub enum ViewportScrollResult {
 /// place a window can actually be made. A queue of ids rather than the flag
 /// this used to be: two callers asking at once want two windows, and each
 /// wants to be told which one is theirs.
-static WINDOW_REQUESTS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+/// A window somebody asked for, and what they asked it to open on.
+///
+/// Carries the directory and profile rather than just the id because the
+/// caller that needs them most is a second `unterm start --cwd`: without a
+/// way to say where, handing the request to the running front end would open
+/// a window on the wrong folder, so it used to start a whole second process
+/// instead -- ~200 ms of GPU adapter, and a Core left behind when it quit.
+#[derive(Clone, Debug, Default)]
+pub struct WindowRequest {
+    pub id: u64,
+    pub cwd: Option<std::path::PathBuf>,
+    pub profile: Option<String>,
+    pub command: Vec<String>,
+}
+
+static WINDOW_REQUESTS: std::sync::Mutex<Vec<WindowRequest>> = std::sync::Mutex::new(Vec::new());
 
 /// The next window id this process will hand out.
 ///
@@ -1417,15 +1432,29 @@ pub fn reserve_window_id() -> u64 {
 /// out an `ActiveEventLoop`. Reserved is enough to answer with: nothing else
 /// will ever be given this number.
 pub fn request_window() -> u64 {
+    request_window_on(None, None, Vec::new())
+}
+
+/// Ask for a window that opens on a given directory, profile or command.
+pub fn request_window_on(
+    cwd: Option<std::path::PathBuf>,
+    profile: Option<String>,
+    command: Vec<String>,
+) -> u64 {
     let id = reserve_window_id();
     if let Ok(mut queue) = WINDOW_REQUESTS.lock() {
-        queue.push(id);
+        queue.push(WindowRequest {
+            id,
+            cwd,
+            profile,
+            command,
+        });
     }
     id
 }
 
 /// Every window asked for since this was last called, in the order asked.
-pub fn take_window_requests() -> Vec<u64> {
+pub fn take_window_requests() -> Vec<WindowRequest> {
     WINDOW_REQUESTS
         .lock()
         .map(|mut queue| std::mem::take(&mut *queue))
@@ -1449,8 +1478,18 @@ pub trait WindowEngine {
     /// beside, and saying so is better than reporting a window that is not
     /// there.
     fn open_window(&self) -> anyhow::Result<u64> {
+        self.open_window_on(None, None, Vec::new())
+    }
+
+    /// Open a window that starts on a given directory, profile or command.
+    fn open_window_on(
+        &self,
+        cwd: Option<std::path::PathBuf>,
+        profile: Option<String>,
+        command: Vec<String>,
+    ) -> anyhow::Result<u64> {
         // A Core has no window of its own; the front end attached to it does.
-        if let Some(id) = mcp_host().and_then(|host| host.open_window()) {
+        if let Some(id) = mcp_host().and_then(|host| host.open_window_on(cwd, profile, command)) {
             return Ok(id);
         }
         anyhow::bail!("no front end is attached to open a window on")
@@ -1694,7 +1733,18 @@ pub trait McpHost: Send + Sync {
     /// end is attached, which is the whole point of this trait. `None` when
     /// nothing is attached to ask, so the caller can fall back to starting a
     /// front end rather than reporting a window that was never opened.
-    fn open_window(&self) -> Option<u64> {
+    /// Open a window, optionally on a given directory, profile or command.
+    ///
+    /// One method rather than a no-argument one delegating to this: with
+    /// both, a front end that overrode only the short form kept compiling
+    /// and quietly stopped opening windows the moment anything asked for a
+    /// directory.
+    fn open_window_on(
+        &self,
+        _cwd: Option<std::path::PathBuf>,
+        _profile: Option<String>,
+        _command: Vec<String>,
+    ) -> Option<u64> {
         None
     }
 
@@ -2584,7 +2634,12 @@ mod host_capture_tests {
             }]
         }
 
-        fn open_window(&self) -> Option<u64> {
+        fn open_window_on(
+            &self,
+            _cwd: Option<std::path::PathBuf>,
+            _profile: Option<String>,
+            _command: Vec<String>,
+        ) -> Option<u64> {
             Some(8)
         }
 
@@ -2681,12 +2736,51 @@ mod host_capture_tests {
 
         // Only the *requested* ones are queued: `reserve_window_id` is for a
         // window the front end is already making for itself.
-        let queued = take_window_requests();
+        let queued: Vec<u64> = take_window_requests()
+            .into_iter()
+            .map(|request| request.id)
+            .collect();
         assert_eq!(queued, vec![first, third]);
         assert!(
             take_window_requests().is_empty(),
             "draining twice must not repeat a window"
         );
+    }
+
+    /// What the window was asked to open on has to survive the queue.
+    ///
+    /// It did not used to: the queue held bare ids, so `unterm start --cwd`
+    /// could not hand its directory to the running front end and started a
+    /// whole second process rather than open a window on the wrong folder.
+    #[test]
+    fn a_window_request_carries_where_it_should_open() {
+        let _ = take_window_requests();
+        let id = request_window_on(
+            Some(std::path::PathBuf::from("/tmp/somewhere")),
+            Some("work".to_string()),
+            vec!["zsh".to_string(), "-l".to_string()],
+        );
+        let queued = take_window_requests();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].id, id);
+        assert_eq!(
+            queued[0].cwd.as_deref(),
+            Some(std::path::Path::new("/tmp/somewhere"))
+        );
+        assert_eq!(queued[0].profile.as_deref(), Some("work"));
+        assert_eq!(queued[0].command, vec!["zsh", "-l"]);
+    }
+
+    /// A plain request still asks for nothing in particular.
+    #[test]
+    fn a_plain_window_request_carries_no_ask() {
+        let _ = take_window_requests();
+        request_window();
+        let queued = take_window_requests();
+        assert_eq!(queued.len(), 1);
+        assert!(queued[0].cwd.is_none());
+        assert!(queued[0].profile.is_none());
+        assert!(queued[0].command.is_empty());
     }
 }
 

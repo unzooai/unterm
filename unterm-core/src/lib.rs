@@ -1829,12 +1829,30 @@ impl unterm_engine::McpHost for RemoteMcpHost {
     /// opened another. The front end reserves the number and returns it at
     /// once -- it does not wait for the window, which can only be built on
     /// the event loop.
-    fn open_window(&self) -> Option<u64> {
+    fn open_window_on(
+        &self,
+        cwd: Option<std::path::PathBuf>,
+        profile: Option<String>,
+        command: Vec<String>,
+    ) -> Option<u64> {
         if !self.can_prompt() {
             return None;
         }
+        // The ask travels with the call: a Core-mediated `unterm start --cwd`
+        // has to reach the front end with its directory intact, or it opens a
+        // window on the wrong folder.
+        let mut params = serde_json::Map::new();
+        if let Some(cwd) = cwd {
+            params.insert("cwd".into(), cwd.display().to_string().into());
+        }
+        if let Some(profile) = profile {
+            params.insert("profile".into(), profile.into());
+        }
+        if !command.is_empty() {
+            params.insert("command".into(), command.into());
+        }
         host_channel()
-            .call("open_window", serde_json::Value::Null, HOST_QUICK)
+            .call("open_window", serde_json::Value::Object(params), HOST_QUICK)
             .ok()
             .and_then(|value| value.get("window_id").and_then(|id| id.as_u64()))
     }
@@ -2878,9 +2896,34 @@ fn scrollback_request_params(
     })
 }
 
+/// Whether the Core was already up, or this process had to start it.
+///
+/// A front end that started the Core is the only one that may stop it. The
+/// Core is spawned detached on purpose -- closing a window must not end the
+/// shells behind it -- so nothing else ever takes it down, and one that was
+/// already running belongs to whoever started it, including a `--headless`
+/// one the user launched deliberately.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CoreArrival {
+    /// Found one already running and attached to it.
+    Attached,
+    /// None was running, so this process started it.
+    Started,
+}
+
 /// Ensure the per-user Core process is available and return its
 /// discovery record. GUI, CLI and MCP entry points share this path.
 pub fn ensure_running() -> Result<DiscoveryInfo> {
+    ensure_running_reporting_arrival().map(|(info, _)| info)
+}
+
+/// `ensure_running`, plus whether this call is the one that started it.
+///
+/// Split out rather than changing `ensure_running`'s signature: three of its
+/// four callers have no use for the answer, and a returned tuple they all
+/// have to destructure is worse than one extra entry point for the caller
+/// that does.
+pub fn ensure_running_reporting_arrival() -> Result<(DiscoveryInfo, CoreArrival)> {
     if let Some(info) = read_discovery()? {
         if unterm_services::server_info::pid_alive(info.pid) {
             if let Ok(mut client) = CoreClient::connect(&info.endpoint, &info.token) {
@@ -2889,7 +2932,7 @@ pub fn ensure_running() -> Result<DiscoveryInfo> {
                 client.handshake()?;
                 let health: Response<serde_json::Value> = client.request("core.health")?;
                 if health.ok {
-                    return Ok(info);
+                    return Ok((info, CoreArrival::Attached));
                 }
             }
         } else {
@@ -2928,7 +2971,7 @@ pub fn ensure_running() -> Result<DiscoveryInfo> {
                 client.handshake()?;
                 let health: Response<serde_json::Value> = client.request("core.health")?;
                 if health.ok {
-                    return Ok(info);
+                    return Ok((info, CoreArrival::Started));
                 }
             }
         }
