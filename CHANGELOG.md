@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.71.2 — 2026-09-01
+
+### Fixed
+
+- **Quitting left the Core running.** Closing a window is not meant to end
+  the shells behind it, so the Core is started detached — but nothing ever
+  stopped it when the application itself went away, so every quit left one
+  behind. On macOS they piled up unseen; on Windows one holds
+  `unterm-core.exe` open, which is why the installer asked you to close a
+  program that has no window to close.
+
+  Quitting now stops the Core it started. Only the one it started: a Core
+  that was already running belongs to whoever started it, including a
+  `--headless` one you launched on purpose, and one still serving another
+  window is left alone.
+
+- **Opening Unterm twice made two of everything.** `unterm start --cwd`
+  became a whole second process — a GPU adapter each time, and a second Core
+  to be left behind later — because the call that hands a window to the
+  running front end took no arguments, so handing over would have lost the
+  directory. The guard was right about that; what was wrong was treating it
+  as a trade rather than fixing the call. The request now carries the
+  directory, profile and command, so every `start` hands over.
+
+  One consequence worth knowing: with a front end already running, `start`
+  no longer creates a second process. Windows share one, as the
+  single-process design has intended since v0.68.2 — faster, and no stray
+  Core, at the cost of one window's crash taking the others.
+
+- **`unterm-core.exe` reported version 0.1.0.** It carried the crate's
+  version rather than the product's. Worse than the blank it replaced: a
+  blank is honest, and 0.1.0 looks like an answer.
+
 ## v0.71.1 — 2026-08-30
 
 ### Fixed
