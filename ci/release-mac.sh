@@ -123,8 +123,24 @@ echo ">> Uploading $dmg to release $TAG"
 # `--clobber` so re-runs just overwrite the asset; `gh release create` first if
 # the release doesn't exist yet (the Linux/Windows workflows usually create it).
 if ! gh release view "$TAG" >/dev/null 2>&1; then
-  gh release create "$TAG" --title "Unterm $TAG" --notes "Unterm $TAG"
+  # Losing this race is not a failure. The Linux and Windows workflows create
+  # the same release, and one of them can land between the check above and
+  # this line -- which is exactly what happened on 0.71.2: the whole script
+  # exited 1 with a signed, notarised, stapled dmg sitting there unuploaded,
+  # for the one reason that did not matter.
+  if ! gh release create "$TAG" --title "Unterm $TAG" --notes "Unterm $TAG"; then
+    gh release view "$TAG" >/dev/null 2>&1 ||
+      { echo "release $TAG could not be created or found" >&2; exit 1; }
+  fi
 fi
 gh release upload "$TAG" "$dmg" --clobber
+
+# Existence is not the same as having uploaded it. On 0.70.0 the upload died
+# mid-transfer with an EOF and said so only in a line nobody read; the release
+# then shipped without a macOS build until someone looked.
+if ! gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "$(basename "$dmg")"; then
+  echo "upload reported success but $dmg is not on release $TAG" >&2
+  exit 1
+fi
 
 echo ">> Done. Asset $dmg attached to release $TAG."
