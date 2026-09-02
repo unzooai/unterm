@@ -67,6 +67,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          # Full history: the benchmark gate checks that the recorded summary
+          # commit is an ancestor of HEAD. A shallow checkout makes it skip that
+          # check entirely -- it had been silently not running.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-pc-windows-msvc
