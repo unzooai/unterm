@@ -120,6 +120,13 @@ static STARTED_THE_CORE: std::sync::atomic::AtomicBool =
 pub fn stop_core_if_ours() {
     use std::sync::atomic::Ordering;
 
+    // Both callers are quit paths, so this is the moment the rest of the
+    // process learns it is going away. It has to be said before the Core is
+    // stopped, not after: the frame worker notices a dropped connection
+    // within a poll interval and would start a replacement Core -- an orphan
+    // that outlives us -- unless it already knows we are leaving.
+    unterm_core::begin_shutdown();
+
     if !STARTED_THE_CORE.load(Ordering::Acquire) {
         return;
     }

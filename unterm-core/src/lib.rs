@@ -2159,6 +2159,13 @@ impl CoreEngineClient {
         params: serde_json::Value,
         lost: anyhow::Error,
     ) -> Result<Response<T>> {
+        if is_shutting_down() {
+            return Err(lost.context(format!(
+                "unterm-core {method} was interrupted while this process was \
+                 quitting; the connection was not re-established, because \
+                 reconnecting here would start the Core we just stopped"
+            )));
+        }
         let info = ensure_running().context("reconnect to unterm-core")?;
         let mut fresh = CoreClient::connect(&info.endpoint, &info.token)?;
         let identity = fresh.handshake()?;
@@ -2685,7 +2692,7 @@ impl FrameCacheInner {
 /// `None` only when asked to stop, so the caller can end the worker.
 fn reconnect_events(inner: &FrameCacheInner) -> Option<CoreEventStream> {
     let mut backoff = Duration::from_millis(100);
-    while !inner.stopping.load(Ordering::Acquire) {
+    while !inner.stopping.load(Ordering::Acquire) && !is_shutting_down() {
         if let Ok(info) = ensure_running() {
             if let Ok(feed) = CoreEventStream::connect(&info.endpoint, &info.token) {
                 if feed
@@ -2909,6 +2916,31 @@ pub enum CoreArrival {
     Attached,
     /// None was running, so this process started it.
     Started,
+}
+
+/// Set once this process has decided to quit.
+///
+/// From that moment a broken connection means the Core *this process just
+/// stopped*, not a Core that crashed -- and the difference matters, because
+/// both recovery paths heal a crash by calling `ensure_running`, which
+/// starts a Core when none is left. During teardown that turns into a race
+/// the front end loses: it stops its Core, its own poll worker sees the
+/// connection drop a moment later and starts a fresh one, and that new Core
+/// outlives the process that was trying to take it down. On Windows the
+/// orphan then holds `unterm-core.exe` open and the next install cannot
+/// replace it.
+static SHUTTING_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Close the gate: from here on, a lost connection is expected and must not
+/// be answered by starting another Core. One-way on purpose -- a process
+/// that has begun quitting does not come back.
+pub fn begin_shutdown() {
+    SHUTTING_DOWN.store(true, std::sync::atomic::Ordering::Release);
+}
+
+/// Whether `begin_shutdown` has been called in this process.
+pub fn is_shutting_down() -> bool {
+    SHUTTING_DOWN.load(std::sync::atomic::Ordering::Acquire)
 }
 
 /// Ensure the per-user Core process is available and return its

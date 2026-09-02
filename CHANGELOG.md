@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.71.3 — 2026-09-02
+
+### Fixed
+
+- **Quitting stopped the Core, then started another one.** The fix in v0.71.2
+  worked; what it could not survive was the window's own reconnection. A front
+  end that loses its connection to the Core cannot tell a crash from a
+  deliberate shutdown, and it heals a crash the only way it knows — by
+  starting a replacement. So a quit read, in the log, as two lines in a row:
+  *stopped the unterm-core this process started*, and then *unterm-core
+  replaced (now pid N)*. The window went away and left a Core behind anyway.
+
+  Found on a Linux desktop by closing the last window and looking at what was
+  still running. The orphan is why an install on Windows could still find
+  `unterm-core.exe` in use: it was started *during* the quit, after the
+  installer's own close pass had already run.
+
+  Quitting now says so before it stops anything, and both recovery paths —
+  the request retry and the frame worker's event feed — leave a Core that is
+  gone during a shutdown gone.
+
 ## v0.71.2 — 2026-09-01
 
 ### Fixed
