@@ -362,15 +362,39 @@ impl FontFace {
         .map_err(|err| anyhow!("FT_Load_Glyph({glyph_index}) failed with error {err}"))
     }
 
-    /// One raster walk for both entry points: load monochrome; when that
-    /// draws nothing, retry with FT_LOAD_COLOR -- a colour face keeps its
-    /// ink in bitmap strikes, and the colour alpha is the silhouette the
-    /// chrome can tint. A plain failure returns the load error to name.
+    /// Whether this face keeps its ink in colour strikes rather than outlines.
+    fn has_colour(&self) -> bool {
+        // SAFETY: `self.face` is live for the lifetime of `self`.
+        unsafe { (*self.face).face_flags & (freetype::FT_FACE_FLAG_COLOR as freetype::FT_Long) != 0 }
+    }
+
+    /// One raster walk for both entry points: a colour face is asked for
+    /// colour, everything else is asked for monochrome and only retried in
+    /// colour when it drew nothing. A plain failure returns the load error
+    /// to name.
+    ///
+    /// The order matters, and getting it backwards is what made every
+    /// emoji-only character draw inside out. Loading a colour strike
+    /// *without* `FT_LOAD_COLOR` neither fails nor comes back empty:
+    /// FreeType flattens the strike to 8-bit grey, and the grey of a black
+    /// disc on a transparent ground is that disc's negative -- the cell
+    /// fills solid and the glyph punches a hole out of it. Because the
+    /// result was non-empty, the colour retry below was never reached, and
+    /// characters no text face carries -- `⏺`, which is only in Noto Color
+    /// Emoji and Apple Color Emoji, and which Claude Code prints on every
+    /// message -- came out as their own photographic negative.
     fn rasterize_with(
         &mut self,
         mut load: impl FnMut(FT_Face, i32) -> freetype::FT_Error,
     ) -> std::result::Result<RasterizedGlyph, freetype::FT_Error> {
         let _inside = FREETYPE.lock();
+        if self.has_colour() && load(self.face, (FT_LOAD_RENDER | FT_LOAD_COLOR) as i32) == 0 {
+            if let Ok(glyph) = self.read_rendered_slot() {
+                if !glyph.coverage.is_empty() {
+                    return Ok(self.corrected(glyph));
+                }
+            }
+        }
         let mono = load(self.face, FT_LOAD_RENDER as i32);
         let drawn = match mono {
             0 => Some(self.read_rendered_slot().map_err(|_| mono)?),
@@ -642,5 +666,56 @@ mod tests {
         };
         assert!(err.to_string().contains("FT_New_Face"));
     }
+
+    /// The bundled colour face, which is the only place several of the
+    /// characters an agent prints actually live.
+    fn colour_font() -> Option<std::path::PathBuf> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets/fonts/NotoColorEmoji.ttf");
+        path.exists().then_some(path)
+    }
+
+    /// A glyph that only a colour face carries must come out as itself, not
+    /// as its negative.
+    ///
+    /// `⏺` is a filled disc on a transparent ground: ink in the middle,
+    /// nothing in the corners. Loaded without `FT_LOAD_COLOR` the strike
+    /// flattens to grey and those two swap -- solid corners, hollow middle --
+    /// which is what the terminal drew for every one of these characters.
+    /// The corners and the centre are therefore the whole assertion: they
+    /// are what tells the glyph from its own inverse.
+    #[test]
+    fn a_colour_only_glyph_is_not_rasterized_inside_out() {
+        let Some(path) = colour_font() else {
+            eprintln!("bundled colour font missing; skipping");
+            return;
+        };
+        let mut face = FontFace::open(&path, 32).expect("open the colour face");
+        let glyph = face.rasterize('\u{23FA}').expect("rasterize U+23FA");
+        assert!(
+            glyph.width >= 4 && glyph.height >= 4,
+            "expected a real bitmap, got {}x{}",
+            glyph.width,
+            glyph.height
+        );
+
+        let at = |x: usize, y: usize| u32::from(glyph.coverage[y * glyph.width + x]);
+        let (w, h) = (glyph.width, glyph.height);
+        let corners = at(0, 0) + at(w - 1, 0) + at(0, h - 1) + at(w - 1, h - 1);
+        let centre = at(w / 2, h / 2);
+
+        assert!(
+            centre > 128,
+            "the disc's centre should be inked, not hollow (centre={})",
+            centre
+        );
+        assert!(
+            corners < 128,
+            "the corners should be empty ground, not filled (sum={}); \
+             solid corners around a hollow centre is the glyph inverted",
+            corners
+        );
+    }
+
 }
 
