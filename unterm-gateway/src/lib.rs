@@ -25,26 +25,69 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum Risk {
     /// Reads. Cannot change anything.
-    Readonly,
+    Read,
     /// Changes this machine's state in a way the user could undo.
     LocalMutation,
-    /// Cannot be undone by the person who authorised it: data leaves, a
-    /// process dies, a branch is discarded.
+    /// Runs code chosen by the caller.
+    ///
+    /// The band a terminal exists for, and the one three levels could not
+    /// say: folded into `LocalMutation` it reads far too loose -- running an
+    /// arbitrary command is not writing a file -- and folded into
+    /// `Destructive` far too tight, because running the test suite is not
+    /// deleting a branch. Typing into a shell belongs here for the same
+    /// reason `exec.run` does: a keystroke and a command are the same act
+    /// through different doors.
+    Exec,
+    /// Reaches off this machine, where nothing local can call it back.
+    ExternalSideEffect,
+    /// Hands over secrets, or the identities that stand in for them.
+    ///
+    /// Not undoable by withdrawal: what has been read has been read, and a
+    /// token taken back was still a token held.
+    CredentialAccess,
+    /// Moves money.
+    Financial,
+    /// Cannot be undone by the person who authorised it: a process dies, a
+    /// branch is discarded, a program is replaced.
     Destructive,
 }
 
 impl Risk {
+    /// The contract's spelling, which is the one that reaches the wire and
+    /// the audit log. `contracts/v0/security/risk.schema.json` names seven,
+    /// and these are they.
     pub fn as_str(self) -> &'static str {
         match self {
-            Risk::Readonly => "readonly",
+            Risk::Read => "read",
             Risk::LocalMutation => "local_mutation",
+            Risk::Exec => "exec",
+            Risk::ExternalSideEffect => "external_side_effect",
+            Risk::CredentialAccess => "credential_access",
+            Risk::Financial => "financial",
             Risk::Destructive => "destructive",
         }
     }
 
     /// Whether an action at this risk may proceed without anyone being asked.
     pub fn is_silent(self) -> bool {
-        matches!(self, Risk::Readonly)
+        matches!(self, Risk::Read)
+    }
+
+    /// Whether a standing grant may ever answer for this risk.
+    ///
+    /// The top three may not: the security model wants each one carried by a
+    /// single approval bound to the call it was given for, so a yes said on
+    /// Monday cannot spend a credential on Friday.
+    pub fn allows_standing_grant(self) -> bool {
+        !matches!(
+            self,
+            Risk::CredentialAccess | Risk::Financial | Risk::Destructive
+        )
+    }
+
+    /// Whether one yes is enough, or the user is asked to mean it twice.
+    pub fn needs_double_confirmation(self) -> bool {
+        matches!(self, Risk::Financial | Risk::Destructive)
     }
 }
 
@@ -285,11 +328,10 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         "policy.set",
         "instance.close",
         "workspace.restore",
-        "upload.file",
+        // Runs a program with the machine's full authority. Execution, but
+        // not the band `Exec` describes: a standing grant must never answer
+        // for it, and `Exec` allows one.
         "system.launch_admin",
-        // A model fetching a URL sends whatever it puts in that request off
-        // this machine, and nothing the user does afterwards calls it back.
-        "brain.fetch",
         // Both stop work that is already running and take back keys that were
         // handed out; neither can be undone by re-issuing them.
         "provider.unbind",
@@ -307,10 +349,9 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         // from the live store — snapshotted first, but the running system
         // has changed under everybody.
         "system.restore_snapshot",
-        // Handing an agent the identities in somebody's browser, or the
-        // machine itself. Neither can be undone by taking it back afterwards:
-        // what was read has been read, what was typed has been typed.
-        "capability.profile",
+        // Handing an agent the machine itself: it types, clicks and reads
+        // whatever is on screen, which is every authority the person sitting
+        // there has. What was typed has been typed.
         "capability.computer",
         // Answering an approval is the act of granting power, and it is the
         // one thing an agent must never be able to do for itself.
@@ -319,49 +360,117 @@ pub fn risk_of(method: &str) -> Option<Risk> {
     if DESTRUCTIVE.contains(&method) {
         return Some(Risk::Destructive);
     }
-    // Everything under these prefixes writes; the rest of each namespace is
-    // read-only and falls through to the explicit list below.
-    const MUTATING_PREFIXES: &[&str] = &[
+    // Nothing on this surface moves money yet. The band is not dead code:
+    // it is where a method that ever does must land, and leaving it empty
+    // and named is what makes that a decision somebody has to take rather
+    // than a default it quietly inherits from whatever list it was added to.
+    const FINANCIAL: &[&str] = &[];
+    if FINANCIAL.contains(&method) {
+        return Some(Risk::Financial);
+    }
+    // Naming an identity is not opening one. These three report which
+    // profiles exist, which one is bound and what has been done with them;
+    // none of them hands over a token, an SSH key or a cookie jar. Matched
+    // exactly, and ahead of the prefix below, so the strict rule stays the
+    // default and every exception to it has to be written down.
+    const CREDENTIAL_READS: &[&str] = &["profile.list", "profile.current", "profile.audit"];
+    if CREDENTIAL_READS.contains(&method) {
+        return Some(Risk::Read);
+    }
+    // Secrets, and the identities that stand in for them.
+    const CREDENTIAL_ACCESS: &[&str] = &[
+        // Handing an agent the identities in somebody's browser: the
+        // cookies and sessions are the credentials, whatever they are
+        // called on the page.
+        "capability.profile",
+    ];
+    const CREDENTIAL_ACCESS_PREFIXES: &[&str] = &[
+        // Identity profiles hold GitHub, AWS and npm tokens, git identity
+        // and SSH keys. Reading one is reading secrets and writing one is
+        // installing them; neither is the local mutation this used to be
+        // classified as.
+        "profile.",
+    ];
+    if CREDENTIAL_ACCESS.contains(&method)
+        || CREDENTIAL_ACCESS_PREFIXES
+            .iter()
+            .any(|prefix| method.starts_with(prefix))
+    {
+        return Some(Risk::CredentialAccess);
+    }
+    // Reaches off this machine. Undoing it locally undoes nothing.
+    const EXTERNAL_SIDE_EFFECT: &[&str] = &[
+        // Sends a file to object storage and returns a public URL.
+        "upload.file",
+        // A model fetching a URL sends whatever it puts in that request off
+        // this machine, and nothing the user does afterwards calls it back.
+        "brain.fetch",
+    ];
+    const EXTERNAL_SIDE_EFFECT_PREFIXES: &[&str] = &[
+        // Driving pages is a mutation the user can watch happen -- and every
+        // one of those page loads is a request leaving this machine.
+        "capability.browser",
+    ];
+    if EXTERNAL_SIDE_EFFECT.contains(&method)
+        || EXTERNAL_SIDE_EFFECT_PREFIXES
+            .iter()
+            .any(|prefix| method.starts_with(prefix))
+    {
+        return Some(Risk::ExternalSideEffect);
+    }
+    // Runs code the caller chose. The band a terminal is for.
+    const EXEC_PREFIXES: &[&str] = &[
+        "exec.",
+        // Spawning a shell is starting a program, and the split and the tab
+        // that carry one are the same act.
         "session.create",
+        // A keystroke and a command are the same act through different
+        // doors. Classifying typing as a local mutation said that running
+        // `rm -rf` by hand was the same kind of thing as renaming a tab.
         "session.input",
         "session.paste",
+        // Each launches programs, in this window or in N worktrees.
+        "fleet.launch",
+        "fleet.retry",
+        "orchestrate.launch",
+        "orchestrate.broadcast",
+        "agent_session.start",
+        "agent_session.submit_input",
+        // The envelope runs whatever it carries; the method inside is judged
+        // on its own terms as well.
+        "terminal.invoke",
+    ];
+    if EXEC_PREFIXES
+        .iter()
+        .any(|prefix| method.starts_with(prefix))
+    {
+        return Some(Risk::Exec);
+    }
+    // Everything under these prefixes writes; the rest of each namespace is
+    // read-only and falls through to the explicit list below.
+    // Writes this machine can undo. Anything that runs code, reaches off the
+    // machine or touches a secret has already been answered above; what is
+    // left here changes local state and nothing else.
+    const MUTATING_PREFIXES: &[&str] = &[
         "session.split",
         "session.resize",
         "session.focus",
         "session.set_env",
         "session.erase",
         "session.recording_",
-        "exec.",
         "signal.",
-        "fleet.launch",
-        "fleet.retry",
         "workspace.save",
         "proxy.",
-        "profile.",
         "agent.trust",
         "agent.untrust",
         "agent.signal",
         "instance.set_title",
         "instance.focus",
         "instance.new_window",
-        // Launching a crew and broadcasting to one both write; the handler's
-        // own mutating list has said so since orchestration shipped, and the
-        // gateway must not be the place those two answers diverge.
-        "orchestrate.launch",
-        "orchestrate.broadcast",
-        // Driving pages: a mutation, and one the user can watch happen.
-        "capability.browser",
         "scope.create",
         "scope.archive",
-        // Hosting an agent runs a program. What that agent then asks for goes
-        // through this same gateway, one tool request at a time.
-        // The envelope is a mutation because what it carries usually is; the
-        // method inside is judged on its own terms as well.
-        "terminal.invoke",
         "terminal.accept_lease",
         "terminal.cancel",
-        "agent_session.start",
-        "agent_session.submit_input",
         "agent_session.interrupt",
         "agent_session.close",
         "supervisor.reconcile",
@@ -390,7 +499,7 @@ pub fn risk_of(method: &str) -> Option<Risk> {
     {
         return Some(Risk::LocalMutation);
     }
-    const READONLY_PREFIXES: &[&str] = &[
+    const READ_PREFIXES: &[&str] = &[
         "screen.",
         "capture.",
         "session.list",
@@ -459,11 +568,11 @@ pub fn risk_of(method: &str) -> Option<Risk> {
         // A plan, not an uninstall. Nothing is removed by asking.
         "system.uninstall_plan",
     ];
-    if READONLY_PREFIXES
+    if READ_PREFIXES
         .iter()
         .any(|prefix| method.starts_with(prefix))
     {
-        return Some(Risk::Readonly);
+        return Some(Risk::Read);
     }
     None
 }
@@ -540,13 +649,25 @@ fn evaluate(
         return verdict;
     }
 
-    if risk == Risk::Destructive {
-        let mut verdict = Verdict::new(
-            false,
-            Code::NeedsApproval,
-            "destructive actions need someone to say yes",
-            risk,
-        );
+    // Everything from `ExternalSideEffect` up is asked about. Below it sits
+    // the work a terminal does all day -- typing, running, writing files --
+    // and a question on every keystroke is a question nobody reads. Above it
+    // sits everything whose cost lands somewhere the user cannot reach to
+    // undo: bytes that have left, a secret that has been read, money, or a
+    // thing that is simply gone.
+    //
+    // This used to name `Destructive` alone, because with three bands that
+    // was the only one it *could* name. Handing over a token or firing a
+    // request off the machine went through on the same silent path as
+    // renaming a tab.
+    if risk >= Risk::ExternalSideEffect {
+        let reason = match risk {
+            Risk::ExternalSideEffect => "this leaves the machine, and needs someone to say yes",
+            Risk::CredentialAccess => "this reaches a secret, and needs someone to say yes",
+            Risk::Financial => "this spends money, and needs someone to say yes",
+            _ => "destructive actions need someone to say yes",
+        };
+        let mut verdict = Verdict::new(false, Code::NeedsApproval, reason, risk);
         verdict.needs_approval = true;
         return verdict;
     }
@@ -615,7 +736,7 @@ mod tests {
         for method in ["screen.read", "session.list", "meta.surface", "server.health"] {
             let verdict = run(method, None, &Policy::off());
             assert!(verdict.allowed, "{method} should be allowed");
-            assert_eq!(verdict.risk, Risk::Readonly);
+            assert_eq!(verdict.risk, Risk::Read);
             assert!(!verdict.needs_approval);
         }
     }
@@ -777,4 +898,97 @@ mod tests {
         assert_eq!(trusted.risk, robot.risk);
         assert_eq!(trusted.allowed, robot.allowed);
     }
+
+    /// The seven the contract names, spelled the way it spells them. These
+    /// strings cross the wire and land in the audit log; a rename here is a
+    /// silent break for anything matching on them.
+    #[test]
+    fn the_seven_bands_keep_the_contract_spellings() {
+        assert_eq!(Risk::Read.as_str(), "read");
+        assert_eq!(Risk::LocalMutation.as_str(), "local_mutation");
+        assert_eq!(Risk::Exec.as_str(), "exec");
+        assert_eq!(Risk::ExternalSideEffect.as_str(), "external_side_effect");
+        assert_eq!(Risk::CredentialAccess.as_str(), "credential_access");
+        assert_eq!(Risk::Financial.as_str(), "financial");
+        assert_eq!(Risk::Destructive.as_str(), "destructive");
+    }
+
+    /// Severity is the enum's own order, because grants compare with `>=`.
+    #[test]
+    fn the_bands_are_ordered_by_how_much_they_can_cost() {
+        assert!(Risk::Read < Risk::LocalMutation);
+        assert!(Risk::LocalMutation < Risk::Exec);
+        assert!(Risk::Exec < Risk::ExternalSideEffect);
+        assert!(Risk::ExternalSideEffect < Risk::CredentialAccess);
+        assert!(Risk::CredentialAccess < Risk::Financial);
+        assert!(Risk::Financial < Risk::Destructive);
+    }
+
+    /// The band three levels could not say. Typing at a shell and calling
+    /// `exec.run` are the same act through different doors, and neither is
+    /// the file-write that `local_mutation` describes.
+    #[test]
+    fn running_a_command_is_execution_however_it_arrives() {
+        for method in [
+            "exec.run",
+            "exec.run_wait",
+            "session.input",
+            "session.paste",
+            "session.create",
+            "fleet.launch",
+            "orchestrate.launch",
+            "agent_session.start",
+            "terminal.invoke",
+        ] {
+            assert_eq!(risk_of(method), Some(Risk::Exec), "{method}");
+        }
+    }
+
+    /// Identity profiles hold GitHub, AWS and npm tokens and SSH keys, and a
+    /// browser profile is the sessions those tokens bought. Opening either is
+    /// reaching a secret; it was classified as a local mutation for as long
+    /// as there was no band that said so.
+    #[test]
+    fn opening_a_secret_is_not_a_local_mutation() {
+        for method in ["profile.bind", "profile.install", "capability.profile"] {
+            assert_eq!(risk_of(method), Some(Risk::CredentialAccess), "{method}");
+        }
+    }
+
+    /// But naming one is not opening it. These three say which identities
+    /// exist, which is bound and what was done with them, and hand over
+    /// nothing -- so they stay silent, like every other read. A strict
+    /// prefix with named exceptions only works if the exceptions are held
+    /// to as firmly as the rule.
+    #[test]
+    fn naming_an_identity_is_still_only_a_read() {
+        for method in ["profile.list", "profile.current", "profile.audit"] {
+            assert_eq!(risk_of(method), Some(Risk::Read), "{method}");
+        }
+    }
+
+    /// Undoing these locally undoes nothing: the bytes have left.
+    #[test]
+    fn what_leaves_the_machine_is_its_own_band() {
+        for method in ["upload.file", "brain.fetch", "capability.browser.open"] {
+            assert_eq!(risk_of(method), Some(Risk::ExternalSideEffect), "{method}");
+        }
+    }
+
+    /// Only the top three refuse a standing grant, and only the top two ask
+    /// twice. Both rules are read off the band alone, so every door applies
+    /// the same one.
+    #[test]
+    fn the_top_bands_carry_their_own_rules() {
+        assert!(Risk::Exec.allows_standing_grant());
+        assert!(Risk::ExternalSideEffect.allows_standing_grant());
+        assert!(!Risk::CredentialAccess.allows_standing_grant());
+        assert!(!Risk::Financial.allows_standing_grant());
+        assert!(!Risk::Destructive.allows_standing_grant());
+
+        assert!(!Risk::CredentialAccess.needs_double_confirmation());
+        assert!(Risk::Financial.needs_double_confirmation());
+        assert!(Risk::Destructive.needs_double_confirmation());
+    }
+
 }

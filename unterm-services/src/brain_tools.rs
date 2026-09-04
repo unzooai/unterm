@@ -374,7 +374,7 @@ mod tests {
             &SettingsPolicy::off(),
         )
         .unwrap();
-        assert_ne!(passage.verdict.risk, Risk::Readonly);
+        assert_ne!(passage.verdict.risk, Risk::Read);
     }
 
     #[test]
@@ -386,7 +386,7 @@ mod tests {
             &SettingsPolicy::off(),
         )
         .unwrap();
-        assert_eq!(passage.verdict.risk, Risk::Readonly);
+        assert_eq!(passage.verdict.risk, Risk::Read);
         assert!(may_proceed(&passage));
         assert!(fleet_store::tasks()
             .unwrap()

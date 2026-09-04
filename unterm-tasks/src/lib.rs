@@ -30,7 +30,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-pub use approval::{Approval, ApprovalState, Ask, Grant, NewGrant, Scope};
+pub use approval::{
+    risk_allows_standing_grant, risk_rank, Approval, ApprovalState, Ask, Grant, NewGrant, Scope,
+};
 pub use lease::{CallRecord, CallSlot, Chain, Lease, NewLease, Presented, Refusal};
 pub use model::{Event, Run, RunId, State, Step, StepId, Task, TaskId};
 pub use workspace::{AgentSession, Artifact, NewArtifact, Workspace};
@@ -2685,9 +2687,15 @@ mod tests {
             risk_rank: unterm_tasks_risk("destructive"),
             ..Ask::default()
         };
+        // Named, because a single-use grant is bound to the call it was
+        // given for -- which is what every real one is: `answer` writes the
+        // method of the question being answered into it. An unnamed one is
+        // "one free pass, for anything", and that is the shape the contract
+        // refuses for a destructive action.
         let grant = store
             .create_grant(NewGrant {
                 scope_or_once: Some(Scope::Once),
+                method: Some("session.destroy".to_string()),
                 max_risk: Some("destructive".to_string()),
                 ..NewGrant::default()
             })
@@ -2696,10 +2704,26 @@ mod tests {
             store.covering_grant(&ask).unwrap().map(|g| g.id),
             Some(grant.id.clone())
         );
+
         store.consume_grant(&grant.id).unwrap();
         assert!(
             store.covering_grant(&ask).unwrap().is_none(),
             "\"just this once\" covered a second action"
+        );
+
+        // And "once, for anything" is not a thing a deletion may be answered
+        // by. Checked here, with the named grant already spent, so nothing
+        // else can be the reason the answer comes back empty.
+        store
+            .create_grant(NewGrant {
+                scope_or_once: Some(Scope::Once),
+                max_risk: Some("destructive".to_string()),
+                ..NewGrant::default()
+            })
+            .unwrap();
+        assert!(
+            store.covering_grant(&ask).unwrap().is_none(),
+            "a once-grant that names no method answered for a deletion"
         );
     }
 

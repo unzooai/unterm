@@ -184,7 +184,17 @@ pub fn answer(
     let store = fleet_store::tasks()
         .ok_or_else(|| anyhow::anyhow!("there is no approval store to answer into"))?;
     let remember = remember.map(|scope| NewGrant {
-        scope_or_once: Some(scope),
+        // Secrets, money and destruction are never remembered past the call.
+        // Narrowed here, at the moment the permission is written, rather than
+        // only where it is matched: a grant that is stored but can never
+        // answer is worse than no grant, because the user was told they had
+        // given one. What they get instead is the yes they actually meant --
+        // this action, now, once.
+        scope_or_once: Some(if risk.allows_standing_grant() {
+            scope
+        } else {
+            Scope::Once
+        }),
         // A remembered answer is about the action that was asked, not about
         // everything: the narrowest grant that satisfies the user's intent is
         // the one to create.
@@ -232,8 +242,18 @@ pub fn answer_by_id(
             approval.state.as_str()
         );
     }
+    // The same narrowing as `answer`, and the more important of the two
+    // doors: this is the one a settings page answers through, which is where
+    // "always allow" is actually clicked. The risk comes back from the store
+    // as text, so it is judged as text -- including text a newer build wrote,
+    // which is unrecognised here and therefore treated as strictly as the
+    // three named ones.
     let remember = remember.map(|scope| NewGrant {
-        scope_or_once: Some(scope),
+        scope_or_once: Some(if unterm_tasks::risk_allows_standing_grant(&approval.risk) {
+            scope
+        } else {
+            Scope::Once
+        }),
         method: Some(approval.method.clone()),
         actor: approval.actor.clone(),
         task_id: approval.task_id.clone(),
@@ -408,4 +428,73 @@ mod tests {
             assert_eq!(passage.verdict.code, Code::PolicyBlockedPattern);
         }
     }
+
+    /// "Remember this" means something different for a deletion.
+    ///
+    /// The user is offered "for this task" and means it; what they may have
+    /// is one use. Narrowed where the grant is written rather than refused,
+    /// because refusing would lose the yes they did give -- and stored as
+    /// `Once` rather than as a task grant that can never answer, so what the
+    /// settings page lists is what will actually happen.
+    #[test]
+    fn a_remembered_yes_to_a_deletion_is_narrowed_to_a_single_use() {
+        let _dir = isolate();
+        let context = ActionContext::new("session.destroy")
+            .actor("claude")
+            .task("tsk_1");
+        let Outcome::AwaitApproval { approval_id } =
+            admit(&context, &SettingsPolicy::off()).outcome
+        else {
+            panic!("expected a question");
+        };
+        answer(
+            &approval_id,
+            true,
+            "the user",
+            Some(Scope::Task),
+            &context,
+            Risk::Destructive,
+        )
+        .unwrap();
+
+        let store = fleet_store::tasks().expect("a store");
+        let grants = store.grants().expect("grants");
+        let grant = grants
+            .iter()
+            .find(|grant| grant.method.as_deref() == Some("session.destroy"))
+            .expect("the answer was remembered");
+        assert_eq!(
+            grant.scope,
+            Scope::Once,
+            "a task-scoped yes to a destructive action must not be stored as one"
+        );
+
+        // And a band that may be remembered keeps the scope it was given.
+        // `upload.file` is the pair to `session.destroy` here: both are asked
+        // about, and only one of them may be answered once and for all.
+        let sending = ActionContext::new("upload.file")
+            .actor("claude")
+            .task("tsk_1");
+        let Outcome::AwaitApproval { approval_id } =
+            admit(&sending, &SettingsPolicy::off()).outcome
+        else {
+            panic!("expected a question");
+        };
+        answer(
+            &approval_id,
+            true,
+            "the user",
+            Some(Scope::Task),
+            &sending,
+            Risk::ExternalSideEffect,
+        )
+        .unwrap();
+        let grants = store.grants().expect("grants");
+        let kept = grants
+            .iter()
+            .find(|grant| grant.method.as_deref() == Some("upload.file"))
+            .expect("the answer was remembered");
+        assert_eq!(kept.scope, Scope::Task);
+    }
+
 }

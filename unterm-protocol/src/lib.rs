@@ -280,3 +280,205 @@ mod tests {
         assert!(handshake.compatibility().is_usable());
     }
 }
+
+/// A failure, in the one shape every surface returns it in.
+///
+/// The point of the shape is `code`. A caller is allowed to branch on it and
+/// is not allowed to parse `message`, which means `code` has to be stable in
+/// a way prose never is: `message` can be reworded, translated or made more
+/// specific at any time, and nothing downstream breaks. Free text alone --
+/// which is what the brain's error event carried -- leaves a caller with no
+/// way to tell "the model is busy, try again" from "this path is outside the
+/// workspace", so the only thing it can do is show the user the raw sentence.
+///
+/// `retryable` is carried rather than derived, because whether a retry is
+/// worth making is a property of the failure and not of its category: a
+/// provider that is down and a provider that refused are both `provider.`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ErrorBody {
+    pub code: ErrorCode,
+    /// For the log and the developer. Never matched on.
+    pub message: String,
+    pub retryable: bool,
+    /// For the person, when there is something useful to say to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_message: Option<String>,
+}
+
+impl ErrorBody {
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            retryable: code.is_retryable_by_default(),
+            code,
+            message: message.into(),
+            user_message: None,
+        }
+    }
+
+    pub fn retryable(mut self, retryable: bool) -> Self {
+        self.retryable = retryable;
+        self
+    }
+
+    pub fn user_message(mut self, message: impl Into<String>) -> Self {
+        self.user_message = Some(message.into());
+        self
+    }
+}
+
+/// The stable list. Every code's prefix is one of the ten categories the
+/// contract names, and that is enforced by a test rather than by convention.
+///
+/// Closed on purpose: a code invented at a call site is a code nobody can
+/// branch on tomorrow, because nothing stops the next call site inventing a
+/// different spelling of the same thing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ErrorCode {
+    ValidationBadRequest,
+    ValidationOutOfScope,
+    AuthTokenRejected,
+    PolicyBlocked,
+    ApprovalRequired,
+    ApprovalDenied,
+    ApprovalExpired,
+    ProviderUnavailable,
+    ProviderRefused,
+    BrainAdapterFailed,
+    BrainUnavailable,
+    TaskNotFound,
+    ArtifactMissing,
+    StorageUnavailable,
+    InternalUnexpected,
+}
+
+impl ErrorCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ValidationBadRequest => "validation.bad_request",
+            Self::ValidationOutOfScope => "validation.out_of_scope",
+            Self::AuthTokenRejected => "auth.token_rejected",
+            Self::PolicyBlocked => "policy.blocked",
+            Self::ApprovalRequired => "approval.required",
+            Self::ApprovalDenied => "approval.denied",
+            Self::ApprovalExpired => "approval.expired",
+            Self::ProviderUnavailable => "provider.unavailable",
+            Self::ProviderRefused => "provider.refused",
+            Self::BrainAdapterFailed => "brain.adapter_failed",
+            Self::BrainUnavailable => "brain.unavailable",
+            Self::TaskNotFound => "task.not_found",
+            Self::ArtifactMissing => "artifact.missing",
+            Self::StorageUnavailable => "storage.unavailable",
+            Self::InternalUnexpected => "internal.unexpected",
+        }
+    }
+
+    /// Whether a caller that simply tries again has any reason to expect a
+    /// different answer. A refusal does not become an acceptance by being
+    /// asked twice; a service that is down may well come back.
+    pub fn is_retryable_by_default(self) -> bool {
+        matches!(
+            self,
+            Self::ProviderUnavailable | Self::BrainUnavailable | Self::StorageUnavailable
+        )
+    }
+
+    /// Every code the contract admits, so a test can walk them.
+    pub const ALL: &'static [ErrorCode] = &[
+        Self::ValidationBadRequest,
+        Self::ValidationOutOfScope,
+        Self::AuthTokenRejected,
+        Self::PolicyBlocked,
+        Self::ApprovalRequired,
+        Self::ApprovalDenied,
+        Self::ApprovalExpired,
+        Self::ProviderUnavailable,
+        Self::ProviderRefused,
+        Self::BrainAdapterFailed,
+        Self::BrainUnavailable,
+        Self::TaskNotFound,
+        Self::ArtifactMissing,
+        Self::StorageUnavailable,
+        Self::InternalUnexpected,
+    ];
+}
+
+/// The ten prefixes a code may carry.
+pub const ERROR_CATEGORIES: &[&str] = &[
+    "validation.",
+    "auth.",
+    "policy.",
+    "approval.",
+    "provider.",
+    "brain.",
+    "task.",
+    "artifact.",
+    "storage.",
+    "internal.",
+];
+
+impl Serialize for ErrorCode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ErrorCode {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        ErrorCode::ALL
+            .iter()
+            .copied()
+            .find(|code| code.as_str() == raw)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown error code {raw:?}")))
+    }
+}
+
+#[cfg(test)]
+mod contract_error_tests {
+    use super::*;
+
+    /// The contract lets a caller branch on `code`, which only works if the
+    /// codes are a closed list with prefixes somebody agreed to. A code that
+    /// belongs to no category is one no consumer can route.
+    #[test]
+    fn every_error_code_sits_under_one_of_the_ten_categories() {
+        for code in ErrorCode::ALL {
+            let text = code.as_str();
+            let category = ERROR_CATEGORIES
+                .iter()
+                .find(|prefix| text.starts_with(**prefix));
+            assert!(category.is_some(), "{text} belongs to no category");
+            assert!(
+                text.len() > category.unwrap().len(),
+                "{text} is a bare category with nothing after the dot"
+            );
+        }
+    }
+
+    /// Spellings cross the wire; a rename is a silent break for anything
+    /// matching on them, so they round-trip rather than being re-derived.
+    #[test]
+    fn an_error_code_survives_the_wire_unchanged() {
+        for code in ErrorCode::ALL {
+            let body = ErrorBody::new(*code, "something went wrong");
+            let text = serde_json::to_string(&body).expect("serialize");
+            assert!(text.contains(code.as_str()), "{text}");
+            let back: ErrorBody = serde_json::from_str(&text).expect("deserialize");
+            assert_eq!(back.code, *code);
+            assert_eq!(back.retryable, code.is_retryable_by_default());
+            // Absent rather than null: a consumer checking for the field
+            // should not find one holding nothing.
+            assert!(!text.contains("user_message"), "{text}");
+        }
+    }
+
+    /// No two codes may share a spelling, or branching on one catches both.
+    #[test]
+    fn no_two_error_codes_spell_the_same_thing() {
+        let mut seen = std::collections::HashSet::new();
+        for code in ErrorCode::ALL {
+            assert!(seen.insert(code.as_str()), "duplicate code {}", code.as_str());
+        }
+        assert_eq!(seen.len(), ErrorCode::ALL.len());
+    }
+}

@@ -58,7 +58,7 @@ pub fn manifest() -> Value {
                 // undo a killed process or a sent keystroke, and saying
                 // otherwise is how an orchestrator plans a rollback that
                 // silently does nothing.
-                "reversible": risk == unterm_gateway::Risk::Readonly,
+                "reversible": risk == unterm_gateway::Risk::Read,
                 "evidence": ["command", "exit_code", "output_ref", "resolved_path"],
             })
         })
@@ -137,7 +137,7 @@ fn is_side_effecting(capability: &str) -> bool {
             methods
                 .iter()
                 .filter_map(|method| unterm_gateway::risk_of(method))
-                .any(|risk| risk != unterm_gateway::Risk::Readonly)
+                .any(|risk| risk != unterm_gateway::Risk::Read)
         })
         // A capability nobody declared is treated as changing something.
         .unwrap_or(true)
@@ -268,10 +268,11 @@ mod tests {
                 .cloned()
                 .unwrap()
         };
-        // Reading is reading; running commands is not; killing a pane is the
-        // one nobody can undo.
-        assert_eq!(by_name("terminal.read")["risk"], "readonly");
-        assert_eq!(by_name("terminal.exec")["risk"], "local_mutation");
+        // Reading is reading; running commands is its own band, which is the
+        // whole reason there are seven of them and not three; killing a pane
+        // is the one nobody can undo.
+        assert_eq!(by_name("terminal.read")["risk"], "read");
+        assert_eq!(by_name("terminal.exec")["risk"], "exec");
         assert_eq!(by_name("terminal.session")["risk"], "destructive");
         assert_eq!(by_name("terminal.read")["reversible"], true);
         assert_eq!(by_name("terminal.exec")["reversible"], false);

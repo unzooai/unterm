@@ -29,6 +29,18 @@ use unterm_brain::runtime::{self, Running, Spec};
 use unterm_brain::{BrainAdapter, BrainEvent, StopReason};
 use unterm_tasks::AgentSession;
 
+/// The shape every event on this stream claims to be.
+///
+/// `contracts/v0` wants a discriminant on the object itself, not only on the
+/// endpoint that served it: an event handed on by itself has to say what it
+/// is, because the consumer that receives it second-hand never saw the call
+/// it came from.
+///
+/// A number rather than a string, matching the one the terminal manifest
+/// already publishes, so a reader has one convention to learn rather than
+/// two. Worth confirming against the schema before the contract freezes.
+const EVENT_SCHEMA_VERSION: u32 = 1;
+
 /// Where the caller's identifiers come from.
 ///
 /// Every field optional, none of them generated here. What is supplied is
@@ -185,9 +197,18 @@ pub fn start(
 
 /// One brain event as this surface's vocabulary.
 ///
-/// The names are the contract's, not the brain crate's: `output.delta`,
-/// `tool.requested`, `tool.completed`. A caller reading these should not have
-/// to know which CLI ran or which crate parsed it.
+/// The names are the contract's, not the brain crate's and not the CLI's:
+/// `tool_call.requested`, `tool_call.result`, `usage.updated`,
+/// `turn.completed`, `session.closed`. A caller reading these should not have
+/// to know which CLI ran or which crate parsed it -- which is the whole point
+/// of not simply forwarding whatever Claude Code or Codex happened to print.
+///
+/// `output.delta` keeps its `stream` discriminator rather than splitting
+/// reasoning into an event of its own. That is a deliberate divergence and
+/// the one place this file knowingly disagrees with `contracts/v0`: a
+/// consumer that wants to render a transcript in order needs the two
+/// interleaved, and two event names make that the consumer's problem. Raised
+/// for review on the contract side rather than settled here.
 fn describe(event: &BrainEvent) -> Value {
     match event {
         BrainEvent::TurnStarted { model } => json!({"event": "turn.started", "model": model}),
@@ -202,7 +223,7 @@ fn describe(event: &BrainEvent) -> Value {
             name,
             arguments,
         } => json!({
-            "event": "tool.requested",
+            "event": "tool_call.requested",
             "tool_call_id": call_id,
             "name": name,
             "arguments": arguments,
@@ -212,29 +233,56 @@ fn describe(event: &BrainEvent) -> Value {
             ok,
             output,
         } => json!({
-            "event": "tool.completed",
+            "event": "tool_call.result",
             "tool_call_id": call_id,
             "ok": ok,
             "output": output,
         }),
-        BrainEvent::Usage(usage) => json!({"event": "usage", "usage": usage}),
+        BrainEvent::Usage(usage) => json!({"event": "usage.updated", "usage": usage}),
         BrainEvent::TurnEnded { reason } => {
-            json!({"event": "turn.ended", "reason": reason.as_str()})
+            json!({"event": "turn.completed", "reason": reason.as_str()})
         }
-        BrainEvent::Error { message } => json!({"event": "error", "message": message}),
+        // The CLI upstream has no stable code of its own -- it printed a
+        // sentence -- so the code is assigned here, at the boundary that
+        // owns the contract. That is the point of the field: a consumer
+        // branches on what *this* surface promises, never on prose that
+        // belongs to whichever agent happened to be running.
+        BrainEvent::Error { message } => {
+            let body = unterm_protocol::ErrorBody::new(
+                unterm_protocol::ErrorCode::BrainAdapterFailed,
+                message,
+            );
+            json!({
+                "event": "error",
+                "code": body.code,
+                "message": body.message,
+                "retryable": body.retryable,
+            })
+        }
     }
 }
 
 fn push(events: &Arc<Mutex<Vec<Value>>>, context: &TaskContext, id: &str, mut event: Value) {
+    // Taken before the stamp so the number written into the event is the
+    // index the event actually lands at, whatever else happens below.
+    let mut sink = events.lock().unwrap();
+    let cursor = sink.len();
     if let Some(map) = event.as_object_mut() {
+        map.insert("schema_version".into(), json!(EVENT_SCHEMA_VERSION));
         map.insert("session_id".into(), Value::String(id.to_string()));
+        // Every event carries the position it was read from, not just the
+        // page around it. `events(id, cursor)` hands back a batch and a new
+        // cursor, which is enough to poll and no help at all once one event
+        // has been passed on by itself -- and being passed on by itself is
+        // what events are for.
+        map.insert("cursor".into(), json!(cursor));
         map.insert("at".into(), Value::String(chrono::Utc::now().to_rfc3339()));
     }
     context.stamp(&mut event);
     // The same ids reach the trail, so "what did this run do" is answerable
     // from either side.
     crate::audit_store::append_correlated(&event, &context.correlation());
-    events.lock().unwrap().push(event);
+    sink.push(event);
 }
 
 /// Everything the session has said after `cursor`.
@@ -333,7 +381,7 @@ pub fn close(id: &str) -> Result<Value> {
     };
 
     let ending = json!({
-        "event": "session.exited",
+        "event": "session.closed",
         "state": state,
         "exit_code": snapshot.exit_code,
         "reason": reason,
@@ -413,8 +461,30 @@ printf '%s\n' '{"type":"turn.completed"}'
             .collect();
         assert!(names.contains(&"session.started"), "{names:?}");
         assert!(names.contains(&"output.delta"), "{names:?}");
-        assert!(names.contains(&"tool.requested"), "{names:?}");
-        assert!(names.contains(&"session.exited"), "{names:?}");
+        assert!(names.contains(&"tool_call.requested"), "{names:?}");
+        assert!(names.contains(&"session.closed"), "{names:?}");
+        // The names the contract does not use must not survive anywhere on
+        // this stream: a consumer switching to the new ones would otherwise
+        // see both and have to guess which is authoritative.
+        for retired in ["tool.requested", "tool.completed", "usage", "turn.ended", "session.exited"] {
+            assert!(!names.contains(&retired), "{retired} still emitted: {names:?}");
+        }
+
+        // Every event says what it is and where it sat, so one passed on by
+        // itself is still locatable.
+        for event in &events {
+            assert_eq!(
+                event["schema_version"], EVENT_SCHEMA_VERSION,
+                "{event}"
+            );
+            assert!(event["cursor"].is_u64(), "{event}");
+        }
+        let cursors: Vec<u64> = events
+            .iter()
+            .filter_map(|event| event["cursor"].as_u64())
+            .collect();
+        let ordered: Vec<u64> = (0..cursors.len() as u64).collect();
+        assert_eq!(cursors, ordered, "cursors must be the events' own indices");
     }
 
     // The events vector is moved into `close`; for assertions the audit trail

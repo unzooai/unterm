@@ -210,7 +210,15 @@ pub fn exception_for(actor: Option<&str>, task_id: Option<&str>) -> Option<Strin
     let mut context = unterm_gateway::ActionContext::new(EXCEPTION_METHOD);
     context.actor = actor.map(str::to_string);
     context.task_id = task_id.map(str::to_string);
-    crate::gateway::grant_covering(&context, unterm_gateway::Risk::Destructive)
+    // Asked at the risk the exception actually covers: going around the
+    // provider drives a browser directly, and that reaches off this machine.
+    // It used to ask at `Destructive`, which was never true of it -- with
+    // only three bands, the top one was the only way to say "this needs a
+    // serious grant, not a passing one". Now that there is a band for it,
+    // saying so plainly is also what lets the exception keep working: the
+    // top three are single-use by contract, and an escape hatch that expires
+    // on its own is exactly the standing, time-boxed thing they forbid.
+    crate::gateway::grant_covering(&context, unterm_gateway::Risk::ExternalSideEffect)
 }
 
 /// What the browser capability must never fall back to.

@@ -183,11 +183,31 @@ pub struct Ask {
 /// "I do not know how dangerous this is" is not "probably fine".
 pub fn risk_rank(risk: &str) -> u8 {
     match risk {
-        "readonly" => 0,
+        "read" => 0,
         "local_mutation" => 1,
-        "destructive" => 2,
+        "exec" => 2,
+        "external_side_effect" => 3,
+        "credential_access" => 4,
+        "financial" => 5,
+        "destructive" => 6,
         _ => u8::MAX,
     }
+}
+
+/// Whether a risk may ever be answered by a grant that outlives the call.
+///
+/// The top three may not. The security model wants each of them carried by
+/// one approval bound to the call it was given for, which is the difference
+/// between "you may spend money on this" and "you may spend money": a
+/// ceiling that admits them turns every later call into one somebody already
+/// said yes to.
+///
+/// Named by string rather than by `Risk` because grants are stored, and a
+/// ceiling read back from a database is text -- including text written by a
+/// build that knew risks this one does not. Those rank at `u8::MAX` above and
+/// are refused here, which is the same safe reading in both places.
+pub fn risk_allows_standing_grant(risk: &str) -> bool {
+    matches!(risk, "read" | "local_mutation" | "exec" | "external_side_effect")
 }
 
 pub(crate) fn matches(grant: &Grant, ask: &Ask, now: &str) -> bool {
@@ -196,6 +216,23 @@ pub(crate) fn matches(grant: &Grant, ask: &Ask, now: &str) -> bool {
     }
     if risk_rank(&grant.max_risk) < ask.risk_rank {
         return false;
+    }
+    // Secrets, money and destruction are never answered by a permission that
+    // outlives the call. A ceiling high enough to admit them would turn every
+    // later call into one somebody already said yes to -- which is exactly
+    // the shape of "allow always" that the security model refuses for these
+    // three. Only a single-use grant that names this very method counts, and
+    // it is spent by using it.
+    //
+    // Compared by rank rather than by name so a risk this build has never
+    // heard of -- which ranks at the top -- lands on the strict side too.
+    if ask.risk_rank >= risk_rank("credential_access") {
+        if grant.scope != Scope::Once {
+            return false;
+        }
+        if grant.method.as_deref() != Some(ask.method.as_str()) {
+            return false;
+        }
     }
     if let Some(method) = &grant.method {
         if method != &ask.method {
@@ -212,7 +249,18 @@ pub(crate) fn matches(grant: &Grant, ask: &Ask, now: &str) -> bool {
         // action, however well everything else lines up.
         Scope::Task => grant.task_id.is_some() && grant.task_id == ask.task_id,
         Scope::Resource => grant.resource.is_some() && grant.resource == ask.resource,
-        Scope::Once | Scope::Always => true,
+        // A single-use grant is bound to the call it was given for, so
+        // whatever it names it is held to. It used to name things and ignore
+        // them, which was harmless while `Once` only ever came from somebody
+        // answering that one question -- and stopped being harmless the
+        // moment a task-scoped yes to a deletion started being narrowed into
+        // one: narrowing it in count would have quietly widened it across
+        // every other task and resource.
+        Scope::Once => {
+            (grant.task_id.is_none() || grant.task_id == ask.task_id)
+                && (grant.resource.is_none() || grant.resource == ask.resource)
+        }
+        Scope::Always => true,
     }
 }
 
@@ -246,10 +294,21 @@ mod tests {
         }
     }
 
+    /// Mid-band by default: these cases are about scope, expiry and actor,
+    /// and ranking them at `destructive` would drag in the single-use rule
+    /// that the top three carry -- which is a different test, written below.
     fn ask(method: &str) -> Ask {
         Ask {
             method: method.to_string(),
-            risk_rank: risk_rank("destructive"),
+            risk_rank: risk_rank("exec"),
+            ..Ask::default()
+        }
+    }
+
+    fn ask_at(method: &str, risk: &str) -> Ask {
+        Ask {
+            method: method.to_string(),
+            risk_rank: risk_rank(risk),
             ..Ask::default()
         }
     }
@@ -259,19 +318,19 @@ mod tests {
         let now = "2026-06-01T00:00:00Z";
         let mut revoked = grant(Scope::Always);
         revoked.revoked_at = Some(now.to_string());
-        assert!(!matches(&revoked, &ask("session.destroy"), now));
+        assert!(!matches(&revoked, &ask("exec.run"), now));
 
         let mut spent = grant(Scope::Once);
         spent.consumed_at = Some(now.to_string());
-        assert!(!matches(&spent, &ask("session.destroy"), now));
+        assert!(!matches(&spent, &ask("exec.run"), now));
     }
 
     #[test]
     fn a_grant_stops_covering_things_once_it_expires() {
         let mut g = grant(Scope::Always);
         g.expires_at = Some("2026-06-01T00:00:00Z".to_string());
-        assert!(matches(&g, &ask("session.destroy"), "2026-05-31T23:59:59Z"));
-        assert!(!matches(&g, &ask("session.destroy"), "2026-06-01T00:00:01Z"));
+        assert!(matches(&g, &ask("exec.run"), "2026-05-31T23:59:59Z"));
+        assert!(!matches(&g, &ask("exec.run"), "2026-06-01T00:00:01Z"));
     }
 
     #[test]
@@ -284,7 +343,7 @@ mod tests {
         mutation.risk_rank = risk_rank("local_mutation");
         assert!(matches(&g, &mutation, now));
 
-        let destructive = ask("session.destroy");
+        let destructive = ask_at("session.destroy", "destructive");
         assert!(
             !matches(&g, &destructive, now),
             "permission for a mutation must not quietly cover destruction"
@@ -309,9 +368,9 @@ mod tests {
 
         let mut task_scoped = grant(Scope::Task);
         task_scoped.task_id = Some("tsk_1".to_string());
-        let mut same_task = ask("session.destroy");
+        let mut same_task = ask("exec.run");
         same_task.task_id = Some("tsk_1".to_string());
-        let mut other_task = ask("session.destroy");
+        let mut other_task = ask("exec.run");
         other_task.task_id = Some("tsk_2".to_string());
         assert!(matches(&task_scoped, &same_task, now));
         assert!(!matches(&task_scoped, &other_task, now));
@@ -323,9 +382,9 @@ mod tests {
 
         let mut resource_scoped = grant(Scope::Resource);
         resource_scoped.resource = Some("/repo/src".to_string());
-        let mut same_resource = ask("session.destroy");
+        let mut same_resource = ask("exec.run");
         same_resource.resource = Some("/repo/src".to_string());
-        let mut elsewhere = ask("session.destroy");
+        let mut elsewhere = ask("exec.run");
         elsewhere.resource = Some("/etc".to_string());
         assert!(matches(&resource_scoped, &same_resource, now));
         assert!(!matches(&resource_scoped, &elsewhere, now));
@@ -342,7 +401,7 @@ mod tests {
         right.actor = Some("claude".to_string());
         assert!(matches(&g, &right, now));
 
-        let mut wrong_method = ask("session.destroy");
+        let mut wrong_method = ask("session.split");
         wrong_method.actor = Some("claude".to_string());
         assert!(!matches(&g, &wrong_method, now));
 
@@ -366,4 +425,68 @@ mod tests {
         assert_eq!(state_for(ApprovalState::Denied), State::Cancelled);
         assert_eq!(state_for(ApprovalState::Allowed), State::Running);
     }
+
+    /// The rule the three-band model could not express: secrets, money and
+    /// destruction are never covered by a permission that outlives the call.
+    /// "Always, for anything, up to destructive" is precisely the standing
+    /// yes the security model refuses for these three, and it is the one a
+    /// tired user is most likely to have clicked.
+    #[test]
+    fn no_standing_grant_answers_for_a_secret_money_or_destruction() {
+        let now = "2026-06-01T00:00:00Z";
+        for risk in ["credential_access", "financial", "destructive"] {
+            for scope in [Scope::Always, Scope::Task, Scope::Resource] {
+                let mut g = grant(scope);
+                g.task_id = Some("tsk_1".to_string());
+                g.resource = Some("/repo".to_string());
+                let mut a = ask_at("session.destroy", risk);
+                a.task_id = Some("tsk_1".to_string());
+                a.resource = Some("/repo".to_string());
+                assert!(
+                    !matches(&g, &a, now),
+                    "a {} grant answered for {risk}",
+                    scope.as_str()
+                );
+            }
+        }
+    }
+
+    /// What may answer instead: one grant, for this method, spent by use.
+    #[test]
+    fn a_single_use_grant_named_for_the_method_may_answer() {
+        let now = "2026-06-01T00:00:00Z";
+        let mut g = grant(Scope::Once);
+        g.method = Some("session.destroy".to_string());
+        assert!(matches(&g, &ask_at("session.destroy", "destructive"), now));
+
+        // Still only that method: single use is not a blank cheque.
+        assert!(!matches(&g, &ask_at("artifact.forget", "destructive"), now));
+
+        // And a once-grant that names nothing does not become one that names
+        // everything.
+        let nameless = grant(Scope::Once);
+        assert!(!matches(&nameless, &ask_at("session.destroy", "destructive"), now));
+    }
+
+    /// The two ways of asking the same question must not drift apart.
+    #[test]
+    fn the_rank_table_and_the_standing_grant_rule_agree() {
+        for risk in [
+            "read",
+            "local_mutation",
+            "exec",
+            "external_side_effect",
+            "credential_access",
+            "financial",
+            "destructive",
+            "something-from-the-future",
+        ] {
+            assert_eq!(
+                risk_allows_standing_grant(risk),
+                risk_rank(risk) < risk_rank("credential_access"),
+                "{risk}"
+            );
+        }
+    }
+
 }
