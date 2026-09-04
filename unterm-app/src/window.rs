@@ -2408,6 +2408,8 @@ impl App {
             proxy_unreachable: self
                 .window.proxy_error_until
                 .is_some_and(|until| until > std::time::Instant::now()),
+            // Decided once, at startup, and true for the rest of the process.
+            core_local: crate::engine_backend::core_fallback_reason().is_some(),
         }
     }
 
@@ -7004,6 +7006,15 @@ impl App {
             // right press away.
             Some(crate::statusbar::SegmentKind::Proxy) => self.toggle_proxy(),
             Some(crate::statusbar::SegmentKind::Profile) => self.open_settings(),
+            // The chip says the arrangement is wrong; the press says why. The
+            // reason is the handshake's own words -- which name the offending
+            // Core and its version -- because "unavailable" alone leaves the
+            // user with nothing to act on.
+            Some(crate::statusbar::SegmentKind::Core) => {
+                if let Some(reason) = crate::engine_backend::core_fallback_reason() {
+                    self.show_notice(reason.to_string());
+                }
+            }
             _ => {}
         }
         self.window.drawn_revision = None;

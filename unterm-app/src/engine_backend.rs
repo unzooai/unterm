@@ -48,6 +48,21 @@ struct CoreShared {
 
 static CORE_SHARED: std::sync::OnceLock<CoreShared> = std::sync::OnceLock::new();
 
+/// Why this process fell back to keeping sessions in-process, when it did.
+///
+/// The fallback itself is right -- a user whose Core will not come up still
+/// gets a terminal. What was wrong is that the reason went to stderr, which
+/// for a GUI launched from the Dock is nowhere at all: a window can run for
+/// days in the arrangement the user did not choose, losing the one thing the
+/// Core is for -- sessions that outlive it -- without ever saying so. Kept
+/// here so the window can put it on the bar, where standing state belongs.
+static CORE_FALLBACK: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The reason sessions are in-process, or `None` when the Core is attached.
+pub fn core_fallback_reason() -> Option<&'static str> {
+    CORE_FALLBACK.get().map(String::as_str)
+}
+
 /// Decide the engine backend for this whole process, and install the
 /// matching MCP engine provider. Must run before the MCP server
 /// starts: the provider slot is set-once, and an MCP surface that
@@ -79,6 +94,9 @@ pub fn init_from_environment() -> Backend {
                     "unterm: unterm-core is unavailable ({err:#}); this window keeps its \
                      sessions in-process, and they will not outlive it"
                 );
+                // ...but stderr is not "out loud" for a window the user
+                // double-clicked, so hand the reason to the bar as well.
+                let _ = CORE_FALLBACK.set(format!("{err:#}"));
             }
         }
     }

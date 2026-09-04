@@ -88,6 +88,14 @@ pub struct Status {
     /// The bar rather than a floating panel: a confirmation belongs where the
     /// eye already is, and a panel over the terminal covers the work.
     pub notice: Option<String>,
+    /// This window could not reach the Core and is keeping its sessions in
+    /// this process, so they die with it.
+    ///
+    /// Standing state, not an event: it is true for the whole life of the
+    /// process, which is exactly why a notice is the wrong place for it --
+    /// one scrolls past in two seconds and the window then looks normal for
+    /// days while being the arrangement the user did not choose.
+    pub core_local: bool,
 }
 
 /// What a segment is, so a press on it can do what 0.57.4's did.
@@ -104,6 +112,7 @@ pub enum SegmentKind {
     Theme,
     Profile,
     Notice,
+    Core,
 }
 
 /// One piece of the bar.
@@ -279,6 +288,20 @@ pub fn segments(status: &Status, columns: usize) -> Vec<Segment> {
             });
             return segments;
         }
+    }
+
+    // Leads the bar, and survives every density: a window whose sessions will
+    // not outlive it is not a detail to fit in after the theme name. Drawn in
+    // the error colour for the same reason the proxy chip is -- this is the
+    // bar reporting something wrong, not labelling a setting.
+    if status.core_local {
+        segments.push(Segment {
+            text: "core:local".to_string(),
+            dim: false,
+            teal_from: None,
+            error: true,
+            kind: SegmentKind::Core,
+        });
     }
 
     let density = density(columns);
@@ -457,6 +480,7 @@ mod tests {
             theme: "standard".into(),
             profile: None,
             notice: None,
+            core_local: false,
         }
     }
 
@@ -678,4 +702,44 @@ mod tests {
         assert_eq!(shown[1].teal_from, Some(0));
         assert_eq!(of("pwsh"), None);
     }
+
+    /// The bar's job here is to be noticed. A window that could not reach the
+    /// Core keeps its sessions in this process, so closing it ends them --
+    /// the opposite of what the Core is for, and not something the user can
+    /// see by looking at a terminal that otherwise behaves normally.
+    #[test]
+    fn a_window_that_lost_the_core_leads_the_bar_with_it() {
+        let mut status = status();
+        status.core_local = true;
+        let segments = segments(&status, 200);
+        let first = segments.first().expect("a bar with segments");
+        assert_eq!(first.text, "core:local");
+        assert_eq!(first.kind, SegmentKind::Core);
+        assert!(first.error, "it reports something wrong, not a setting");
+    }
+
+    /// Every other chip has a width it drops out at. This one must not: the
+    /// narrow window is exactly where a user would otherwise never learn that
+    /// their sessions are not the Core's.
+    #[test]
+    fn the_core_chip_outlives_every_other_chip_as_the_bar_narrows() {
+        let mut status = status();
+        status.core_local = true;
+        for columns in [12, 40, 71, 95, 127, 159] {
+            let shown = texts(&segments(&status, columns));
+            assert!(
+                shown.contains(&"core:local".to_string()),
+                "core:local went missing at {columns} columns: {shown:?}"
+            );
+        }
+    }
+
+    /// And it is absent when there is nothing wrong -- a chip that is always
+    /// there is furniture, and stops being read.
+    #[test]
+    fn an_attached_core_puts_no_chip_on_the_bar() {
+        let shown = texts(&segments(&status(), 200));
+        assert!(!shown.contains(&"core:local".to_string()), "{shown:?}");
+    }
+
 }
