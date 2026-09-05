@@ -19,8 +19,12 @@ $Suites = @(
         Name = "font rasterization"
         Package = "unterm-engine"
         Filter = "next_core::font_raster::tests::"
-        ExpectedCount = 5
+        ExpectedCount = 6
         RequiredTests = @(
+            # A glyph only a colour face carries must come out as
+            # itself. Loaded the wrong way round it renders as its own
+            # negative, which is what every one of them did.
+            "next_core::font_raster::tests::a_colour_only_glyph_is_not_rasterized_inside_out",
             "next_core::font_raster::tests::rasterizes_a_glyph_with_partial_coverage",
             "next_core::font_raster::tests::a_space_has_no_ink_but_still_advances",
             "next_core::font_raster::tests::resizing_changes_the_rasterized_size",
@@ -1641,8 +1645,14 @@ $Suites = @(
         Filter = "statusbar::tests::"
         # WSL only exists on Windows, and so does the test that says a shell
         # reached through it is labelled as such.
-        ExpectedCount = $(if ($env:OS -eq "Windows_NT") { 15 } else { 14 })
+        ExpectedCount = $(if ($env:OS -eq "Windows_NT") { 18 } else { 17 })
         RequiredTests = @(
+            # A window that lost the Core keeps its sessions in-process, and
+            # says so here or nowhere -- the fallback's only other voice is
+            # a stderr line nobody launching from the Dock will ever see.
+            "statusbar::tests::a_window_that_lost_the_core_leads_the_bar_with_it",
+            "statusbar::tests::the_core_chip_outlives_every_other_chip_as_the_bar_narrows",
+            "statusbar::tests::an_attached_core_puts_no_chip_on_the_bar",
             "statusbar::tests::the_segments_come_in_the_order_they_did_before",
             "statusbar::tests::segments_appear_as_the_window_widens",
             "statusbar::tests::a_narrow_window_keeps_the_shell_and_the_path",
